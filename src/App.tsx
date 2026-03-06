@@ -29,6 +29,7 @@ interface LogRecord {
 
 interface ModuleConfig {
   collection: string;
+  subcollection?: string;
   label: string;
   filterField?: string;
   filterValue?: string;
@@ -97,13 +98,13 @@ import {
 
 // --- FIREBASE CONFIGURATION ---
 const firebaseConfig = {
-  apiKey: "AIzaSyBkufl0G5RG0Kl9NwGUty9KONciRmh3Ews",
-  authDomain: "master-databasse-cmg.firebaseapp.com",
-  projectId: "master-databasse-cmg",
-  storageBucket: "master-databasse-cmg.firebasestorage.app",
-  messagingSenderId: "564913926048",
-  appId: "1:564913926048:web:c37a11f99cc214ec4a7ec5",
-  measurementId: "G-R688E2PTCE",
+  apiKey: process.env.REACT_APP_FIREBASE_API_KEY || "AIzaSyBkufl0G5RG0Kl9NwGUty9KONciRmh3Ews",
+  authDomain: process.env.REACT_APP_FIREBASE_AUTH_DOMAIN || "master-databasse-cmg.firebaseapp.com",
+  projectId: process.env.REACT_APP_FIREBASE_PROJECT_ID || "master-databasse-cmg",
+  storageBucket: process.env.REACT_APP_FIREBASE_STORAGE_BUCKET || "master-databasse-cmg.firebasestorage.app",
+  messagingSenderId: process.env.REACT_APP_FIREBASE_MESSAGING_SENDER_ID || "564913926048",
+  appId: process.env.REACT_APP_FIREBASE_APP_ID || "1:564913926048:web:c37a11f99cc214ec4a7ec5",
+  measurementId: process.env.REACT_APP_FIREBASE_MEASUREMENT_ID || "G-R688E2PTCE",
 };
 
 // Initialize Firebase
@@ -113,35 +114,33 @@ const db = getFirestore(app);
 
 // --- MODULE CONFIGURATION ---
 const MODULE_CONFIG = {
-  projects_data: { collection: "projects_data", label: "โครงการ" },
-  machinery_data: { collection: "machinery_data", label: "เครื่องจักร" },
-  partners_data: { collection: "partners_data", label: "คู่ค้า" },
-  contractors: { collection: "contractors", label: "ผู้รับเหมา" },
-  bidding_list: { collection: "bidding_list", label: "รายการประมูล" },
-  client_list: { collection: "client_list", label: "รายชื่อลูกค้า" },
-  users_data: { collection: "users_data", label: "ผู้ใช้งาน" },
-  activity_logs: { collection: "activity_logs", label: "Activity Logs" },
+  users_data: { collection: "CMG-HR-Database", subcollection: "users_data", label: "ผู้ใช้งาน" },
+  activity_logs: { collection: "CMG-HR-Database", subcollection: "activity_logs", label: "Activity Logs" },
   // Employee Modules (Shared Collection: employee_data)
   emp_indirect: {
-    collection: "employee_data",
+    collection: "CMG-HR-Database",
+    subcollection: "employee_data",
     label: "Employee Indirect",
     filterField: "employee_type",
     filterValue: "Indirect",
   },
   emp_direct_leader: {
-    collection: "employee_data",
+    collection: "CMG-HR-Database",
+    subcollection: "employee_data",
     label: "Direct - Team Leader",
     filterField: "employee_type",
     filterValue: "Direct_TeamLeader",
   },
   emp_direct_supply: {
-    collection: "employee_data",
+    collection: "CMG-HR-Database",
+    subcollection: "employee_data",
     label: "Direct - Supply DC",
     filterField: "employee_type",
     filterValue: "Direct_SupplyDC",
   },
   emp_direct_sub: {
-    collection: "employee_data",
+    collection: "CMG-HR-Database",
+    subcollection: "employee_data",
     label: "Direct - Sub Contractor",
     filterField: "employee_type",
     filterValue: "Direct_SubContractor",
@@ -150,17 +149,6 @@ const MODULE_CONFIG = {
 
 // --- INITIAL CONFIGURATION (Fallbacks) ---
 const DEFAULT_SCHEMAS = {
-  projects_data: [
-    { id: "proj_id", label: "Project ID", type: "text", required: true },
-    { id: "proj_name", label: "ชื่อโครงการ", type: "text", required: true },
-    { id: "budget", label: "งบประมาณ (บาท)", type: "number" },
-    {
-      id: "status",
-      label: "สถานะ",
-      type: "select",
-      options: ["กำลังดำเนินการ", "เสร็จสิ้น", "ยกเลิก"],
-    },
-  ],
   employee_data: [
     { id: "รหัสพนักงาน", label: "รหัสพนักงาน", type: "text", required: true },
     { id: "โครงการ", label: "โครงการ", type: "text" },
@@ -180,57 +168,12 @@ const DEFAULT_SCHEMAS = {
       type: "select",
       options: ["Full-time", "Part-time", "Contract"],
     },
-  ],
-  machinery_data: [
-    { id: "mach_id", label: "Machinery ID", type: "text", required: true },
-    { id: "mach_name", label: "ชื่อเครื่องจักร", type: "text" },
     {
-      id: "condition",
-      label: "สภาพ",
+      id: "employee_type",
+      label: "Employee Type",
       type: "select",
-      options: ["พร้อมใช้งาน", "ซ่อมบำรุง", "จำหน่ายออก"],
+      options: ["Indirect", "Direct_TeamLeader", "Direct_SupplyDC", "Direct_SubContractor"],
     },
-  ],
-  partners_data: [
-    { id: "ven_id", label: "Partner ID", type: "text", required: true },
-    { id: "ven_name", label: "ชื่อบริษัทคู่ค้า", type: "text" },
-    { id: "rating", label: "เกรด", type: "select", options: ["A", "B", "C"] },
-  ],
-  contractors: [
-    {
-      id: "con_id",
-      label: "Contractor ID",
-      type: "text",
-      required: true,
-      readOnly: true,
-    },
-    { id: "con_name", label: "ชื่อผู้รับเหมา", type: "text" },
-    { id: "specialty", label: "ความเชี่ยวชาญ", type: "text" },
-  ],
-  bidding_list: [
-    { id: "bid_id", label: "Bidding ID", type: "text", required: true },
-    { id: "title", label: "หัวข้อประมูล", type: "text" },
-    { id: "deadline", label: "วันปิดรับ", type: "date" },
-  ],
-  client_list: [
-    {
-      id: "Customer_ID",
-      label: "Customer_ID",
-      type: "text",
-      required: true,
-      readOnly: true,
-    },
-    {
-      id: "Customer_Name",
-      label: "Customer_Name",
-      type: "text",
-      required: true,
-    },
-    { id: "Customer_Type", label: "Customer_Type", type: "text" },
-    { id: "Address", label: "Address", type: "text" },
-    { id: "Contract _Name1", label: "Contract _Name1", type: "text" },
-    { id: "Contract_Tel1", label: "Contract_Tel1", type: "text" },
-    { id: "Contract_email1", label: "Contract_email1", type: "text" },
   ],
   users_data: [
     { id: "uid", label: "User ID", type: "text", required: true },
@@ -250,7 +193,6 @@ const Sidebar = ({ activeModule, setActiveModule, user }: { activeModule: string
   const [expandedMenus, setExpandedMenus] = useState<Record<string, boolean>>({});
 
   const menuItems = [
-    { id: "projects_data", label: "โครงการ (Projects)", icon: HardHat },
     {
       id: "employees",
       label: "พนักงาน (Employees)",
@@ -262,26 +204,6 @@ const Sidebar = ({ activeModule, setActiveModule, user }: { activeModule: string
         { id: "emp_direct_sub", label: "Direct: Sub Contractor" },
       ],
     },
-    { id: "machinery_data", label: "เครื่องจักร (Machinery)", icon: Truck },
-    {
-      id: "procurements",
-      label: "จัดซื้อ (Procurements)",
-      icon: ShoppingCart,
-      sub: [
-        { id: "partners_data", label: "คู่ค้า (Vendors)" },
-        { id: "contractors", label: "ผู้รับเหมา (Contractors)" },
-      ],
-    },
-    {
-      id: "bidding",
-      label: "การประมูล (Bidding)",
-      icon: Gavel,
-      sub: [
-        { id: "bidding_list", label: "รายการประมูล" },
-        { id: "client_list", label: "รายชื่อลูกค้า" },
-      ],
-    },
-    { id: "activity_logs", label: "บันทึกกิจกรรม (Logs)", icon: Activity },
     { id: "users_data", label: "จัดการผู้ใช้ (Admin)", icon: UserCog },
   ];
 
@@ -606,7 +528,7 @@ const ConfirmationModal = ({ isOpen, onClose, onConfirm, title, message }: { isO
 
 // --- MAIN APPLICATION COMPONENT ---
 export default function MasterDatabaseApp() {
-  const [activeModule, setActiveModule] = useState("client_list"); // Set default to client_list for easier testing
+  const [activeModule, setActiveModule] = useState("emp_indirect"); // Set default to emp_indirect since we removed other modules
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
   const [dataLoading, setDataLoading] = useState(false);
@@ -640,12 +562,13 @@ export default function MasterDatabaseApp() {
   const [isColVisOpen, setIsColVisOpen] = useState(false);
 
   const getModuleInfo = (moduleId: string): ModuleConfig => {
-    return (MODULE_CONFIG as Record<string, ModuleConfig>)[moduleId] || { collection: moduleId, label: moduleId };
+    return (MODULE_CONFIG as Record<string, ModuleConfig>)[moduleId] || { collection: "CMG-HR-Database", subcollection: moduleId, label: moduleId };
   };
 
   const getPrimaryKeyField = () => {
     const config = getModuleInfo(activeModule);
-    const currentSchema = schemas[config.collection] || schemas[activeModule];
+    const schemaKey = config.subcollection || config.collection;
+    const currentSchema = schemas[schemaKey] || schemas[activeModule];
     return currentSchema && currentSchema.length > 0
       ? currentSchema[0].id
       : null;
@@ -737,28 +660,32 @@ export default function MasterDatabaseApp() {
       setDataLoading(true);
       const config = getModuleInfo(activeModule);
       const collectionName = config.collection;
+      const subcollectionName = config.subcollection || activeModule;
+      
       try {
-        const schemaRef = doc(db, collectionName, "_schema_metadata");
+        // Schema metadata in subcollection under CMG-HR-Database/root
+        const schemaRef = doc(db, "CMG-HR-Database", "root", subcollectionName, "_schema_metadata");
         const unsubscribeSchema = onSnapshot(schemaRef, (docSnap) => {
           if (docSnap.exists()) {
             setSchemas((prev) => ({
               ...prev,
-              [collectionName]: docSnap.data().fields,
+              [subcollectionName]: docSnap.data().fields,
             }));
           } else {
-            const defaultKey = collectionName;
+            const defaultKey = subcollectionName;
             if ((DEFAULT_SCHEMAS as Record<string, SchemaField[]>)[defaultKey]) {
               setSchemas((prev) => ({
                 ...prev,
-                [collectionName]: (DEFAULT_SCHEMAS as Record<string, SchemaField[]>)[defaultKey],
+                [subcollectionName]: (DEFAULT_SCHEMAS as Record<string, SchemaField[]>)[defaultKey],
               }));
             } else {
-              setSchemas((prev) => ({ ...prev, [collectionName]: [] }));
+              setSchemas((prev) => ({ ...prev, [subcollectionName]: [] }));
             }
           }
         });
 
-        let dataQuery: CollectionReference<DocumentData> | Query<DocumentData> = collection(db, collectionName);
+        // Query data from subcollection under CMG-HR-Database/root
+        let dataQuery: CollectionReference<DocumentData> | Query<DocumentData> = collection(db, "CMG-HR-Database", "root", subcollectionName);
         if (config.filterField && config.filterValue) {
           dataQuery = query(
             dataQuery as CollectionReference<DocumentData>,
@@ -772,7 +699,7 @@ export default function MasterDatabaseApp() {
             const items = snapshot.docs
               .map((doc) => ({ id: doc.id, ...doc.data() } as DataRecord))
               .filter((item) => item.id !== "_schema_metadata");
-            if (collectionName === "activity_logs") {
+            if (subcollectionName === "activity_logs") {
               const logItems = items as unknown as LogRecord[];
               logItems.sort((a, b) => b.createdAt - a.createdAt);
               setLogs(logItems);
@@ -807,9 +734,9 @@ export default function MasterDatabaseApp() {
   const addLog = async (action: string, details: string) => {
     if (!user) return;
     try {
-      await addDoc(collection(db, "activity_logs"), {
+      await addDoc(collection(db, "CMG-HR-Database", "root", "activity_logs"), {
         timestamp: new Date().toLocaleString("th-TH"),
-            user: user.email ?? "",
+        user: user.email ?? "",
         module: activeModule,
         action: action,
         details: details,
@@ -821,7 +748,8 @@ export default function MasterDatabaseApp() {
   };
 
   const moduleInfo = getModuleInfo(activeModule);
-  const currentSchema = schemas[moduleInfo.collection] || [];
+  const schemaKey = moduleInfo.subcollection || moduleInfo.collection;
+  const currentSchema = schemas[schemaKey] || [];
 
   const handleDragStart = (e: React.DragEvent, index: number) => {
     e.dataTransfer.setData("colIndex", String(index));
@@ -842,10 +770,11 @@ export default function MasterDatabaseApp() {
     const [reorderedItem] = newSchema.splice(draggedIndex, 1);
     newSchema.splice(droppedIndex, 0, reorderedItem);
     const config = getModuleInfo(activeModule);
-    setSchemas((prev) => ({ ...prev, [config.collection]: newSchema }));
+    const schemaKey = config.subcollection || config.collection;
+    setSchemas((prev) => ({ ...prev, [schemaKey]: newSchema }));
     try {
       await setDoc(
-        doc(db, config.collection, "_schema_metadata"),
+        doc(db, "CMG-HR-Database", "root", schemaKey, "_schema_metadata"),
         { fields: newSchema },
         { merge: true }
       );
@@ -873,9 +802,10 @@ export default function MasterDatabaseApp() {
         const newSchema = [...currentSchema];
         newSchema.splice(index, 1);
         const config = getModuleInfo(activeModule);
+        const schemaKey = config.subcollection || config.collection;
         try {
           await setDoc(
-            doc(db, config.collection, "_schema_metadata"),
+            doc(db, "CMG-HR-Database", "root", schemaKey, "_schema_metadata"),
             { fields: newSchema },
             { merge: true }
           );
@@ -906,7 +836,8 @@ export default function MasterDatabaseApp() {
       }
 
       if (editingItem) {
-        await updateDoc(doc(db, config.collection, editingItem.id), cleanData as any);
+        const subcollectionName = config.subcollection || activeModule;
+        await updateDoc(doc(db, "CMG-HR-Database", "root", subcollectionName, editingItem.id), cleanData as any);
         await addLog("แก้ไข", `แก้ไขรายการ ID: ${editingItem.id}`);
         showNotification(
           "success",
@@ -936,7 +867,8 @@ export default function MasterDatabaseApp() {
         }
 
         docId = String(docId).replace(/[\/\.\#\$\{\}]/g, "_");
-        await setDoc(doc(db, config.collection, docId), cleanData);
+        const subcollectionName = config.subcollection || activeModule;
+        await setDoc(doc(db, "CMG-HR-Database", "root", subcollectionName, docId), cleanData);
         await addLog("เพิ่มใหม่", `เพิ่มรายการ ID: ${docId}`);
         showNotification(
           "success",
@@ -956,7 +888,8 @@ export default function MasterDatabaseApp() {
     const config = getModuleInfo(activeModule);
     showConfirm("ยืนยันการลบ", "ต้องการลบข้อมูลนี้ใช่หรือไม่?", async () => {
       try {
-        await deleteDoc(doc(db, config.collection, id));
+        const subcollectionName = config.subcollection || activeModule;
+        await deleteDoc(doc(db, "CMG-HR-Database", "root", subcollectionName, id));
         await addLog("ลบ", `ลบรายการ ID: ${id}`);
         showNotification("success", "ลบสำเร็จ", "ข้อมูลถูกลบแล้ว");
       } catch (error) {
@@ -981,18 +914,32 @@ export default function MasterDatabaseApp() {
           : [],
     };
     const config = getModuleInfo(activeModule);
+    const schemaKey = config.subcollection || config.collection;
+    
+    console.log("Adding column:", newField);
+    console.log("Schema key:", schemaKey);
+    console.log("Current schema:", currentSchema);
+    
     try {
       const updatedFields = [...currentSchema, newField];
+      console.log("Updated fields:", updatedFields);
+      
+      setSchemas((prev) => ({ ...prev, [schemaKey]: updatedFields }));
+      
+      // Save schema metadata to CMG-HR-Database/root/{subcollection}
       await setDoc(
-        doc(db, config.collection, "_schema_metadata"),
+        doc(db, "CMG-HR-Database", "root", schemaKey, "_schema_metadata"),
         { fields: updatedFields },
         { merge: true }
       );
+      
+      console.log("Schema saved successfully");
       await addLog("ปรับโครงสร้าง", `เพิ่มคอลัมน์ "${newColumn.label}"`);
       showNotification("success", "สำเร็จ", `เพิ่มคอลัมน์แล้ว`);
       setIsSchemaModalOpen(false);
       setNewColumn({ label: "", type: "text", options: "" });
     } catch (error) {
+      console.error("Error adding column:", error);
       showNotification("error", "ผิดพลาด", (error as Error).message);
     }
   };
