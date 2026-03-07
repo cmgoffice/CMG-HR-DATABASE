@@ -3,13 +3,13 @@ import { initializeApp } from "firebase/app";
 import { getFirestore, collection, doc, setDoc } from "firebase/firestore";
 
 const firebaseConfig = {
-  apiKey: "AIzaSyBkufl0G5RG0Kl9NwGUty9KONciRmh3Ews",
-  authDomain: "master-databasse-cmg.firebaseapp.com",
-  projectId: "master-databasse-cmg",
-  storageBucket: "master-databasse-cmg.firebasestorage.app",
-  messagingSenderId: "564913926048",
-  appId: "1:564913926048:web:c37a11f99cc214ec4a7ec5",
-  measurementId: "G-R688E2PTCE"
+  apiKey: "AIzaSyB4nIgikGx6xMsSWOMfJsKWta1bfPmVTcc",
+  authDomain: "cmg-hr-database.firebaseapp.com",
+  projectId: "cmg-hr-database",
+  storageBucket: "cmg-hr-database.firebasestorage.app",
+  messagingSenderId: "625046761441",
+  appId: "1:625046761441:web:22493e0b56a984cf5daca0",
+  measurementId: "G-Z8DWB4YM0S"
 };
 
 const app = initializeApp(firebaseConfig);

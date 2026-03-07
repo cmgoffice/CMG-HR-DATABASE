@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import type { User } from "firebase/auth";
 import type { CollectionReference, Query, DocumentData } from "firebase/firestore";
 
@@ -71,6 +71,8 @@ import {
   Columns,
   Wifi,
   WifiOff,
+  PanelLeft,
+  PanelLeftClose,
 } from "lucide-react";
 
 // --- FIREBASE IMPORTS ---
@@ -92,19 +94,18 @@ import {
   query,
   where,
   orderBy,
-  onSnapshot,
   getDoc,
 } from "firebase/firestore";
 
-// --- FIREBASE CONFIGURATION ---
+// --- FIREBASE CONFIGURATION (ใช้ project cmg-hr-database ให้ตรงกับ Rules ใน Console) ---
 const firebaseConfig = {
-  apiKey: process.env.REACT_APP_FIREBASE_API_KEY || "AIzaSyBkufl0G5RG0Kl9NwGUty9KONciRmh3Ews",
-  authDomain: process.env.REACT_APP_FIREBASE_AUTH_DOMAIN || "master-databasse-cmg.firebaseapp.com",
-  projectId: process.env.REACT_APP_FIREBASE_PROJECT_ID || "master-databasse-cmg",
-  storageBucket: process.env.REACT_APP_FIREBASE_STORAGE_BUCKET || "master-databasse-cmg.firebasestorage.app",
-  messagingSenderId: process.env.REACT_APP_FIREBASE_MESSAGING_SENDER_ID || "564913926048",
-  appId: process.env.REACT_APP_FIREBASE_APP_ID || "1:564913926048:web:c37a11f99cc214ec4a7ec5",
-  measurementId: process.env.REACT_APP_FIREBASE_MEASUREMENT_ID || "G-R688E2PTCE",
+  apiKey: process.env.REACT_APP_FIREBASE_API_KEY || "AIzaSyB4nIgikGx6xMsSWOMfJsKWta1bfPmVTcc",
+  authDomain: process.env.REACT_APP_FIREBASE_AUTH_DOMAIN || "cmg-hr-database.firebaseapp.com",
+  projectId: process.env.REACT_APP_FIREBASE_PROJECT_ID || "cmg-hr-database",
+  storageBucket: process.env.REACT_APP_FIREBASE_STORAGE_BUCKET || "cmg-hr-database.firebasestorage.app",
+  messagingSenderId: process.env.REACT_APP_FIREBASE_MESSAGING_SENDER_ID || "625046761441",
+  appId: process.env.REACT_APP_FIREBASE_APP_ID || "1:625046761441:web:22493e0b56a984cf5daca0",
+  measurementId: process.env.REACT_APP_FIREBASE_MEASUREMENT_ID || "G-Z8DWB4YM0S",
 };
 
 // Initialize Firebase
@@ -187,9 +188,16 @@ const DEFAULT_SCHEMAS = {
   ],
 };
 
+// --- LAYOUT CONSTANTS ---
+const SIDEBAR_WIDTH = 256;   // w-64
+const SIDEBAR_COLLAPSED_WIDTH = 64; // w-16
+
 // --- COMPONENTS ---
 
-const Sidebar = ({ activeModule, setActiveModule, user }: { activeModule: string; setActiveModule: (id: string) => void; user: User | null }) => {
+const Sidebar = ({ activeModule, setActiveModule, user, dbConnected, sidebarOpen, onToggleSidebar }: {
+  activeModule: string; setActiveModule: (id: string) => void; user: User | null; dbConnected: boolean;
+  sidebarOpen: boolean; onToggleSidebar: () => void;
+}) => {
   const [expandedMenus, setExpandedMenus] = useState<Record<string, boolean>>({});
 
   const menuItems = [
@@ -224,79 +232,92 @@ const Sidebar = ({ activeModule, setActiveModule, user }: { activeModule: string
     }));
   };
 
+  const isConnected = user || dbConnected;
+
   return (
-    <div className="w-64 bg-slate-900 text-white flex flex-col h-screen fixed left-0 top-0 overflow-y-auto z-10 shadow-xl">
-      <div className="p-6 border-b border-slate-700 flex items-center gap-3">
-        <div className="relative">
-          <Database className="text-blue-400" size={28} />
+    <div
+      className="bg-slate-900 text-white flex flex-col h-screen fixed left-0 top-0 overflow-y-auto overflow-x-hidden z-10 shadow-xl transition-[width] duration-200 ease-in-out"
+      style={{ width: sidebarOpen ? SIDEBAR_WIDTH : SIDEBAR_COLLAPSED_WIDTH }}
+    >
+      {/* Header */}
+      <div className={`border-b border-slate-700 flex items-center gap-3 shrink-0 ${sidebarOpen ? "p-6" : "p-3 justify-center"}`}>
+        <div className="relative shrink-0">
+          <Database className="text-blue-400" size={sidebarOpen ? 28 : 24} />
           <div
             className={`absolute -top-1 -right-1 w-3 h-3 rounded-full border-2 border-slate-900 ${
-              user ? "bg-green-500" : "bg-red-500"
+              isConnected ? "bg-green-500" : "bg-red-500"
             }`}
-          ></div>
+          />
         </div>
-        <div>
-          <h1 className="font-bold text-base leading-tight">
-            Master Database
-            <br />
-            CMG
-          </h1>
-          <p
-            className={`text-[10px] flex items-center gap-1 ${
-              user ? "text-green-400" : "text-red-400"
-            }`}
-          >
-            {user ? <Wifi size={10} /> : <WifiOff size={10} />}
-            {user ? "Connected" : "Disconnected"}
-          </p>
-        </div>
+        {sidebarOpen && (
+          <div className="min-w-0">
+            <h1 className="font-bold text-base leading-tight">
+              Master Database
+              <br />
+              CMG
+            </h1>
+            <p className={`text-[10px] flex items-center gap-1 ${isConnected ? "text-green-400" : "text-red-400"}`}>
+              {isConnected ? <Wifi size={10} /> : <WifiOff size={10} />}
+              {isConnected ? "Connected" : "Disconnected"}
+            </p>
+          </div>
+        )}
       </div>
-      <nav className="flex-1 p-4 space-y-2">
+
+      {/* Toggle button - top */}
+      <div className={`shrink-0 flex ${sidebarOpen ? "justify-end px-2 pt-2" : "justify-center p-2"}`}>
+        <button
+          type="button"
+          onClick={onToggleSidebar}
+          className="p-2 rounded-lg text-slate-400 hover:bg-slate-800 hover:text-white transition-colors"
+          title={sidebarOpen ? "ย่อเมนู" : "ขยายเมนู"}
+        >
+          {sidebarOpen ? <PanelLeft size={20} /> : <PanelLeftClose size={20} />}
+        </button>
+      </div>
+
+      <nav className="flex-1 p-2 space-y-1 min-w-0">
         {menuItems.map((item) => (
           <div key={item.id}>
             {!item.sub ? (
               <button
                 onClick={() => setActiveModule(item.id)}
-                className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${
-                  activeModule === item.id
-                    ? "bg-blue-600 text-white shadow-md"
-                    : "text-slate-300 hover:bg-slate-800"
+                className={`w-full flex items-center rounded-lg transition-colors ${
+                  sidebarOpen ? "gap-3 px-4 py-3" : "justify-center p-3"
+                } ${
+                  activeModule === item.id ? "bg-blue-600 text-white shadow-md" : "text-slate-300 hover:bg-slate-800"
                 }`}
+                title={!sidebarOpen ? item.label : undefined}
               >
-                <item.icon size={20} />
-                <span className="text-sm font-medium">{item.label}</span>
+                <item.icon size={20} className="shrink-0" />
+                {sidebarOpen && <span className="text-sm font-medium truncate">{item.label}</span>}
               </button>
             ) : (
               <div className="space-y-1">
                 <button
-                  onClick={() => toggleMenu(item.id)}
-                  className={`w-full flex items-center justify-between px-4 py-3 rounded-lg transition-colors hover:bg-slate-800 ${
-                    expandedMenus[item.id]
-                      ? "text-white bg-slate-800/50"
-                      : "text-slate-400"
+                  onClick={() => sidebarOpen ? toggleMenu(item.id) : onToggleSidebar()}
+                  className={`w-full flex items-center rounded-lg transition-colors hover:bg-slate-800 ${
+                    sidebarOpen ? "justify-between px-4 py-3" : "justify-center p-3"
+                  } ${
+                    expandedMenus[item.id] ? "text-white bg-slate-800/50" : "text-slate-400"
                   }`}
+                  title={!sidebarOpen ? item.label : undefined}
                 >
-                  <div className="flex items-center gap-3">
-                    <item.icon size={20} />
-                    <span className="text-sm font-semibold">{item.label}</span>
+                  <div className={`flex items-center ${sidebarOpen ? "gap-3" : ""}`}>
+                    <item.icon size={20} className="shrink-0" />
+                    {sidebarOpen && <span className="text-sm font-semibold truncate">{item.label}</span>}
                   </div>
-                  {expandedMenus[item.id] ? (
-                    <ChevronDown size={16} />
-                  ) : (
-                    <ChevronRight size={16} />
-                  )}
+                  {sidebarOpen && (expandedMenus[item.id] ? <ChevronDown size={16} /> : <ChevronRight size={16} />)}
                 </button>
 
-                {expandedMenus[item.id] && (
+                {sidebarOpen && expandedMenus[item.id] && (
                   <div className="pl-12 space-y-1 border-l-2 border-slate-800 ml-6 animate-fade-in-down">
                     {item.sub.map((subItem) => (
                       <button
                         key={subItem.id}
                         onClick={() => setActiveModule(subItem.id)}
                         className={`w-full text-left px-3 py-2 text-sm rounded-md transition-colors ${
-                          activeModule === subItem.id
-                            ? "text-blue-400 font-medium bg-slate-800"
-                            : "text-slate-500 hover:text-slate-300"
+                          activeModule === subItem.id ? "text-blue-400 font-medium bg-slate-800" : "text-slate-500 hover:text-slate-300"
                         }`}
                       >
                         {subItem.label}
@@ -309,16 +330,23 @@ const Sidebar = ({ activeModule, setActiveModule, user }: { activeModule: string
           </div>
         ))}
       </nav>
-      <div className="p-4 border-t border-slate-800">
-        <div className="flex items-center gap-3 text-slate-400 text-sm">
-          <div className="w-8 h-8 rounded-full bg-blue-900 flex items-center justify-center text-blue-200 font-bold">
+
+      <div className={`border-t border-slate-800 shrink-0 ${sidebarOpen ? "p-4" : "p-2 flex justify-center"}`}>
+        {sidebarOpen ? (
+          <div className="flex items-center gap-3 text-slate-400 text-sm">
+            <div className="w-8 h-8 rounded-full bg-blue-900 flex items-center justify-center text-blue-200 font-bold shrink-0">
+              {user ? (user.email ?? "").charAt(0).toUpperCase() : "A"}
+            </div>
+            <div className="min-w-0">
+              <p className="text-white text-sm">Admin User</p>
+              <p className="text-xs text-slate-500">Version 18.0</p>
+            </div>
+          </div>
+        ) : (
+          <div className="w-8 h-8 rounded-full bg-blue-900 flex items-center justify-center text-blue-200 font-bold text-xs">
             {user ? (user.email ?? "").charAt(0).toUpperCase() : "A"}
           </div>
-          <div>
-            <p className="text-white">Admin User</p>
-            <p className="text-xs text-slate-500">Version 18.0</p>
-          </div>
-        </div>
+        )}
       </div>
     </div>
   );
@@ -528,8 +556,11 @@ const ConfirmationModal = ({ isOpen, onClose, onConfirm, title, message }: { isO
 
 // --- MAIN APPLICATION COMPONENT ---
 export default function MasterDatabaseApp() {
-  const [activeModule, setActiveModule] = useState("emp_indirect"); // Set default to emp_indirect since we removed other modules
+  const [activeModule, setActiveModule] = useState("emp_indirect");
   const [user, setUser] = useState<User | null>(null);
+  const [dbConnected, setDbConnected] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
   const [dataLoading, setDataLoading] = useState(false);
   const [notification, setNotification] = useState({
@@ -560,18 +591,26 @@ export default function MasterDatabaseApp() {
 
   const [hiddenColumnsMap, setHiddenColumnsMap] = useState<Record<string, string[]>>({});
   const [isColVisOpen, setIsColVisOpen] = useState(false);
+  const [skipImportRows, setSkipImportRows] = useState(0);
+  const [selectedColumnIdsForDelete, setSelectedColumnIdsForDelete] = useState<Set<string>>(new Set());
+  const selectAllCheckboxRef = useRef<HTMLInputElement>(null);
+  const tableScrollRef = useRef<HTMLDivElement>(null);
+  const scrollbarRailRef = useRef<HTMLDivElement>(null);
+  const tableElementRef = useRef<HTMLTableElement>(null);
+  const theadRef = useRef<HTMLTableSectionElement>(null);
+  const [tableScrollWidth, setTableScrollWidth] = useState(0);
+  const [headerHeight, setHeaderHeight] = useState(48);
+
+  const isColumnProtected = (colId: string) =>
+    colId === "Customer_ID" || colId === "con_id" || colId === "รหัสพนักงาน" || colId === "uid";
 
   const getModuleInfo = (moduleId: string): ModuleConfig => {
     return (MODULE_CONFIG as Record<string, ModuleConfig>)[moduleId] || { collection: "CMG-HR-Database", subcollection: moduleId, label: moduleId };
   };
 
   const getPrimaryKeyField = () => {
-    const config = getModuleInfo(activeModule);
-    const schemaKey = config.subcollection || config.collection;
-    const currentSchema = schemas[schemaKey] || schemas[activeModule];
-    return currentSchema && currentSchema.length > 0
-      ? currentSchema[0].id
-      : null;
+    const currentSchema = schemas[activeModule] || [];
+    return currentSchema.length > 0 ? currentSchema[0].id : null;
   };
 
   // --- AUTO ID GENERATION HELPER ---
@@ -654,89 +693,153 @@ export default function MasterDatabaseApp() {
     return () => unsubscribe();
   }, []);
 
+  // อ่าน Firebase เฉพาะตอนกดเข้าเมนู (snapshot ครั้งเดียว) เพื่อลดโควต้า Read
+  const fetchModuleRef = useRef<string | null>(null);
   useEffect(() => {
-    if (!user) return;
-    const fetchData = async () => {
-      setDataLoading(true);
-      const config = getModuleInfo(activeModule);
-      const collectionName = config.collection;
-      const subcollectionName = config.subcollection || activeModule;
-      
-      try {
-        // Schema metadata in subcollection under CMG-HR-Database/root
-        const schemaRef = doc(db, "CMG-HR-Database", "root", subcollectionName, "_schema_metadata");
-        const unsubscribeSchema = onSnapshot(schemaRef, (docSnap) => {
-          if (docSnap.exists()) {
-            setSchemas((prev) => ({
-              ...prev,
-              [subcollectionName]: docSnap.data().fields,
-            }));
-          } else {
-            const defaultKey = subcollectionName;
-            if ((DEFAULT_SCHEMAS as Record<string, SchemaField[]>)[defaultKey]) {
-              setSchemas((prev) => ({
-                ...prev,
-                [subcollectionName]: (DEFAULT_SCHEMAS as Record<string, SchemaField[]>)[defaultKey],
-              }));
-            } else {
-              setSchemas((prev) => ({ ...prev, [subcollectionName]: [] }));
-            }
-          }
-        });
+    const moduleId = activeModule;
+    fetchModuleRef.current = moduleId;
+    setDataLoading(true);
 
-        // Query data from subcollection under CMG-HR-Database/root
-        let dataQuery: CollectionReference<DocumentData> | Query<DocumentData> = collection(db, "CMG-HR-Database", "root", subcollectionName);
+    const config = getModuleInfo(moduleId);
+    const subcollectionName = config.subcollection || moduleId;
+
+    const load = async () => {
+      try {
+        setDbConnected(true);
+        // อ่าน schema ครั้งเดียว (1 read)
+        const schemaRef = doc(db, "CMG-HR-Database", "root", "module_schemas", moduleId);
+        const schemaSnap = await getDoc(schemaRef);
+        if (fetchModuleRef.current !== moduleId) return;
+        if (schemaSnap.exists()) {
+          setSchemas((prev) => ({ ...prev, [moduleId]: schemaSnap.data().fields }));
+        } else {
+          const fallbackKey = subcollectionName;
+          const defaultSchema = (DEFAULT_SCHEMAS as Record<string, SchemaField[]>)[moduleId]
+            ?? (DEFAULT_SCHEMAS as Record<string, SchemaField[]>)[fallbackKey];
+          setSchemas((prev) => ({ ...prev, [moduleId]: defaultSchema ?? [] }));
+        }
+
+        // อ่านข้อมูลครั้งเดียว (N reads = จำนวนเอกสาร)
+        let dataQuery: CollectionReference<DocumentData> | Query<DocumentData> = collection(
+          db,
+          "CMG-HR-Database",
+          "root",
+          subcollectionName
+        );
         if (config.filterField && config.filterValue) {
           dataQuery = query(
             dataQuery as CollectionReference<DocumentData>,
             where(config.filterField, "==", config.filterValue)
           );
         }
-
-        const unsubscribeData = onSnapshot(
-          dataQuery,
-          (snapshot) => {
-            const items = snapshot.docs
-              .map((doc) => ({ id: doc.id, ...doc.data() } as DataRecord))
-              .filter((item) => item.id !== "_schema_metadata");
-            if (subcollectionName === "activity_logs") {
-              const logItems = items as unknown as LogRecord[];
-              logItems.sort((a, b) => b.createdAt - a.createdAt);
-              setLogs(logItems);
-            } else {
-              setCurrentData(items);
-            }
-            setDataLoading(false);
-          },
-          (error) => {
-            console.error("Data fetch error:", error);
-            setDataLoading(false);
-          }
-        );
-        return () => {
-          unsubscribeSchema();
-          unsubscribeData();
-        };
+        const snapshot = await getDocs(dataQuery);
+        if (fetchModuleRef.current !== moduleId) return;
+        const items = snapshot.docs
+          .map((d) => ({ id: d.id, ...d.data() } as DataRecord))
+          .filter((item) => item.id !== "_schema_metadata");
+        if (subcollectionName === "activity_logs") {
+          const logItems = items as unknown as LogRecord[];
+          logItems.sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0));
+          setLogs(logItems);
+        } else {
+          setCurrentData(items);
+        }
       } catch (error) {
-        console.error("Setup error:", error);
-        setDataLoading(false);
+        if (fetchModuleRef.current === moduleId) {
+          console.error("Fetch error:", error);
+        }
+      } finally {
+        if (fetchModuleRef.current === moduleId) {
+          setDataLoading(false);
+        }
       }
     };
-    let unsubscribeAll: (() => void) | undefined;
-    fetchData().then((cleanupFn) => {
-      if (typeof cleanupFn === "function") unsubscribeAll = cleanupFn;
-    });
-    return () => {
-      if (unsubscribeAll) unsubscribeAll();
+    load();
+  }, [activeModule]);
+
+  useEffect(() => {
+    setSelectedIds(new Set());
+  }, [activeModule]);
+
+  useEffect(() => {
+    if (dataLoading) return;
+    const updateWidth = () => {
+      requestAnimationFrame(() => {
+        const table = tableElementRef.current;
+        const w = table?.scrollWidth ?? 0;
+        setTableScrollWidth(w);
+      });
     };
-  }, [activeModule, user]);
+    const wrapper = tableScrollRef.current;
+    const table = tableElementRef.current;
+    const t = setTimeout(updateWidth, 100);
+    const ro = new ResizeObserver(updateWidth);
+    if (wrapper) ro.observe(wrapper);
+    if (table) ro.observe(table);
+    return () => {
+      clearTimeout(t);
+      ro.disconnect();
+    };
+  }, [activeModule, currentData.length, searchQuery, schemas, dataLoading]);
+
+  useEffect(() => {
+    const el = theadRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(() => {
+      setHeaderHeight(el.offsetHeight);
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [dataLoading]);
+
+  const syncTableScrollFromRail = () => {
+    const rail = scrollbarRailRef.current;
+    const table = tableScrollRef.current;
+    if (rail && table) table.scrollLeft = rail.scrollLeft;
+  };
+  const syncRailScrollFromTable = () => {
+    const rail = scrollbarRailRef.current;
+    const table = tableScrollRef.current;
+    if (rail && table) rail.scrollLeft = table.scrollLeft;
+  };
+
+  const refreshCurrentModuleData = async () => {
+    const config = getModuleInfo(activeModule);
+    const subcollectionName = config.subcollection || activeModule;
+    try {
+      let dataQuery: CollectionReference<DocumentData> | Query<DocumentData> = collection(
+        db,
+        "CMG-HR-Database",
+        "root",
+        subcollectionName
+      );
+      if (config.filterField && config.filterValue) {
+        dataQuery = query(
+          dataQuery as CollectionReference<DocumentData>,
+          where(config.filterField, "==", config.filterValue)
+        );
+      }
+      const snapshot = await getDocs(dataQuery);
+      const items = snapshot.docs
+        .map((d) => ({ id: d.id, ...d.data() } as DataRecord))
+        .filter((item) => item.id !== "_schema_metadata");
+      if (subcollectionName === "activity_logs") {
+        const logItems = items as unknown as LogRecord[];
+        logItems.sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0));
+        setLogs(logItems);
+      } else {
+        setCurrentData(items);
+      }
+    } catch (e) {
+      console.error("Refresh error:", e);
+    }
+  };
 
   const addLog = async (action: string, details: string) => {
-    if (!user) return;
     try {
       await addDoc(collection(db, "CMG-HR-Database", "root", "activity_logs"), {
         timestamp: new Date().toLocaleString("th-TH"),
-        user: user.email ?? "",
+        user: user?.email ?? "anonymous",
         module: activeModule,
         action: action,
         details: details,
@@ -748,8 +851,7 @@ export default function MasterDatabaseApp() {
   };
 
   const moduleInfo = getModuleInfo(activeModule);
-  const schemaKey = moduleInfo.subcollection || moduleInfo.collection;
-  const currentSchema = schemas[schemaKey] || [];
+  const currentSchema = schemas[activeModule] || [];
 
   const handleDragStart = (e: React.DragEvent, index: number) => {
     e.dataTransfer.setData("colIndex", String(index));
@@ -769,18 +871,15 @@ export default function MasterDatabaseApp() {
     const newSchema = [...currentSchema];
     const [reorderedItem] = newSchema.splice(draggedIndex, 1);
     newSchema.splice(droppedIndex, 0, reorderedItem);
-    const config = getModuleInfo(activeModule);
-    const schemaKey = config.subcollection || config.collection;
-    setSchemas((prev) => ({ ...prev, [schemaKey]: newSchema }));
+    setSchemas((prev) => ({ ...prev, [activeModule]: newSchema }));
     try {
       await setDoc(
-        doc(db, "CMG-HR-Database", "root", schemaKey, "_schema_metadata"),
-        { fields: newSchema },
-        { merge: true }
+        doc(db, "CMG-HR-Database", "root", "module_schemas", activeModule),
+        { fields: newSchema }
       );
       await addLog("ปรับลำดับ", `ย้ายคอลัมน์ใน ${activeModule}`);
     } catch (error) {
-      showNotification("error", "Error", "บันทึกลำดับไม่สำเร็จ");
+      showNotification("error", "บันทึกลำดับไม่สำเร็จ", (error as Error).message);
     }
   };
 
@@ -801,18 +900,16 @@ export default function MasterDatabaseApp() {
       async () => {
         const newSchema = [...currentSchema];
         newSchema.splice(index, 1);
-        const config = getModuleInfo(activeModule);
-        const schemaKey = config.subcollection || config.collection;
         try {
           await setDoc(
-            doc(db, "CMG-HR-Database", "root", schemaKey, "_schema_metadata"),
-            { fields: newSchema },
-            { merge: true }
+            doc(db, "CMG-HR-Database", "root", "module_schemas", activeModule),
+            { fields: newSchema }
           );
+          setSchemas((prev) => ({ ...prev, [activeModule]: newSchema }));
           await addLog("ลบคอลัมน์", `ลบคอลัมน์ "${colLabel}"`);
           showNotification("success", "สำเร็จ", `ลบคอลัมน์ "${colLabel}" แล้ว`);
         } catch (error) {
-          showNotification("error", "Error", "ลบคอลัมน์ไม่สำเร็จ");
+          showNotification("error", "ลบคอลัมน์ไม่สำเร็จ", (error as Error).message);
         }
       }
     );
@@ -839,11 +936,8 @@ export default function MasterDatabaseApp() {
         const subcollectionName = config.subcollection || activeModule;
         await updateDoc(doc(db, "CMG-HR-Database", "root", subcollectionName, editingItem.id), cleanData as any);
         await addLog("แก้ไข", `แก้ไขรายการ ID: ${editingItem.id}`);
-        showNotification(
-          "success",
-          "บันทึกสำเร็จ",
-          "ข้อมูลถูกแก้ไขเรียบร้อยแล้ว"
-        );
+        showNotification("success", "บันทึกสำเร็จ", "ข้อมูลถูกแก้ไขเรียบร้อยแล้ว");
+        await refreshCurrentModuleData();
       } else {
         let docId;
         // Auto ID Generation strictly at save time for new items
@@ -870,11 +964,8 @@ export default function MasterDatabaseApp() {
         const subcollectionName = config.subcollection || activeModule;
         await setDoc(doc(db, "CMG-HR-Database", "root", subcollectionName, docId), cleanData);
         await addLog("เพิ่มใหม่", `เพิ่มรายการ ID: ${docId}`);
-        showNotification(
-          "success",
-          "บันทึกสำเร็จ",
-          `เพิ่มข้อมูล ${docId} เรียบร้อยแล้ว`
-        );
+        showNotification("success", "บันทึกสำเร็จ", `เพิ่มข้อมูล ${docId} เรียบร้อยแล้ว`);
+        await refreshCurrentModuleData();
       }
       setIsAddModalOpen(false);
       setEditingItem(null);
@@ -892,10 +983,60 @@ export default function MasterDatabaseApp() {
         await deleteDoc(doc(db, "CMG-HR-Database", "root", subcollectionName, id));
         await addLog("ลบ", `ลบรายการ ID: ${id}`);
         showNotification("success", "ลบสำเร็จ", "ข้อมูลถูกลบแล้ว");
+        await refreshCurrentModuleData();
       } catch (error) {
         showNotification("error", "ผิดพลาด", (error as Error).message);
       }
     });
+  };
+
+  const toggleSelectAll = () => {
+    if (filteredData.length === 0) return;
+    const allIds = new Set(filteredData.map((r) => r.id));
+    const allSelected = allIds.size > 0 && Array.from(allIds).every((id) => selectedIds.has(id));
+    if (allSelected) {
+      setSelectedIds((prev) => {
+        const next = new Set(prev);
+        allIds.forEach((id) => next.delete(id));
+        return next;
+      });
+    } else {
+      setSelectedIds((prev) => new Set(Array.from(prev).concat(Array.from(allIds))));
+    }
+  };
+
+  const toggleSelectRow = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const handleDeleteSelected = () => {
+    if (selectedIds.size === 0) return;
+    const config = getModuleInfo(activeModule);
+    const subcollectionName = config.subcollection || activeModule;
+    const count = selectedIds.size;
+    showConfirm(
+      "ยืนยันการลบ",
+      `ต้องการลบรายการที่เลือก ${count} รายการใช่หรือไม่?`,
+      async () => {
+        try {
+          const idsToDelete = Array.from(selectedIds);
+          for (const id of idsToDelete) {
+            await deleteDoc(doc(db, "CMG-HR-Database", "root", subcollectionName, id));
+          }
+          await addLog("ลบหลายรายการ", `ลบ ${count} รายการ`);
+          setSelectedIds(new Set());
+          showNotification("success", "ลบสำเร็จ", `ลบ ${count} รายการแล้ว`);
+          await refreshCurrentModuleData();
+        } catch (error) {
+          showNotification("error", "ผิดพลาด", (error as Error).message);
+        }
+      }
+    );
   };
 
   const handleAddColumn = async () => {
@@ -913,24 +1054,12 @@ export default function MasterDatabaseApp() {
           ? newColumn.options.split(",").map((s) => s.trim())
           : [],
     };
-    const config = getModuleInfo(activeModule);
-    const schemaKey = config.subcollection || config.collection;
-    
-    console.log("Adding column:", newField);
-    console.log("Schema key:", schemaKey);
-    console.log("Current schema:", currentSchema);
-    
     try {
       const updatedFields = [...currentSchema, newField];
-      console.log("Updated fields:", updatedFields);
-      
-      setSchemas((prev) => ({ ...prev, [schemaKey]: updatedFields }));
-      
-      // Save schema metadata to CMG-HR-Database/root/{subcollection}
+      setSchemas((prev) => ({ ...prev, [activeModule]: updatedFields }));
       await setDoc(
-        doc(db, "CMG-HR-Database", "root", schemaKey, "_schema_metadata"),
-        { fields: updatedFields },
-        { merge: true }
+        doc(db, "CMG-HR-Database", "root", "module_schemas", activeModule),
+        { fields: updatedFields }
       );
       
       console.log("Schema saved successfully");
@@ -940,22 +1069,64 @@ export default function MasterDatabaseApp() {
       setNewColumn({ label: "", type: "text", options: "" });
     } catch (error) {
       console.error("Error adding column:", error);
-      showNotification("error", "ผิดพลาด", (error as Error).message);
+      showNotification("error", "เพิ่มคอลัมน์ไม่สำเร็จ", (error as Error).message);
     }
+  };
+
+  const toggleSelectColumnForDelete = (colId: string) => {
+    if (isColumnProtected(colId)) return;
+    setSelectedColumnIdsForDelete((prev) => {
+      const next = new Set(prev);
+      if (next.has(colId)) next.delete(colId);
+      else next.add(colId);
+      return next;
+    });
+  };
+
+  const handleDeleteSelectedColumns = () => {
+    if (selectedColumnIdsForDelete.size === 0) return;
+    const idsToDelete = Array.from(selectedColumnIdsForDelete);
+    const idsSet = new Set(idsToDelete);
+    showConfirm(
+      "ยืนยันการลบคอลัมน์",
+      `ต้องการลบคอลัมน์ที่เลือก ${idsToDelete.length} คอลัมน์ใช่หรือไม่?`,
+      async () => {
+        try {
+          const newSchema = currentSchema.filter((col) => !idsSet.has(col.id));
+          await setDoc(
+            doc(db, "CMG-HR-Database", "root", "module_schemas", activeModule),
+            { fields: newSchema }
+          );
+          setSchemas((prev) => ({ ...prev, [activeModule]: newSchema }));
+          setSelectedColumnIdsForDelete(new Set());
+          await addLog("ลบคอลัมน์หลายรายการ", `ลบ ${idsToDelete.length} คอลัมน์`);
+          showNotification("success", "สำเร็จ", `ลบคอลัมน์ ${idsToDelete.length} คอลัมน์แล้ว`);
+        } catch (error) {
+          showNotification("error", "ลบคอลัมน์ไม่สำเร็จ", (error as Error).message);
+        }
+      }
+    );
+  };
+
+  const createUtf8BomBlob = (content: string): Blob => {
+    const bom = new Uint8Array([0xef, 0xbb, 0xbf]);
+    const encoded = new TextEncoder().encode(content);
+    const withBom = new Uint8Array(bom.length + encoded.length);
+    withBom.set(bom, 0);
+    withBom.set(encoded, bom.length);
+    return new Blob([withBom], { type: "text/csv;charset=utf-8;" });
   };
 
   const downloadCSV = () => {
     if (currentData.length === 0)
       return showNotification("info", "ไม่มีข้อมูล", "ไม่มีข้อมูลให้ Export");
-    const headers = currentSchema.map((col) => col.label).join(",");
+    const headers = ["ลำดับ", ...currentSchema.map((col) => col.label)].join(",");
     const rows = currentData
-      .map((row) =>
-        currentSchema.map((col) => `"${row[col.id] || ""}"`).join(",")
+      .map((row, idx) =>
+        [idx + 1, ...currentSchema.map((col) => `"${row[col.id] || ""}"`)].join(",")
       )
       .join("\n");
-    const blob = new Blob([`\uFEFF${headers}\n${rows}`], {
-      type: "text/csv;charset=utf-8;",
-    });
+    const blob = createUtf8BomBlob(`${headers}\n${rows}`);
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
@@ -966,7 +1137,6 @@ export default function MasterDatabaseApp() {
 
   const downloadTemplate = () => {
     let templateSchema = currentSchema;
-    // Strip Auto-ID columns from template so user doesn't fill them
     if (activeModule === "client_list") {
       templateSchema = currentSchema.filter((col) => col.id !== "Customer_ID");
     } else if (activeModule === "contractors") {
@@ -975,9 +1145,7 @@ export default function MasterDatabaseApp() {
     const headers = templateSchema
       .map((col) => col.label)
       .join(activeModule === "client_list" ? "\t" : ",");
-    const blob = new Blob([`\uFEFF${headers}`], {
-      type: "text/csv;charset=utf-8;",
-    });
+    const blob = createUtf8BomBlob(headers);
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
@@ -986,7 +1154,36 @@ export default function MasterDatabaseApp() {
     showNotification("success", "ดาวน์โหลด", "เริ่มการดาวน์โหลด Template");
   };
 
-  // --- SMART IMPORT LOGIC (V18: Robust Auto-ID Generation) ---
+  // --- SMART IMPORT LOGIC: รองรับทั้ง UTF-8 และ Windows-874 (Excel บน Windows ภาษาไทย) ---
+  const decodeCSVFile = (buffer: ArrayBuffer): string => {
+    const uint8 = new Uint8Array(buffer);
+    const hasUTF8BOM = uint8.length >= 3 && uint8[0] === 0xef && uint8[1] === 0xbb && uint8[2] === 0xbf;
+    const tryDecode = (encoding: string): string => {
+      try {
+        return new TextDecoder(encoding).decode(buffer);
+      } catch {
+        return "";
+      }
+    };
+    const countBad = (s: string) => (s.match(/\uFFFD/g) || []).length + (s.match(/\?\?\?/g) || []).length;
+    let text: string;
+    if (hasUTF8BOM) {
+      text = tryDecode("utf-8").replace(/^\uFEFF/, "");
+    } else {
+      const utf8 = tryDecode("utf-8");
+      const win874 = tryDecode("windows-874");
+      const badUtf8 = countBad(utf8);
+      const bad874 = countBad(win874);
+      text = bad874 <= badUtf8 ? win874 : utf8;
+    }
+    const replacementCount = countBad(text);
+    if (replacementCount > text.length * 0.01) {
+      const other = tryDecode(hasUTF8BOM ? "windows-874" : "utf-8");
+      if (countBad(other) < replacementCount) text = other;
+    }
+    return text.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+  };
+
   const handleImportCSV = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
@@ -997,11 +1194,8 @@ export default function MasterDatabaseApp() {
     reader.onload = async (e) => {
       try {
         const rawResult = e.target?.result;
-        if (typeof rawResult !== "string") return;
-        const text = rawResult
-          .replace(/^\uFEFF/, "")
-          .replace(/\r\n/g, "\n")
-          .replace(/\r/g, "\n");
+        if (rawResult == null || !(rawResult instanceof ArrayBuffer)) return;
+        const text = decodeCSVFile(rawResult);
         const rows = text.split("\n").filter((r) => r.trim() !== "");
 
         if (rows.length < 2) {
@@ -1020,14 +1214,27 @@ export default function MasterDatabaseApp() {
         const delimiter = tabCount > commaCount ? "\t" : ",";
 
         const parseCSVRow = (row: string): string[] => {
-          if (delimiter === "\t") {
-            return row
-              .split("\t")
-              .map((v: string) => v.trim().replace(/^"|"$/g, "").replace(/""/g, '"'));
+          const out: string[] = [];
+          let cur = "";
+          let inQuotes = false;
+          for (let i = 0; i < row.length; i++) {
+            const c = row[i];
+            if (c === '"') {
+              if (inQuotes && row[i + 1] === '"') {
+                cur += '"';
+                i++;
+              } else {
+                inQuotes = !inQuotes;
+              }
+            } else if (!inQuotes && c === delimiter) {
+              out.push(cur.trim().replace(/^"|"$/g, "").replace(/""/g, '"'));
+              cur = "";
+            } else {
+              cur += c;
+            }
           }
-          return row
-            .split(/,(?=(?:(?:[^"]*"){2})*[^"]*$)/)
-            .map((v: string) => v.trim().replace(/^"|"$/g, "").replace(/""/g, '"'));
+          out.push(cur.trim().replace(/^"|"$/g, "").replace(/""/g, '"'));
+          return out;
         };
 
         const headers = parseCSVRow(rows[0]);
@@ -1055,16 +1262,16 @@ export default function MasterDatabaseApp() {
         });
 
         const config = getModuleInfo(activeModule);
+        const subcollectionName = config.subcollection || activeModule;
 
         if (schemaChanged) {
           await setDoc(
-            doc(db, config.collection, "_schema_metadata"),
-            { fields: updatedSchema },
-            { merge: true }
+            doc(db, "CMG-HR-Database", "root", "module_schemas", activeModule),
+            { fields: updatedSchema }
           );
           setSchemas((prev) => ({
             ...prev,
-            [config.collection]: updatedSchema,
+            [activeModule]: updatedSchema,
           }));
         }
 
@@ -1105,19 +1312,18 @@ export default function MasterDatabaseApp() {
           currentMaxIdNum = ids.length > 0 ? Math.max(...ids) : 0;
         }
 
-        for (let i = 1; i < rows.length; i++) {
-          const values = parseCSVRow(rows[i]);
+        const dataStartIndex = 1 + Math.max(0, skipImportRows || 0);
+        for (let i = dataStartIndex; i < rows.length; i++) {
+          let values = parseCSVRow(rows[i]);
+          if (values.length > headers.length) values = values.slice(0, headers.length);
+          while (values.length < headers.length) values.push("");
           const docData: Record<string, unknown> = {};
           let hasActualData = false;
 
-          // Map data, ignoring missing/empty Customer_ID in the CSV
           headerMap.forEach((fieldId: string | null, index: number) => {
-            if (
-              fieldId &&
-              values[index] !== undefined &&
-              values[index].trim() !== ""
-            ) {
-              docData[fieldId] = values[index];
+            const raw = (values[index] ?? "").trim();
+            if (fieldId && raw !== "") {
+              docData[fieldId] = raw;
               // Verify if row actually has data besides empty strings
               if (fieldId !== "Customer_ID" && fieldId !== "con_id") {
                 hasActualData = true;
@@ -1156,7 +1362,7 @@ export default function MasterDatabaseApp() {
           if (docData[primaryKeyField]) {
             const rawId = docData[primaryKeyField];
             const docId = String(rawId).replace(/[\/\.\#\$\{\}]/g, "_");
-            const docRef = doc(db, config.collection, docId);
+            const docRef = doc(db, "CMG-HR-Database", "root", subcollectionName, docId);
             const docSnap = await getDoc(docRef);
 
             if (docSnap.exists()) {
@@ -1173,6 +1379,7 @@ export default function MasterDatabaseApp() {
           "Import CSV",
           `Imported ${successCount}, Skipped ${skipCount}`
         );
+        if (successCount > 0) await refreshCurrentModuleData();
         let msg = `นำเข้าสำเร็จ: ${successCount} รายการ\nข้าม (มีอยู่แล้ว): ${skipCount} รายการ`;
         if (skipCount > 0)
           msg += `\n(ID ที่ข้าม: ${skippedIds.slice(0, 5).join(", ")}${
@@ -1190,7 +1397,7 @@ export default function MasterDatabaseApp() {
         setDataLoading(false);
       }
     };
-    reader.readAsText(file);
+    reader.readAsArrayBuffer(file);
   };
 
   const filteredData = useMemo(() => {
@@ -1202,6 +1409,15 @@ export default function MasterDatabaseApp() {
     );
   }, [currentData, searchQuery]);
 
+  useEffect(() => {
+    const el = selectAllCheckboxRef.current;
+    if (el) {
+      const some = selectedIds.size > 0 && filteredData.length > 0;
+      const all = filteredData.length > 0 && filteredData.every((r) => selectedIds.has(r.id));
+      el.indeterminate = some && !all;
+    }
+  }, [selectedIds, filteredData]);
+
   if (loading)
     return (
       <div className="flex h-screen items-center justify-center bg-slate-50 flex-col gap-4">
@@ -1212,27 +1428,34 @@ export default function MasterDatabaseApp() {
 
   if (activeModule === "activity_logs")
     return (
-      <div className="flex bg-gray-50 min-h-screen font-sans">
+      <div className="flex bg-gray-50 min-h-screen font-sans overflow-x-hidden">
         <Sidebar
           activeModule={activeModule}
           setActiveModule={setActiveModule}
           user={user}
+          dbConnected={dbConnected}
+          sidebarOpen={sidebarOpen}
+          onToggleSidebar={() => setSidebarOpen((o) => !o)}
         />
-        <main className="ml-64 flex-1 p-8">
+        <main
+          className="flex-1 p-8 min-w-0 overflow-x-hidden transition-[margin-left] duration-200 ease-in-out"
+          style={{ marginLeft: sidebarOpen ? SIDEBAR_WIDTH : SIDEBAR_COLLAPSED_WIDTH }}
+        >
           <header className="mb-8">
             <h1 className="text-3xl font-bold text-gray-800 flex items-center gap-3">
               <Activity className="text-orange-500" /> บันทึกกิจกรรม
             </h1>
           </header>
-          <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+          <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-x-auto overflow-y-hidden">
             {dataLoading ? (
               <div className="p-12 flex justify-center">
                 <Loader2 className="animate-spin" />
               </div>
             ) : (
-              <table className="w-full text-left border-collapse">
+              <table className="w-full text-left border-collapse min-w-[600px]">
                 <thead className="bg-gray-100 text-gray-600 text-xs uppercase font-semibold">
                   <tr>
+                    <th className="px-3 py-2 border-b w-14 text-center">ลำดับ</th>
                     <th className="px-3 py-2 border-b">เวลา</th>
                     <th className="px-3 py-2 border-b">ผู้ใช้</th>
                     <th className="px-3 py-2 border-b">Module</th>
@@ -1241,8 +1464,9 @@ export default function MasterDatabaseApp() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100 text-sm text-gray-700">
-                  {logs.map((log) => (
+                  {logs.map((log, idx) => (
                     <tr key={log.id} className="hover:bg-gray-50">
+                      <td className="px-3 py-2 text-center text-gray-500">{idx + 1}</td>
                       <td className="px-3 py-2">{log.timestamp}</td>
                       <td className="px-3 py-2 font-medium">{log.user}</td>
                       <td className="px-3 py-2">
@@ -1288,13 +1512,19 @@ export default function MasterDatabaseApp() {
   }
 
   return (
-    <div className="flex bg-gray-50 min-h-screen font-sans">
+    <div className="flex bg-gray-50 min-h-screen font-sans overflow-x-hidden">
       <Sidebar
         activeModule={activeModule}
         setActiveModule={setActiveModule}
         user={user}
+        dbConnected={dbConnected}
+        sidebarOpen={sidebarOpen}
+        onToggleSidebar={() => setSidebarOpen((o) => !o)}
       />
-      <main className="ml-64 flex-1 p-8">
+      <main
+        className="flex-1 p-8 min-w-0 overflow-x-hidden transition-[margin-left] duration-200 ease-in-out"
+        style={{ marginLeft: sidebarOpen ? SIDEBAR_WIDTH : SIDEBAR_COLLAPSED_WIDTH }}
+      >
         <header className="flex justify-between items-start mb-8">
           <div>
             <h1 className="text-3xl font-bold text-gray-800 mb-2 capitalize flex items-center gap-3">
@@ -1406,34 +1636,82 @@ export default function MasterDatabaseApp() {
             >
               <Download size={16} /> Export
             </button>
-            <button
-              onClick={downloadTemplate}
-              className="flex items-center gap-2 px-3 py-2 text-gray-600 hover:bg-gray-100 rounded border hover:border-gray-200"
-            >
-              <FileText size={16} /> Template
-            </button>
-            <label className="flex items-center gap-2 px-3 py-2 text-gray-600 hover:bg-gray-100 rounded border hover:border-gray-200 cursor-pointer bg-blue-50 text-blue-700 font-medium">
-              <Upload size={16} /> Import{" "}
+            <div className="relative group">
+              <button
+                onClick={downloadTemplate}
+                className="flex items-center gap-2 px-3 py-2 text-gray-600 hover:bg-gray-100 rounded border hover:border-gray-200"
+              >
+                <FileText size={16} /> Template
+              </button>
+              <div className="absolute left-0 top-full mt-1 w-72 p-2 bg-slate-800 text-white text-xs rounded shadow-lg opacity-0 pointer-events-none group-hover:opacity-100 transition-opacity z-20">
+                ไฟล์เป็น UTF-8 BOM ถ้าเปิดใน Excel แล้วตัวหนังสือเป็น ??? ให้ใช้: ข้อมูล → จากไฟล์ข้อความ/CSV → เลือกไฟล์ → ตั้ง Encoding เป็น Unicode (UTF-8) แล้วบันทึกเป็น CSV UTF-8
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <label className="text-sm text-gray-500 whitespace-nowrap" title="ข้าม N แถวข้อมูลหลังหัวตาราง (เช่น 5 = นำเข้าเฉพาะแถวที่ 6 เป็นต้นไป)">
+                ข้ามแถวแรก:
+              </label>
               <input
-                type="file"
-                className="hidden"
-                accept=".csv"
-                onChange={handleImportCSV}
+                type="number"
+                min={0}
+                max={100}
+                value={skipImportRows}
+                onChange={(e) => setSkipImportRows(Math.max(0, parseInt(e.target.value, 10) || 0))}
+                className="w-14 px-2 py-1 border rounded text-sm text-center"
+                title="จำนวนแถวข้อมูลที่ข้าม (หลังหัวตาราง)"
               />
-            </label>
+              <label className="flex items-center gap-2 px-3 py-2 text-gray-600 hover:bg-gray-100 rounded border hover:border-gray-200 cursor-pointer bg-blue-50 text-blue-700 font-medium">
+                <Upload size={16} /> Import{" "}
+                <input
+                  type="file"
+                  className="hidden"
+                  accept=".csv"
+                  onChange={handleImportCSV}
+                />
+              </label>
+            </div>
+            {selectedIds.size > 0 && (
+              <>
+                <span className="text-sm text-gray-500">เลือกแล้ว {selectedIds.size} รายการ</span>
+                <button
+                  type="button"
+                  onClick={handleDeleteSelected}
+                  className="flex items-center gap-2 px-3 py-2 text-white bg-red-600 hover:bg-red-700 rounded border border-red-700 text-sm font-medium"
+                >
+                  <Trash2 size={16} /> ลบที่เลือก
+                </button>
+              </>
+            )}
           </div>
         </div>
 
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-x-auto min-h-[300px]">
-          {dataLoading ? (
-            <div className="flex flex-col items-center justify-center h-[300px] text-gray-400 gap-3">
-              <Loader2 className="animate-spin text-blue-500" size={32} />
-              <p>กำลังประมวลผล...</p>
-            </div>
-          ) : (
-            <table className="w-full text-left border-collapse">
-              <thead className="bg-gray-50 border-b border-gray-200">
+        <div className="relative bg-white rounded-xl shadow-sm border border-gray-200 min-h-[300px]" style={{ maxWidth: "100%" }}>
+          <div
+            ref={tableScrollRef}
+            className="overflow-x-auto overflow-y-hidden min-h-[300px] scrollbar-hide-horizontal"
+            style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}
+            onScroll={syncRailScrollFromTable}
+          >
+            {dataLoading ? (
+              <div className="flex flex-col items-center justify-center h-[300px] text-gray-400 gap-3">
+                <Loader2 className="animate-spin text-blue-500" size={32} />
+                <p>กำลังประมวลผล...</p>
+              </div>
+            ) : (
+              <table ref={tableElementRef} className="w-full text-left border-collapse min-w-max">
+                <thead ref={theadRef} className="bg-gray-50 border-b border-gray-200">
                 <tr>
+                  <th className="px-2 py-2 w-10 bg-gray-50 border-r border-gray-200 sticky left-0 z-10">
+                    <input
+                      type="checkbox"
+                      ref={selectAllCheckboxRef}
+                      checked={filteredData.length > 0 && filteredData.every((r) => selectedIds.has(r.id))}
+                      onChange={toggleSelectAll}
+                      className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
+                      title="เลือกทั้งหมด"
+                    />
+                  </th>
+                  <th className="px-3 py-2 text-xs font-semibold text-gray-500 uppercase tracking-wider w-14 text-center bg-gray-50 border-r border-gray-200 sticky left-0 z-10">ลำดับ</th>
                   {/* V18: Fixed Column Header (No Drag, No Delete Button) */}
                   {fixedColumn && (
                     <th className="px-3 py-2 text-xs font-semibold text-gray-500 uppercase tracking-wider whitespace-nowrap bg-gray-100 border-r border-gray-200 sticky left-0 z-10 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)]">
@@ -1476,12 +1754,26 @@ export default function MasterDatabaseApp() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100 text-sm">
+                <tr aria-hidden="true">
+                  <td colSpan={visibleSchema.length + 3} className="p-0 border-0 align-top" style={{ height: 20, lineHeight: 0 }} />
+                </tr>
                 {filteredData.length > 0 ? (
                   filteredData.map((row, idx) => (
                     <tr
                       key={row.id || idx}
-                      className="hover:bg-blue-50/50 group"
+                      className={`hover:bg-blue-50/50 group ${selectedIds.has(row.id) ? "bg-blue-50" : ""}`}
                     >
+                      <td className="px-2 py-2 bg-gray-50/50 border-r border-gray-100 sticky left-0 z-10">
+                        <input
+                          type="checkbox"
+                          checked={selectedIds.has(row.id)}
+                          onChange={() => toggleSelectRow(row.id)}
+                          className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
+                        />
+                      </td>
+                      <td className="px-3 py-2 text-center text-gray-500 font-medium bg-gray-50/50 border-r border-gray-100 sticky left-0 z-10 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.05)]">
+                        {idx + 1}
+                      </td>
                       {/* Fixed Cell */}
                       {fixedColumn && (
                         <td className="px-3 py-2 text-gray-700 whitespace-nowrap max-w-xs overflow-hidden text-ellipsis font-bold bg-gray-50/50 border-r border-gray-100 sticky left-0 z-10 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.05)]">
@@ -1520,7 +1812,7 @@ export default function MasterDatabaseApp() {
                 ) : (
                   <tr>
                     <td
-                      colSpan={visibleSchema.length + 1}
+                      colSpan={visibleSchema.length + 3}
                       className="p-12 text-center text-gray-400"
                     >
                       ยังไม่มีข้อมูล
@@ -1529,6 +1821,22 @@ export default function MasterDatabaseApp() {
                 )}
               </tbody>
             </table>
+          )}
+          </div>
+          {!dataLoading && tableScrollWidth > 0 && (
+            <div
+              ref={scrollbarRailRef}
+              className="absolute left-0 right-0 overflow-x-scroll overflow-y-hidden bg-gray-100 border-b border-gray-200 z-10 scrollbar-rail-horizontal"
+              style={{
+                top: headerHeight,
+                height: 20,
+                minHeight: 20,
+                scrollbarWidth: "thin",
+              }}
+              onScroll={syncTableScrollFromRail}
+            >
+              <div style={{ width: tableScrollWidth, height: 1, minWidth: "100%" }} />
+            </div>
           )}
         </div>
       </main>
@@ -1586,16 +1894,31 @@ export default function MasterDatabaseApp() {
 
       <Modal
         isOpen={isSchemaModalOpen}
-        onClose={() => setIsSchemaModalOpen(false)}
-        title="Dynamic Schema Builder"
+        onClose={() => {
+          setIsSchemaModalOpen(false);
+          setSelectedColumnIdsForDelete(new Set());
+        }}
+        title="ตั้งค่าคอลัมน์"
         footer={
           <>
             <button
-              onClick={() => setIsSchemaModalOpen(false)}
+              onClick={() => {
+                setIsSchemaModalOpen(false);
+                setSelectedColumnIdsForDelete(new Set());
+              }}
               className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg"
             >
               ปิด
             </button>
+            {selectedColumnIdsForDelete.size > 0 && (
+              <button
+                type="button"
+                onClick={handleDeleteSelectedColumns}
+                className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 flex items-center gap-2"
+              >
+                <Trash2 size={18} /> ลบที่เลือก ({selectedColumnIdsForDelete.size})
+              </button>
+            )}
             <button
               onClick={handleAddColumn}
               className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 flex items-center gap-2"
@@ -1612,6 +1935,39 @@ export default function MasterDatabaseApp() {
               <strong>{config.collection}</strong>
             </p>
           </div>
+
+          <div className="border rounded-lg p-4 bg-gray-50">
+            <p className="text-sm font-medium text-gray-700 mb-2">เลือกคอลัมน์ที่ต้องการลบ</p>
+            <div className="max-h-48 overflow-y-auto space-y-2">
+              {currentSchema.map((col) => {
+                const protectedCol = isColumnProtected(col.id);
+                return (
+                  <label
+                    key={col.id}
+                    className={`flex items-center gap-2 py-2 px-2 rounded cursor-pointer ${
+                      protectedCol ? "opacity-60 cursor-not-allowed" : "hover:bg-gray-100"
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={selectedColumnIdsForDelete.has(col.id)}
+                      onChange={() => toggleSelectColumnForDelete(col.id)}
+                      disabled={protectedCol}
+                      className="w-4 h-4 rounded border-gray-300 text-red-600 focus:ring-red-500"
+                    />
+                    <span className="text-sm text-gray-700">{col.label}</span>
+                    {protectedCol && (
+                      <span className="text-xs text-gray-500">(ไม่สามารถลบได้)</span>
+                    )}
+                  </label>
+                );
+              })}
+            </div>
+            {selectedColumnIdsForDelete.size > 0 && (
+              <p className="text-xs text-gray-500 mt-2">เลือกแล้ว {selectedColumnIdsForDelete.size} คอลัมน์</p>
+            )}
+          </div>
+
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
               ชื่อคอลัมน์

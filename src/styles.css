@@ -2,3 +2,24 @@
   font-family: sans-serif;
   text-align: center;
 }
+
+.scrollbar-hide-horizontal::-webkit-scrollbar {
+  height: 0;
+  display: none;
+}
+
+/* ใช้กับ rail แถบเลื่อนแนวนอนใต้หัวตาราง ให้ scrollbar แสดงชัด */
+.scrollbar-rail-horizontal {
+  overflow-x: scroll !important;
+}
+.scrollbar-rail-horizontal::-webkit-scrollbar {
+  height: 12px;
+  -webkit-appearance: none;
+}
+.scrollbar-rail-horizontal::-webkit-scrollbar-thumb {
+  background: #94a3b8;
+  border-radius: 6px;
+}
+.scrollbar-rail-horizontal::-webkit-scrollbar-track {
+  background: #e2e8f0;
+}
