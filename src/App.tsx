@@ -33,6 +33,7 @@ interface ModuleConfig {
   label: string;
   filterField?: string;
   filterValue?: string;
+  schemaSource?: string; // อ้างอิง moduleId อื่นเพื่อใช้ schema ร่วมกัน
 }
 import {
   LayoutDashboard,
@@ -138,6 +139,7 @@ const MODULE_CONFIG = {
     label: "Direct - Supply DC",
     filterField: "employee_type",
     filterValue: "Direct_SupplyDC",
+    schemaSource: "emp_direct_leader", // ใช้ schema เดียวกับ Team Leader
   },
   emp_direct_sub: {
     collection: "CMG-HR-Database",
@@ -145,6 +147,7 @@ const MODULE_CONFIG = {
     label: "Direct - Sub Contractor",
     filterField: "employee_type",
     filterValue: "Direct_SubContractor",
+    schemaSource: "emp_direct_leader", // ใช้ schema เดียวกับ Team Leader
   },
 };
 
@@ -706,15 +709,17 @@ export default function MasterDatabaseApp() {
     const load = async () => {
       try {
         setDbConnected(true);
-        // อ่าน schema ครั้งเดียว (1 read)
-        const schemaRef = doc(db, "CMG-HR-Database", "root", "module_schemas", moduleId);
+        // อ่าน schema ครั้งเดียว (1 read) — ถ้ามี schemaSource ให้โหลดจาก module ต้นทางแทน
+        const schemaModuleId = config.schemaSource || moduleId;
+        const schemaRef = doc(db, "CMG-HR-Database", "root", "module_schemas", schemaModuleId);
         const schemaSnap = await getDoc(schemaRef);
         if (fetchModuleRef.current !== moduleId) return;
         if (schemaSnap.exists()) {
           setSchemas((prev) => ({ ...prev, [moduleId]: schemaSnap.data().fields }));
         } else {
           const fallbackKey = subcollectionName;
-          const defaultSchema = (DEFAULT_SCHEMAS as Record<string, SchemaField[]>)[moduleId]
+          const defaultSchema = (DEFAULT_SCHEMAS as Record<string, SchemaField[]>)[schemaModuleId]
+            ?? (DEFAULT_SCHEMAS as Record<string, SchemaField[]>)[moduleId]
             ?? (DEFAULT_SCHEMAS as Record<string, SchemaField[]>)[fallbackKey];
           setSchemas((prev) => ({ ...prev, [moduleId]: defaultSchema ?? [] }));
         }
@@ -873,8 +878,9 @@ export default function MasterDatabaseApp() {
     newSchema.splice(droppedIndex, 0, reorderedItem);
     setSchemas((prev) => ({ ...prev, [activeModule]: newSchema }));
     try {
+      const schemaTargetId = (MODULE_CONFIG as Record<string, ModuleConfig>)[activeModule]?.schemaSource || activeModule;
       await setDoc(
-        doc(db, "CMG-HR-Database", "root", "module_schemas", activeModule),
+        doc(db, "CMG-HR-Database", "root", "module_schemas", schemaTargetId),
         { fields: newSchema }
       );
       await addLog("ปรับลำดับ", `ย้ายคอลัมน์ใน ${activeModule}`);
@@ -901,8 +907,9 @@ export default function MasterDatabaseApp() {
         const newSchema = [...currentSchema];
         newSchema.splice(index, 1);
         try {
+          const schemaTargetId = (MODULE_CONFIG as Record<string, ModuleConfig>)[activeModule]?.schemaSource || activeModule;
           await setDoc(
-            doc(db, "CMG-HR-Database", "root", "module_schemas", activeModule),
+            doc(db, "CMG-HR-Database", "root", "module_schemas", schemaTargetId),
             { fields: newSchema }
           );
           setSchemas((prev) => ({ ...prev, [activeModule]: newSchema }));
@@ -1057,8 +1064,9 @@ export default function MasterDatabaseApp() {
     try {
       const updatedFields = [...currentSchema, newField];
       setSchemas((prev) => ({ ...prev, [activeModule]: updatedFields }));
+      const schemaTargetId = (MODULE_CONFIG as Record<string, ModuleConfig>)[activeModule]?.schemaSource || activeModule;
       await setDoc(
-        doc(db, "CMG-HR-Database", "root", "module_schemas", activeModule),
+        doc(db, "CMG-HR-Database", "root", "module_schemas", schemaTargetId),
         { fields: updatedFields }
       );
       
@@ -1093,8 +1101,9 @@ export default function MasterDatabaseApp() {
       async () => {
         try {
           const newSchema = currentSchema.filter((col) => !idsSet.has(col.id));
+          const schemaTargetId = (MODULE_CONFIG as Record<string, ModuleConfig>)[activeModule]?.schemaSource || activeModule;
           await setDoc(
-            doc(db, "CMG-HR-Database", "root", "module_schemas", activeModule),
+            doc(db, "CMG-HR-Database", "root", "module_schemas", schemaTargetId),
             { fields: newSchema }
           );
           setSchemas((prev) => ({ ...prev, [activeModule]: newSchema }));
@@ -1688,8 +1697,8 @@ export default function MasterDatabaseApp() {
         <div className="relative bg-white rounded-xl shadow-sm border border-gray-200 min-h-[300px]" style={{ maxWidth: "100%" }}>
           <div
             ref={tableScrollRef}
-            className="overflow-x-auto overflow-y-hidden min-h-[300px] scrollbar-hide-horizontal"
-            style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}
+            className="overflow-x-auto overflow-y-auto min-h-[300px]"
+            style={{ scrollbarWidth: "thin", maxHeight: "calc(100vh - 300px)" }}
             onScroll={syncRailScrollFromTable}
           >
             {dataLoading ? (
@@ -1699,7 +1708,7 @@ export default function MasterDatabaseApp() {
               </div>
             ) : (
               <table ref={tableElementRef} className="w-full text-left border-collapse min-w-max">
-                <thead ref={theadRef} className="bg-gray-50 border-b border-gray-200">
+                <thead ref={theadRef} className="bg-gray-50 border-b border-gray-200 sticky top-0 z-20">
                 <tr>
                   <th className="px-2 py-2 w-10 bg-gray-50 border-r border-gray-200 sticky left-0 z-10">
                     <input
