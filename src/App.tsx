@@ -151,6 +151,36 @@ const MODULE_CONFIG = {
   },
 };
 
+// --- STATUS FIELD IDs (for pastel coloring) ---
+const STATUS_FIELD_IDS = ["สถานะพนักงาน", "สถานะกลุ่มงาน", "สถานะโครงการ"];
+const STATUS_COLORS: Record<string, { header: string; cell: string; badge: string }> = {
+  สถานะพนักงาน: {
+    header: "bg-rose-50 text-rose-700",
+    cell: "bg-rose-50/60",
+    badge: "bg-rose-100 text-rose-700 border border-rose-200",
+  },
+  สถานะกลุ่มงาน: {
+    header: "bg-sky-50 text-sky-700",
+    cell: "bg-sky-50/60",
+    badge: "bg-sky-100 text-sky-700 border border-sky-200",
+  },
+  สถานะโครงการ: {
+    header: "bg-emerald-50 text-emerald-700",
+    cell: "bg-emerald-50/60",
+    badge: "bg-emerald-100 text-emerald-700 border border-emerald-200",
+  },
+};
+
+// Default project status options stored in localStorage key
+const PROJECT_STATUS_LS_KEY = "cmg_project_status_options";
+const getInitialProjectOptions = (): string[] => {
+  try {
+    const stored = localStorage.getItem(PROJECT_STATUS_LS_KEY);
+    if (stored) return JSON.parse(stored) as string[];
+  } catch {}
+  return ["J-01", "J-02"];
+};
+
 // --- INITIAL CONFIGURATION (Fallbacks) ---
 const DEFAULT_SCHEMAS = {
   employee_data: [
@@ -177,6 +207,24 @@ const DEFAULT_SCHEMAS = {
       label: "Employee Type",
       type: "select",
       options: ["Indirect", "Direct_TeamLeader", "Direct_SupplyDC", "Direct_SubContractor"],
+    },
+    {
+      id: "สถานะพนักงาน",
+      label: "สถานะพนักงาน",
+      type: "select",
+      options: ["ทำงาน", "พักงาน", "ลาคลอด", "ลาออก", "เลิกจ้าง"],
+    },
+    {
+      id: "สถานะกลุ่มงาน",
+      label: "สถานะกลุ่มงาน",
+      type: "select",
+      options: ["Staff", "Worker", "Subcontract", "Supply Contract"],
+    },
+    {
+      id: "สถานะโครงการ",
+      label: "สถานะโครงการ",
+      type: "select",
+      options: ["J-01", "J-02"],
     },
   ],
   users_data: [
@@ -592,6 +640,38 @@ export default function MasterDatabaseApp() {
     options: "",
   });
 
+  // --- Project Status Options (dynamic, persisted to localStorage) ---
+  const [projectStatusOptions, setProjectStatusOptions] = useState<string[]>(getInitialProjectOptions);
+  const [newProjectOption, setNewProjectOption] = useState("");
+  const [isAddingProjectOption, setIsAddingProjectOption] = useState(false);
+
+  const saveProjectOptions = (opts: string[]) => {
+    setProjectStatusOptions(opts);
+    try { localStorage.setItem(PROJECT_STATUS_LS_KEY, JSON.stringify(opts)); } catch {}
+    // Also sync into current schema in memory
+    setSchemas((prev) => {
+      const updated: Record<string, SchemaField[]> = {};
+      for (const [modId, fields] of Object.entries(prev)) {
+        updated[modId] = (fields as SchemaField[]).map((f) =>
+          f.id === "สถานะโครงการ" ? { ...f, options: opts } : f
+        );
+      }
+      return updated;
+    });
+  };
+
+  const handleAddProjectOption = () => {
+    const trimmed = newProjectOption.trim();
+    if (!trimmed || projectStatusOptions.includes(trimmed)) {
+      setNewProjectOption("");
+      setIsAddingProjectOption(false);
+      return;
+    }
+    saveProjectOptions([...projectStatusOptions, trimmed]);
+    setNewProjectOption("");
+    setIsAddingProjectOption(false);
+  };
+
   const [hiddenColumnsMap, setHiddenColumnsMap] = useState<Record<string, string[]>>({});
   const [isColVisOpen, setIsColVisOpen] = useState(false);
   const [skipImportRows, setSkipImportRows] = useState(0);
@@ -714,14 +794,63 @@ export default function MasterDatabaseApp() {
         const schemaRef = doc(db, "CMG-HR-Database", "root", "module_schemas", schemaModuleId);
         const schemaSnap = await getDoc(schemaRef);
         if (fetchModuleRef.current !== moduleId) return;
+
+        // --- Status field definitions to auto-inject ---
+        const STATUS_FIELD_DEFS: SchemaField[] = [
+          {
+            id: "สถานะพนักงาน",
+            label: "สถานะพนักงาน",
+            type: "select",
+            options: ["ทำงาน", "พักงาน", "ลาคลอด", "ลาออก", "เลิกจ้าง"],
+          },
+          {
+            id: "สถานะกลุ่มงาน",
+            label: "สถานะกลุ่มงาน",
+            type: "select",
+            options: ["Staff", "Worker", "Subcontract", "Supply Contract"],
+          },
+          {
+            id: "สถานะโครงการ",
+            label: "สถานะโครงการ",
+            type: "select",
+            options: getInitialProjectOptions(),
+          },
+        ];
+
         if (schemaSnap.exists()) {
-          setSchemas((prev) => ({ ...prev, [moduleId]: schemaSnap.data().fields }));
+          let loadedFields: SchemaField[] = schemaSnap.data().fields as SchemaField[];
+          // Auto-merge: add any missing status fields to the end
+          const existingIds = new Set(loadedFields.map((f) => f.id));
+          const missingStatusFields = STATUS_FIELD_DEFS.filter((f) => !existingIds.has(f.id));
+          if (missingStatusFields.length > 0) {
+            loadedFields = [...loadedFields, ...missingStatusFields];
+            // Save merged schema back to Firestore silently
+            try {
+              await setDoc(
+                doc(db, "CMG-HR-Database", "root", "module_schemas", schemaModuleId),
+                { fields: loadedFields }
+              );
+            } catch (e) {
+              console.warn("Could not auto-save merged schema:", e);
+            }
+          } else {
+            // Sync project options from localStorage into schema in memory
+            loadedFields = loadedFields.map((f) =>
+              f.id === "สถานะโครงการ" ? { ...f, options: getInitialProjectOptions() } : f
+            );
+          }
+          setSchemas((prev) => ({ ...prev, [moduleId]: loadedFields }));
         } else {
           const fallbackKey = subcollectionName;
-          const defaultSchema = (DEFAULT_SCHEMAS as Record<string, SchemaField[]>)[schemaModuleId]
+          let defaultSchema = (DEFAULT_SCHEMAS as Record<string, SchemaField[]>)[schemaModuleId]
             ?? (DEFAULT_SCHEMAS as Record<string, SchemaField[]>)[moduleId]
-            ?? (DEFAULT_SCHEMAS as Record<string, SchemaField[]>)[fallbackKey];
-          setSchemas((prev) => ({ ...prev, [moduleId]: defaultSchema ?? [] }));
+            ?? (DEFAULT_SCHEMAS as Record<string, SchemaField[]>)[fallbackKey]
+            ?? [];
+          // Sync project options from localStorage
+          defaultSchema = defaultSchema.map((f) =>
+            f.id === "สถานะโครงการ" ? { ...f, options: getInitialProjectOptions() } : f
+          );
+          setSchemas((prev) => ({ ...prev, [moduleId]: defaultSchema }));
         }
 
         // อ่านข้อมูลครั้งเดียว (N reads = จำนวนเอกสาร)
@@ -1464,27 +1593,27 @@ export default function MasterDatabaseApp() {
               <table className="w-full text-left border-collapse min-w-[600px]">
                 <thead className="bg-gray-100 text-gray-600 text-xs uppercase font-semibold">
                   <tr>
-                    <th className="px-3 py-2 border-b w-14 text-center">ลำดับ</th>
-                    <th className="px-3 py-2 border-b">เวลา</th>
-                    <th className="px-3 py-2 border-b">ผู้ใช้</th>
-                    <th className="px-3 py-2 border-b">Module</th>
-                    <th className="px-3 py-2 border-b">กิจกรรม</th>
-                    <th className="px-3 py-2 border-b">รายละเอียด</th>
+                    <th className="px-3 py-1 border-b w-14 text-center">ลำดับ</th>
+                    <th className="px-3 py-1 border-b">เวลา</th>
+                    <th className="px-3 py-1 border-b">ผู้ใช้</th>
+                    <th className="px-3 py-1 border-b">Module</th>
+                    <th className="px-3 py-1 border-b">กิจกรรม</th>
+                    <th className="px-3 py-1 border-b">รายละเอียด</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100 text-sm text-gray-700">
                   {logs.map((log, idx) => (
                     <tr key={log.id} className="hover:bg-gray-50">
-                      <td className="px-3 py-2 text-center text-gray-500">{idx + 1}</td>
-                      <td className="px-3 py-2">{log.timestamp}</td>
-                      <td className="px-3 py-2 font-medium">{log.user}</td>
-                      <td className="px-3 py-2">
-                        <span className="px-2 py-1 bg-slate-100 rounded border">
+                      <td className="px-3 py-1 text-center text-gray-500">{idx + 1}</td>
+                      <td className="px-3 py-1">{log.timestamp}</td>
+                      <td className="px-3 py-1 font-medium">{log.user}</td>
+                      <td className="px-3 py-1">
+                        <span className="px-2 py-0.5 bg-slate-100 rounded border">
                           {log.module}
                         </span>
                       </td>
-                      <td className="px-3 py-2 text-blue-600">{log.action}</td>
-                      <td className="px-3 py-2 text-gray-500">{log.details}</td>
+                      <td className="px-3 py-1 text-blue-600">{log.action}</td>
+                      <td className="px-3 py-1 text-gray-500">{log.details}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -1531,41 +1660,15 @@ export default function MasterDatabaseApp() {
         onToggleSidebar={() => setSidebarOpen((o) => !o)}
       />
       <main
-        className="flex-1 p-8 min-w-0 overflow-x-hidden transition-[margin-left] duration-200 ease-in-out"
+        className="flex-1 flex flex-col px-6 pt-4 pb-4 min-w-0 overflow-x-hidden transition-[margin-left] duration-200 ease-in-out h-screen"
         style={{ marginLeft: sidebarOpen ? SIDEBAR_WIDTH : SIDEBAR_COLLAPSED_WIDTH }}
       >
-        <header className="flex justify-between items-start mb-8">
-          <div>
-            <h1 className="text-3xl font-bold text-gray-800 mb-2 capitalize flex items-center gap-3">
-              {config.label}
-            </h1>
-            <p className="text-gray-500 text-sm flex gap-2">
-              <Database size={14} className="text-green-500" /> Collection:{" "}
-              {config.collection}
-            </p>
-          </div>
-          <div className="flex gap-3">
-            <button
-              onClick={() => setIsSchemaModalOpen(true)}
-              className="flex items-center gap-2 px-4 py-2 bg-indigo-50 text-indigo-700 rounded-lg hover:bg-indigo-100 text-sm font-medium"
-            >
-              <Settings size={16} /> ตั้งค่าคอลัมน์
-            </button>
-            <button
-              onClick={() => {
-                setEditingItem(null);
-                // Do NOT prefill formData for Auto-ID fields in "Add" mode. Let handleSaveItem generate it securely.
-                setFormData({});
-                setIsAddModalOpen(true);
-              }}
-              className="flex items-center gap-2 px-5 py-2 bg-blue-600 text-white rounded-lg shadow-md hover:bg-blue-700 text-sm font-bold"
-            >
-              <Plus size={18} /> เพิ่มรายการ
-            </button>
-          </div>
-        </header>
+        <header className="flex items-center gap-3 mb-3 bg-white px-3 py-2 rounded-xl shadow-sm border border-gray-200">
+          <h1 className="text-base font-bold text-gray-800 whitespace-nowrap flex items-center gap-2 shrink-0">
+            {config.label}
+          </h1>
+          <div className="w-px h-5 bg-gray-200 shrink-0" />
 
-        <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-200 mb-6 flex flex-wrap gap-4 justify-between items-center">
           <div className="relative flex-1 min-w-[200px]">
             <Search
               className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"
@@ -1574,16 +1677,16 @@ export default function MasterDatabaseApp() {
             <input
               type="text"
               placeholder="ค้นหา..."
-              className="w-full pl-10 pr-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-100 outline-none"
+              className="w-full pl-10 pr-4 py-1.5 border rounded-lg focus:ring-2 focus:ring-blue-100 outline-none text-sm"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
             />
           </div>
-          <div className="flex gap-2 text-sm items-center">
+          <div className="flex gap-2 text-sm items-center flex-wrap">
             <div className="relative">
               <button
                 onClick={() => setIsColVisOpen(!isColVisOpen)}
-                className="flex items-center gap-2 px-3 py-2 text-gray-600 hover:bg-gray-100 rounded border hover:border-gray-200"
+                className="flex items-center gap-1.5 px-2.5 py-1.5 text-gray-600 hover:bg-gray-100 rounded border hover:border-gray-200 text-xs"
               >
                 <Columns size={16} /> เลือกคอลัมน์
               </button>
@@ -1641,14 +1744,14 @@ export default function MasterDatabaseApp() {
 
             <button
               onClick={downloadCSV}
-              className="flex items-center gap-2 px-3 py-2 text-gray-600 hover:bg-gray-100 rounded border hover:border-gray-200"
+              className="flex items-center gap-1.5 px-2.5 py-1.5 text-gray-600 hover:bg-gray-100 rounded border hover:border-gray-200 text-xs"
             >
               <Download size={16} /> Export
             </button>
             <div className="relative group">
               <button
                 onClick={downloadTemplate}
-                className="flex items-center gap-2 px-3 py-2 text-gray-600 hover:bg-gray-100 rounded border hover:border-gray-200"
+                className="flex items-center gap-1.5 px-2.5 py-1.5 text-gray-600 hover:bg-gray-100 rounded border hover:border-gray-200 text-xs"
               >
                 <FileText size={16} /> Template
               </button>
@@ -1669,7 +1772,7 @@ export default function MasterDatabaseApp() {
                 className="w-14 px-2 py-1 border rounded text-sm text-center"
                 title="จำนวนแถวข้อมูลที่ข้าม (หลังหัวตาราง)"
               />
-              <label className="flex items-center gap-2 px-3 py-2 text-gray-600 hover:bg-gray-100 rounded border hover:border-gray-200 cursor-pointer bg-blue-50 text-blue-700 font-medium">
+              <label className="flex items-center gap-1.5 px-2.5 py-1.5 text-gray-600 hover:bg-gray-100 rounded border hover:border-gray-200 cursor-pointer bg-blue-50 text-blue-700 font-medium text-xs">
                 <Upload size={16} /> Import{" "}
                 <input
                   type="file"
@@ -1685,20 +1788,37 @@ export default function MasterDatabaseApp() {
                 <button
                   type="button"
                   onClick={handleDeleteSelected}
-                  className="flex items-center gap-2 px-3 py-2 text-white bg-red-600 hover:bg-red-700 rounded border border-red-700 text-sm font-medium"
+                  className="flex items-center gap-1.5 px-2.5 py-1.5 text-white bg-red-600 hover:bg-red-700 rounded border border-red-700 text-xs font-medium"
                 >
                   <Trash2 size={16} /> ลบที่เลือก
                 </button>
               </>
             )}
+            <div className="w-px h-5 bg-gray-200 shrink-0" />
+            <button
+              onClick={() => setIsSchemaModalOpen(true)}
+              className="flex items-center gap-1.5 px-2.5 py-1.5 bg-indigo-50 text-indigo-700 rounded-lg hover:bg-indigo-100 text-xs font-medium whitespace-nowrap shrink-0"
+            >
+              <Settings size={14} /> ตั้งค่าคอลัมน์
+            </button>
+            <button
+              onClick={() => {
+                setEditingItem(null);
+                setFormData({});
+                setIsAddModalOpen(true);
+              }}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 text-white rounded-lg shadow-sm hover:bg-blue-700 text-xs font-bold whitespace-nowrap shrink-0"
+            >
+              <Plus size={14} /> เพิ่มรายการ
+            </button>
           </div>
-        </div>
+        </header>
 
-        <div className="relative bg-white rounded-xl shadow-sm border border-gray-200 min-h-[300px]" style={{ maxWidth: "100%" }}>
+        <div className="relative bg-white rounded-xl shadow-sm border border-gray-200 flex-1 min-h-0 flex flex-col" style={{ maxWidth: "100%" }}>
           <div
             ref={tableScrollRef}
-            className="overflow-x-auto overflow-y-auto min-h-[300px]"
-            style={{ scrollbarWidth: "thin", maxHeight: "calc(100vh - 300px)" }}
+            className="overflow-x-auto overflow-y-auto flex-1 min-h-0"
+            style={{ scrollbarWidth: "thin" }}
             onScroll={syncRailScrollFromTable}
           >
             {dataLoading ? (
@@ -1710,7 +1830,7 @@ export default function MasterDatabaseApp() {
               <table ref={tableElementRef} className="w-full text-left border-collapse min-w-max">
                 <thead ref={theadRef} className="bg-gray-50 border-b border-gray-200 sticky top-0 z-20">
                 <tr>
-                  <th className="px-2 py-2 w-10 bg-gray-50 border-r border-gray-200 sticky left-0 z-10">
+                  <th className="px-2 py-1 w-10 bg-gray-50 border-r border-gray-200 sticky left-0 z-10">
                     <input
                       type="checkbox"
                       ref={selectAllCheckboxRef}
@@ -1720,44 +1840,51 @@ export default function MasterDatabaseApp() {
                       title="เลือกทั้งหมด"
                     />
                   </th>
-                  <th className="px-3 py-2 text-xs font-semibold text-gray-500 uppercase tracking-wider w-14 text-center bg-gray-50 border-r border-gray-200 sticky left-0 z-10">ลำดับ</th>
+                  <th className="px-3 py-1 text-xs font-semibold text-gray-500 uppercase tracking-wider w-14 text-center bg-gray-50 border-r border-gray-200 sticky left-0 z-10">ลำดับ</th>
                   {/* V18: Fixed Column Header (No Drag, No Delete Button) */}
                   {fixedColumn && (
-                    <th className="px-3 py-2 text-xs font-semibold text-gray-500 uppercase tracking-wider whitespace-nowrap bg-gray-100 border-r border-gray-200 sticky left-0 z-10 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)]">
+                    <th className="px-3 py-1 text-xs font-semibold text-gray-500 uppercase tracking-wider whitespace-nowrap bg-gray-100 border-r border-gray-200 sticky left-0 z-10 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)]">
                       <div className="flex items-center gap-2">
                         {fixedColumn.label}
                       </div>
                     </th>
                   )}
                   {/* Draggable Columns */}
-                  {draggableColumns.map((col, index) => (
-                    <th
-                      key={col.id}
-                      className="px-3 py-2 text-xs font-semibold text-gray-500 uppercase tracking-wider whitespace-nowrap cursor-move hover:bg-gray-100 group"
-                      draggable
-                      onDragStart={(e) => handleDragStart(e, index)}
-                      onDragOver={handleDragOver}
-                      onDrop={(e) => handleDrop(e, index)}
-                    >
-                      <div className="flex items-center gap-2">
-                        <GripVertical
-                          size={14}
-                          className="text-gray-300 group-hover:text-gray-500"
-                        />{" "}
-                        {col.label}
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleDeleteColumn(index, col.label, col.id);
-                          }}
-                          className="ml-auto opacity-0 group-hover:opacity-100 text-red-400 hover:text-red-600 p-1 rounded hover:bg-red-50"
-                        >
-                          <X size={14} />
-                        </button>
-                      </div>
-                    </th>
-                  ))}
-                  <th className="px-3 py-2 text-right text-xs font-semibold text-gray-500 uppercase">
+                  {draggableColumns.map((col, index) => {
+                    const statusColor = STATUS_COLORS[col.id];
+                    return (
+                      <th
+                        key={col.id}
+                        className={`px-3 py-1 text-xs font-semibold uppercase tracking-wider whitespace-nowrap cursor-move group ${
+                          statusColor
+                            ? `${statusColor.header} hover:brightness-95`
+                            : "text-gray-500 hover:bg-gray-100"
+                        }`}
+                        draggable
+                        onDragStart={(e) => handleDragStart(e, index)}
+                        onDragOver={handleDragOver}
+                        onDrop={(e) => handleDrop(e, index)}
+                      >
+                        <div className="flex items-center gap-2">
+                          <GripVertical
+                            size={14}
+                            className="text-current opacity-40 group-hover:opacity-70"
+                          />{" "}
+                          {col.label}
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleDeleteColumn(index, col.label, col.id);
+                            }}
+                            className="ml-auto opacity-0 group-hover:opacity-100 text-red-400 hover:text-red-600 p-1 rounded hover:bg-red-50"
+                          >
+                            <X size={14} />
+                          </button>
+                        </div>
+                      </th>
+                    );
+                  })}
+                  <th className="px-3 py-1 text-right text-xs font-semibold text-gray-500 uppercase">
                     จัดการ
                   </th>
                 </tr>
@@ -1772,7 +1899,7 @@ export default function MasterDatabaseApp() {
                       key={row.id || idx}
                       className={`hover:bg-blue-50/50 group ${selectedIds.has(row.id) ? "bg-blue-50" : ""}`}
                     >
-                      <td className="px-2 py-2 bg-gray-50/50 border-r border-gray-100 sticky left-0 z-10">
+                      <td className="px-2 py-1 bg-gray-50/50 border-r border-gray-100 sticky left-0 z-10">
                         <input
                           type="checkbox"
                           checked={selectedIds.has(row.id)}
@@ -1780,25 +1907,35 @@ export default function MasterDatabaseApp() {
                           className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
                         />
                       </td>
-                      <td className="px-3 py-2 text-center text-gray-500 font-medium bg-gray-50/50 border-r border-gray-100 sticky left-0 z-10 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.05)]">
+                      <td className="px-3 py-1 text-center text-gray-500 font-medium bg-gray-50/50 border-r border-gray-100 sticky left-0 z-10 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.05)]">
                         {idx + 1}
                       </td>
                       {/* Fixed Cell */}
                       {fixedColumn && (
-                        <td className="px-3 py-2 text-gray-700 whitespace-nowrap max-w-xs overflow-hidden text-ellipsis font-bold bg-gray-50/50 border-r border-gray-100 sticky left-0 z-10 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.05)]">
+                        <td className="px-3 py-1 text-gray-700 whitespace-nowrap max-w-xs overflow-hidden text-ellipsis font-bold bg-gray-50/50 border-r border-gray-100 sticky left-0 z-10 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.05)]">
                           {String(row[fixedColumn.id] || "-")}
                         </td>
                       )}
                       {/* Draggable Cells */}
-                      {draggableColumns.map((col) => (
-                        <td
-                          key={col.id}
-                          className="px-3 py-2 text-gray-700 whitespace-nowrap max-w-xs overflow-hidden text-ellipsis"
-                        >
-                          {String(row[col.id] || "-")}
-                        </td>
-                      ))}
-                      <td className="px-3 py-2 flex justify-end gap-2 opacity-80 group-hover:opacity-100">
+                      {draggableColumns.map((col) => {
+                        const statusColor = STATUS_COLORS[col.id];
+                        const cellVal = String(row[col.id] || "-");
+                        return (
+                          <td
+                            key={col.id}
+                            className={`px-3 py-1 whitespace-nowrap max-w-xs overflow-hidden text-ellipsis ${
+                              statusColor ? statusColor.cell : "text-gray-700"
+                            }`}
+                          >
+                            {statusColor && cellVal !== "-" ? (
+                              <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${statusColor.badge}`}>
+                                {cellVal}
+                              </span>
+                            ) : cellVal}
+                          </td>
+                        );
+                      })}
+                      <td className="px-3 py-1 flex justify-end gap-2 opacity-80 group-hover:opacity-100">
                         <button
                           onClick={() => {
                             setEditingItem(row);
@@ -1871,34 +2008,183 @@ export default function MasterDatabaseApp() {
           </>
         }
       >
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {currentSchema.map((field) => {
-            const isClientAuto =
-              activeModule === "client_list" && field.id === "Customer_ID";
-            const isContractorAuto =
-              activeModule === "contractors" && field.id === "con_id";
+        {/* Separate status fields from normal fields */}
+        {(() => {
+          const normalFields = currentSchema.filter(
+            (f) => !STATUS_FIELD_IDS.includes(f.id)
+          );
+          const statusFields = currentSchema.filter((f) =>
+            STATUS_FIELD_IDS.includes(f.id)
+          );
 
-            // V18: Completely hide Auto-ID fields when ADDING new items. They will be generated upon save.
-            // If editing, show them as disabled.
-            if ((isClientAuto || isContractorAuto) && !editingItem) return null;
+          const empStatusField = statusFields.find((f) => f.id === "สถานะพนักงาน");
+          const grpStatusField = statusFields.find((f) => f.id === "สถานะกลุ่มงาน");
+          const projStatusField = statusFields.find((f) => f.id === "สถานะโครงการ");
 
-            return (
-              <div key={field.id} className="space-y-1">
-                <label className="text-sm font-medium text-gray-700">
-                  {field.label}
-                </label>
-                <DynamicInput
-                  field={field}
-                  value={(formData[field.id] as string | boolean) ?? ""}
-                  onChange={(val) =>
-                    setFormData({ ...formData, [field.id]: val })
-                  }
-                  disabled={isClientAuto || isContractorAuto}
-                />
+          return (
+            <div className="space-y-6">
+              {/* Normal fields grid */}
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {normalFields.map((field) => {
+                  const isClientAuto =
+                    activeModule === "client_list" && field.id === "Customer_ID";
+                  const isContractorAuto =
+                    activeModule === "contractors" && field.id === "con_id";
+                  if ((isClientAuto || isContractorAuto) && !editingItem) return null;
+                  return (
+                    <div key={field.id} className="space-y-1">
+                      <label className="text-sm font-medium text-gray-700">
+                        {field.label}
+                      </label>
+                      <DynamicInput
+                        field={field}
+                        value={(formData[field.id] as string | boolean) ?? ""}
+                        onChange={(val) => setFormData({ ...formData, [field.id]: val })}
+                        disabled={isClientAuto || isContractorAuto}
+                      />
+                    </div>
+                  );
+                })}
               </div>
-            );
-          })}
-        </div>
+
+              {/* Status fields — pastel color bands */}
+              {statusFields.length > 0 && (
+                <div className="rounded-xl border border-gray-100 overflow-hidden shadow-sm">
+                  <div className="px-4 py-2 bg-gray-50 border-b border-gray-100">
+                    <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">สถานะ</span>
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-3">
+
+                    {/* สถานะพนักงาน — rose */}
+                    {empStatusField && (
+                      <div className="p-4 bg-rose-50/70 border-r border-rose-100 space-y-1">
+                        <label className="text-sm font-semibold text-rose-700 flex items-center gap-1">
+                          <span className="w-2 h-2 rounded-full bg-rose-400 inline-block"></span>
+                          {empStatusField.label}
+                        </label>
+                        <select
+                          className="w-full px-3 py-2 border border-rose-200 rounded-md focus:ring-2 focus:ring-rose-400 focus:border-transparent outline-none transition-all text-sm bg-white text-rose-800"
+                          value={(formData[empStatusField.id] as string) ?? ""}
+                          onChange={(e) => setFormData({ ...formData, [empStatusField.id]: e.target.value })}
+                        >
+                          <option value="">-- กรุณาเลือก --</option>
+                          {empStatusField.options?.map((opt, i) => (
+                            <option key={i} value={opt}>{opt}</option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
+
+                    {/* สถานะกลุ่มงาน — sky */}
+                    {grpStatusField && (
+                      <div className="p-4 bg-sky-50/70 border-r border-sky-100 space-y-1">
+                        <label className="text-sm font-semibold text-sky-700 flex items-center gap-1">
+                          <span className="w-2 h-2 rounded-full bg-sky-400 inline-block"></span>
+                          {grpStatusField.label}
+                        </label>
+                        <select
+                          className="w-full px-3 py-2 border border-sky-200 rounded-md focus:ring-2 focus:ring-sky-400 focus:border-transparent outline-none transition-all text-sm bg-white text-sky-800"
+                          value={(formData[grpStatusField.id] as string) ?? ""}
+                          onChange={(e) => setFormData({ ...formData, [grpStatusField.id]: e.target.value })}
+                        >
+                          <option value="">-- กรุณาเลือก --</option>
+                          {grpStatusField.options?.map((opt, i) => (
+                            <option key={i} value={opt}>{opt}</option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
+
+                    {/* สถานะโครงการ — emerald + add button */}
+                    {projStatusField && (
+                      <div className="p-4 bg-emerald-50/70 space-y-1">
+                        <label className="text-sm font-semibold text-emerald-700 flex items-center gap-1">
+                          <span className="w-2 h-2 rounded-full bg-emerald-400 inline-block"></span>
+                          {projStatusField.label}
+                        </label>
+                        <div className="flex gap-1 items-center">
+                          <select
+                            className="flex-1 px-3 py-2 border border-emerald-200 rounded-md focus:ring-2 focus:ring-emerald-400 focus:border-transparent outline-none transition-all text-sm bg-white text-emerald-800"
+                            value={(formData[projStatusField.id] as string) ?? ""}
+                            onChange={(e) => setFormData({ ...formData, [projStatusField.id]: e.target.value })}
+                          >
+                            <option value="">-- กรุณาเลือก --</option>
+                            {projectStatusOptions.map((opt, i) => (
+                              <option key={i} value={opt}>{opt}</option>
+                            ))}
+                          </select>
+                          {/* + button to add new project option */}
+                          {isAddingProjectOption ? (
+                            <div className="flex gap-1">
+                              <input
+                                autoFocus
+                                type="text"
+                                className="w-20 px-2 py-2 border border-emerald-300 rounded-md text-sm outline-none focus:ring-2 focus:ring-emerald-400"
+                                placeholder="เช่น J-03"
+                                value={newProjectOption}
+                                onChange={(e) => setNewProjectOption(e.target.value)}
+                                onKeyDown={(e) => {
+                                  if (e.key === "Enter") handleAddProjectOption();
+                                  if (e.key === "Escape") { setIsAddingProjectOption(false); setNewProjectOption(""); }
+                                }}
+                              />
+                              <button
+                                type="button"
+                                onClick={handleAddProjectOption}
+                                className="p-2 rounded-md bg-emerald-500 text-white hover:bg-emerald-600 text-xs"
+                                title="ยืนยัน"
+                              >
+                                <Check size={14} />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => { setIsAddingProjectOption(false); setNewProjectOption(""); }}
+                                className="p-2 rounded-md bg-gray-200 text-gray-600 hover:bg-gray-300 text-xs"
+                                title="ยกเลิก"
+                              >
+                                <X size={14} />
+                              </button>
+                            </div>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => setIsAddingProjectOption(true)}
+                              className="p-2 rounded-md bg-emerald-100 text-emerald-700 hover:bg-emerald-200 border border-emerald-200 transition-colors"
+                              title="เพิ่มรายการโครงการ"
+                            >
+                              <Plus size={14} />
+                            </button>
+                          )}
+                        </div>
+                        {projectStatusOptions.length > 0 && (
+                          <div className="flex flex-wrap gap-1 pt-1">
+                            {projectStatusOptions.map((opt) => (
+                              <span
+                                key={opt}
+                                className="inline-flex items-center gap-1 px-2 py-0.5 bg-emerald-100 text-emerald-700 text-xs rounded-full border border-emerald-200"
+                              >
+                                {opt}
+                                <button
+                                  type="button"
+                                  onClick={() => saveProjectOptions(projectStatusOptions.filter((o) => o !== opt))}
+                                  className="text-emerald-400 hover:text-red-500 ml-0.5"
+                                  title={`ลบ ${opt}`}
+                                >
+                                  <X size={10} />
+                                </button>
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        })()}
       </Modal>
 
       <Modal
