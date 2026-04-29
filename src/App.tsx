@@ -1083,6 +1083,25 @@ export default function MasterDatabaseApp() {
         } else if (activeModule === "contractors") {
           docId = generateNextID("contractors", currentData);
           cleanData["con_id"] = docId;
+        } else if (activeModule === "emp_direct_sub") {
+          // Sub Contractor: ใช้ชื่อตัว+ชื่อสกุลเป็น unique key
+          const firstName = String(cleanData["ชื่อตัว"] || "").trim();
+          const lastName = String(cleanData["ชื่อสกุล"] || "").trim();
+          if (!firstName || !lastName) {
+            showNotification("error", "ข้อมูลไม่ครบ", "กรุณาระบุ ชื่อตัว และ ชื่อสกุล");
+            return;
+          }
+          const fullName = `${firstName} ${lastName}`;
+          const isDuplicate = currentData.some((item) => {
+            const iFirst = String(item["ชื่อตัว"] || "").trim();
+            const iLast = String(item["ชื่อสกุล"] || "").trim();
+            return iFirst === firstName && iLast === lastName;
+          });
+          if (isDuplicate) {
+            showNotification("error", "ชื่อซ้ำ", `"${fullName}" มีอยู่ในระบบแล้ว ไม่สามารถเพิ่มซ้ำได้`);
+            return;
+          }
+          docId = `${firstName}_${lastName}`.replace(/[\/#${}\s]/g, "_");
         } else {
           docId = cleanData[primaryKeyField];
         }
@@ -1261,7 +1280,12 @@ export default function MasterDatabaseApp() {
     const headers = ["ลำดับ", ...currentSchema.map((col) => col.label)].join(",");
     const rows = currentData
       .map((row, idx) =>
-        [idx + 1, ...currentSchema.map((col) => `"${row[col.id] || ""}"`)].join(",")
+        [idx + 1, ...currentSchema.map((col) => {
+          const v = row[col.id];
+          // สถานะโครงการ: join array ด้วย | เพื่อ export
+          const strVal = Array.isArray(v) ? (v as string[]).join("|") : (v || "");
+          return `"${strVal}"`;
+        })].join(",")
       )
       .join("\n");
     const blob = createUtf8BomBlob(`${headers}\n${rows}`);
@@ -1461,7 +1485,14 @@ export default function MasterDatabaseApp() {
           headerMap.forEach((fieldId: string | null, index: number) => {
             const raw = (values[index] ?? "").trim();
             if (fieldId && raw !== "") {
-              docData[fieldId] = raw;
+              // สถานะโครงการ: parse pipe-separated values → array
+              if (fieldId === "สถานะโครงการ" && raw.includes("|")) {
+                docData[fieldId] = raw.split("|").map((s) => s.trim()).filter(Boolean);
+              } else if (fieldId === "สถานะโครงการ") {
+                docData[fieldId] = [raw]; // single value → wrap as array
+              } else {
+                docData[fieldId] = raw;
+              }
               // Verify if row actually has data besides empty strings
               if (fieldId !== "Customer_ID" && fieldId !== "con_id") {
                 hasActualData = true;
@@ -1497,7 +1528,26 @@ export default function MasterDatabaseApp() {
             }
           }
 
-          if (docData[primaryKeyField]) {
+          // Sub Contractor: ใช้ชื่อตัว+ชื่อสกุลเป็น unique key แทนรหัสพนักงาน
+          if (activeModule === "emp_direct_sub") {
+            const firstName = String(docData["ชื่อตัว"] || "").trim();
+            const lastName = String(docData["ชื่อสกุล"] || "").trim();
+            if (!firstName || !lastName) continue; // ข้ามแถวที่ไม่มีชื่อ
+            const fullName = `${firstName} ${lastName}`;
+            const alreadyInDb = currentData.some((item) => {
+              const iFirst = String(item["ชื่อตัว"] || "").trim();
+              const iLast = String(item["ชื่อสกุล"] || "").trim();
+              return iFirst === firstName && iLast === lastName;
+            });
+            if (alreadyInDb) {
+              skipCount++;
+              skippedIds.push(fullName);
+            } else {
+              const docId = `${firstName}_${lastName}`.replace(/[\/#${}\s]/g, "_");
+              await setDoc(doc(db, "CMG-HR-Database", "root", subcollectionName, docId), docData);
+              successCount++;
+            }
+          } else if (docData[primaryKeyField]) {
             const rawId = docData[primaryKeyField];
             const docId = String(rawId).replace(/[\/\.\#\$\{\}]/g, "_");
             const docRef = doc(db, "CMG-HR-Database", "root", subcollectionName, docId);
@@ -1841,6 +1891,10 @@ export default function MasterDatabaseApp() {
                     />
                   </th>
                   <th className="px-3 py-1 text-xs font-semibold text-gray-500 uppercase tracking-wider w-14 text-center bg-gray-50 border-r border-gray-200 sticky left-0 z-10">ลำดับ</th>
+                  {/* จัดการ — ย้ายมาอยู่คอลัมน์แรก */}
+                  <th className="px-3 py-1 text-center text-xs font-semibold text-gray-500 uppercase border-r border-gray-200 whitespace-nowrap">
+                    จัดการ
+                  </th>
                   {/* V18: Fixed Column Header (No Drag, No Delete Button) */}
                   {fixedColumn && (
                     <th className="px-3 py-1 text-xs font-semibold text-gray-500 uppercase tracking-wider whitespace-nowrap bg-gray-100 border-r border-gray-200 sticky left-0 z-10 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)]">
@@ -1884,9 +1938,6 @@ export default function MasterDatabaseApp() {
                       </th>
                     );
                   })}
-                  <th className="px-3 py-1 text-right text-xs font-semibold text-gray-500 uppercase">
-                    จัดการ
-                  </th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100 text-sm">
@@ -1910,6 +1961,27 @@ export default function MasterDatabaseApp() {
                       <td className="px-3 py-1 text-center text-gray-500 font-medium bg-gray-50/50 border-r border-gray-100 sticky left-0 z-10 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.05)]">
                         {idx + 1}
                       </td>
+                      {/* จัดการ — ย้ายมาอยู่คอลัมน์แรก */}
+                      <td className="px-3 py-1 border-r border-gray-100">
+                        <div className="flex justify-center gap-1 opacity-80 group-hover:opacity-100">
+                          <button
+                            onClick={() => {
+                              setEditingItem(row);
+                              setFormData(row);
+                              setIsAddModalOpen(true);
+                            }}
+                            className="p-1.5 text-blue-600 hover:bg-blue-100 rounded"
+                          >
+                            <Edit size={16} />
+                          </button>
+                          <button
+                            onClick={() => handleDeleteItem(row.id)}
+                            className="p-1.5 text-red-600 hover:bg-red-100 rounded"
+                          >
+                            <Trash2 size={16} />
+                          </button>
+                        </div>
+                      </td>
                       {/* Fixed Cell */}
                       {fixedColumn && (
                         <td className="px-3 py-1 text-gray-700 whitespace-nowrap max-w-xs overflow-hidden text-ellipsis font-bold bg-gray-50/50 border-r border-gray-100 sticky left-0 z-10 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.05)]">
@@ -1919,7 +1991,10 @@ export default function MasterDatabaseApp() {
                       {/* Draggable Cells */}
                       {draggableColumns.map((col) => {
                         const statusColor = STATUS_COLORS[col.id];
-                        const cellVal = String(row[col.id] || "-");
+                        // สถานะโครงการ อาจเป็น array
+                        const rawVal = row[col.id];
+                        const isMultiProject = col.id === "สถานะโครงการ" && Array.isArray(rawVal);
+                        const cellVal = isMultiProject ? (rawVal as string[]).join(", ") : String(rawVal || "-");
                         return (
                           <td
                             key={col.id}
@@ -1928,31 +2003,21 @@ export default function MasterDatabaseApp() {
                             }`}
                           >
                             {statusColor && cellVal !== "-" ? (
-                              <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${statusColor.badge}`}>
-                                {cellVal}
-                              </span>
+                              isMultiProject ? (
+                                <span className="flex flex-wrap gap-1">
+                                  {(rawVal as string[]).map((v) => (
+                                    <span key={v} className={`px-2 py-0.5 rounded-full text-xs font-medium ${statusColor.badge}`}>{v}</span>
+                                  ))}
+                                </span>
+                              ) : (
+                                <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${statusColor.badge}`}>
+                                  {cellVal}
+                                </span>
+                              )
                             ) : cellVal}
                           </td>
                         );
                       })}
-                      <td className="px-3 py-1 flex justify-end gap-2 opacity-80 group-hover:opacity-100">
-                        <button
-                          onClick={() => {
-                            setEditingItem(row);
-                            setFormData(row);
-                            setIsAddModalOpen(true);
-                          }}
-                          className="p-1.5 text-blue-600 hover:bg-blue-100 rounded"
-                        >
-                          <Edit size={16} />
-                        </button>
-                        <button
-                          onClick={() => handleDeleteItem(row.id)}
-                          className="p-1.5 text-red-600 hover:bg-red-100 rounded"
-                        >
-                          <Trash2 size={16} />
-                        </button>
-                      </td>
                     </tr>
                   ))
                 ) : (
@@ -2095,31 +2160,54 @@ export default function MasterDatabaseApp() {
                       </div>
                     )}
 
-                    {/* สถานะโครงการ — emerald + add button */}
+                    {/* สถานะโครงการ — emerald + multi-checkbox */}
                     {projStatusField && (
-                      <div className="p-4 bg-emerald-50/70 space-y-1">
+                      <div className="p-4 bg-emerald-50/70 space-y-2">
                         <label className="text-sm font-semibold text-emerald-700 flex items-center gap-1">
                           <span className="w-2 h-2 rounded-full bg-emerald-400 inline-block"></span>
                           {projStatusField.label}
+                          <span className="text-xs font-normal text-emerald-500 ml-1">(เลือกได้หลายโครงการ)</span>
                         </label>
-                        <div className="flex gap-1 items-center">
-                          <select
-                            className="flex-1 px-3 py-2 border border-emerald-200 rounded-md focus:ring-2 focus:ring-emerald-400 focus:border-transparent outline-none transition-all text-sm bg-white text-emerald-800"
-                            value={(formData[projStatusField.id] as string) ?? ""}
-                            onChange={(e) => setFormData({ ...formData, [projStatusField.id]: e.target.value })}
-                          >
-                            <option value="">-- กรุณาเลือก --</option>
-                            {projectStatusOptions.map((opt, i) => (
-                              <option key={i} value={opt}>{opt}</option>
-                            ))}
-                          </select>
-                          {/* + button to add new project option */}
+                        {/* Multi-checkbox list */}
+                        <div className="flex flex-wrap gap-2">
+                          {projectStatusOptions.map((opt) => {
+                            const selected: string[] = Array.isArray(formData[projStatusField.id])
+                              ? (formData[projStatusField.id] as string[])
+                              : formData[projStatusField.id]
+                                ? [String(formData[projStatusField.id])]
+                                : [];
+                            const isChecked = selected.includes(opt);
+                            const toggle = () => {
+                              const next = isChecked
+                                ? selected.filter((s) => s !== opt)
+                                : [...selected, opt];
+                              setFormData({ ...formData, [projStatusField.id]: next });
+                            };
+                            return (
+                              <button
+                                key={opt}
+                                type="button"
+                                onClick={toggle}
+                                className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border transition-all ${
+                                  isChecked
+                                    ? "bg-emerald-500 text-white border-emerald-500 shadow-sm"
+                                    : "bg-white text-emerald-700 border-emerald-300 hover:bg-emerald-100"
+                                }`}
+                              >
+                                {isChecked && <Check size={11} />}
+                                {opt}
+                              </button>
+                            );
+                          })}
+                        </div>
+                        {/* Add / Remove project option row */}
+                        <div className="flex gap-1 items-center pt-1">
                           {isAddingProjectOption ? (
                             <div className="flex gap-1">
                               <input
                                 autoFocus
                                 type="text"
-                                className="w-20 px-2 py-2 border border-emerald-300 rounded-md text-sm outline-none focus:ring-2 focus:ring-emerald-400"
+                                className="w-20 px-2 py-1.5 border border-emerald-300 rounded-md text-sm outline-none focus:ring-2 focus:ring-emerald-400"
                                 placeholder="เช่น J-03"
                                 value={newProjectOption}
                                 onChange={(e) => setNewProjectOption(e.target.value)}
@@ -2128,20 +2216,10 @@ export default function MasterDatabaseApp() {
                                   if (e.key === "Escape") { setIsAddingProjectOption(false); setNewProjectOption(""); }
                                 }}
                               />
-                              <button
-                                type="button"
-                                onClick={handleAddProjectOption}
-                                className="p-2 rounded-md bg-emerald-500 text-white hover:bg-emerald-600 text-xs"
-                                title="ยืนยัน"
-                              >
+                              <button type="button" onClick={handleAddProjectOption} className="p-1.5 rounded-md bg-emerald-500 text-white hover:bg-emerald-600" title="ยืนยัน">
                                 <Check size={14} />
                               </button>
-                              <button
-                                type="button"
-                                onClick={() => { setIsAddingProjectOption(false); setNewProjectOption(""); }}
-                                className="p-2 rounded-md bg-gray-200 text-gray-600 hover:bg-gray-300 text-xs"
-                                title="ยกเลิก"
-                              >
+                              <button type="button" onClick={() => { setIsAddingProjectOption(false); setNewProjectOption(""); }} className="p-1.5 rounded-md bg-gray-200 text-gray-600 hover:bg-gray-300" title="ยกเลิก">
                                 <X size={14} />
                               </button>
                             </div>
@@ -2149,33 +2227,30 @@ export default function MasterDatabaseApp() {
                             <button
                               type="button"
                               onClick={() => setIsAddingProjectOption(true)}
-                              className="p-2 rounded-md bg-emerald-100 text-emerald-700 hover:bg-emerald-200 border border-emerald-200 transition-colors"
+                              className="flex items-center gap-1 px-2 py-1 rounded-md bg-emerald-100 text-emerald-700 hover:bg-emerald-200 border border-emerald-200 text-xs"
                               title="เพิ่มรายการโครงการ"
                             >
-                              <Plus size={14} />
+                              <Plus size={12} /> เพิ่มโครงการ
                             </button>
                           )}
+                          {projectStatusOptions.length > 0 && (
+                            <div className="flex flex-wrap gap-1 ml-2">
+                              {projectStatusOptions.map((opt) => (
+                                <span key={opt} className="inline-flex items-center gap-1 px-2 py-0.5 bg-white text-emerald-700 text-xs rounded-full border border-emerald-200">
+                                  {opt}
+                                  <button
+                                    type="button"
+                                    onClick={() => saveProjectOptions(projectStatusOptions.filter((o) => o !== opt))}
+                                    className="text-emerald-400 hover:text-red-500 ml-0.5"
+                                    title={`ลบ ${opt}`}
+                                  >
+                                    <X size={10} />
+                                  </button>
+                                </span>
+                              ))}
+                            </div>
+                          )}
                         </div>
-                        {projectStatusOptions.length > 0 && (
-                          <div className="flex flex-wrap gap-1 pt-1">
-                            {projectStatusOptions.map((opt) => (
-                              <span
-                                key={opt}
-                                className="inline-flex items-center gap-1 px-2 py-0.5 bg-emerald-100 text-emerald-700 text-xs rounded-full border border-emerald-200"
-                              >
-                                {opt}
-                                <button
-                                  type="button"
-                                  onClick={() => saveProjectOptions(projectStatusOptions.filter((o) => o !== opt))}
-                                  className="text-emerald-400 hover:text-red-500 ml-0.5"
-                                  title={`ลบ ${opt}`}
-                                >
-                                  <X size={10} />
-                                </button>
-                              </span>
-                            ))}
-                          </div>
-                        )}
                       </div>
                     )}
 
