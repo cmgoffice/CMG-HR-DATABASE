@@ -78,11 +78,7 @@ import {
 
 // --- FIREBASE IMPORTS ---
 import { initializeApp } from "firebase/app";
-import {
-  getAuth,
-  signInWithEmailAndPassword,
-  onAuthStateChanged,
-} from "firebase/auth";
+import { getAuth } from "firebase/auth";
 import {
   getFirestore,
   collection,
@@ -96,6 +92,7 @@ import {
   where,
   orderBy,
   getDoc,
+  onSnapshot
 } from "firebase/firestore";
 
 // --- FIREBASE CONFIGURATION (ใช้ project cmg-hr-database ให้ตรงกับ Rules ใน Console) ---
@@ -149,6 +146,11 @@ const MODULE_CONFIG = {
     filterValue: "Direct_SubContractor",
     schemaSource: "emp_direct_leader", // ใช้ schema เดียวกับ Team Leader
   },
+  projects: {
+    collection: "CMG-HR-Database",
+    subcollection: "projects",
+    label: "โครงการ",
+  },
 };
 
 // --- STATUS FIELD IDs (for pastel coloring) ---
@@ -171,15 +173,7 @@ const STATUS_COLORS: Record<string, { header: string; cell: string; badge: strin
   },
 };
 
-// Default project status options stored in localStorage key
-const PROJECT_STATUS_LS_KEY = "cmg_project_status_options";
-const getInitialProjectOptions = (): string[] => {
-  try {
-    const stored = localStorage.getItem(PROJECT_STATUS_LS_KEY);
-    if (stored) return JSON.parse(stored) as string[];
-  } catch {}
-  return ["J-01", "J-02"];
-};
+
 
 // --- INITIAL CONFIGURATION (Fallbacks) ---
 const DEFAULT_SCHEMAS = {
@@ -224,8 +218,16 @@ const DEFAULT_SCHEMAS = {
       id: "สถานะโครงการ",
       label: "สถานะโครงการ",
       type: "select",
-      options: ["J-01", "J-02"],
+      options: [],
     },
+  ],
+  projects: [
+    { id: "project_no", label: "Project No.", type: "text", required: true },
+    { id: "project_name", label: "ชื่อโครงการ", type: "text", required: true },
+    { id: "start_date", label: "วันที่เริ่มสัญญา", type: "date" },
+    { id: "end_date", label: "วันที่สิ้นสุดสัญญา", type: "date" },
+    { id: "project_manager", label: "Project Manager", type: "text" },
+    { id: "construction_manager", label: "Construction Manager", type: "text" },
   ],
   users_data: [
     { id: "uid", label: "User ID", type: "text", required: true },
@@ -245,11 +247,32 @@ const SIDEBAR_COLLAPSED_WIDTH = 64; // w-16
 
 // --- COMPONENTS ---
 
-const Sidebar = ({ activeModule, setActiveModule, user, dbConnected, sidebarOpen, onToggleSidebar }: {
-  activeModule: string; setActiveModule: (id: string) => void; user: User | null; dbConnected: boolean;
+import { Routes, Route, Navigate } from 'react-router-dom';
+import { useAuth } from './auth/AuthContext';
+import { LoginPage } from './auth/LoginPage';
+import { RegisterPage } from './auth/RegisterPage';
+import { PendingApprovalPage } from './auth/PendingApprovalPage';
+import { ProtectedRoute } from './auth/ProtectedRoute';
+import { UserManagement } from './components/UserManagement';
+
+const Sidebar = ({ activeModule, setActiveModule, dbConnected, sidebarOpen, onToggleSidebar }: {
+  activeModule: string; setActiveModule: (id: string) => void; dbConnected: boolean;
   sidebarOpen: boolean; onToggleSidebar: () => void;
 }) => {
+  const { userProfile, firebaseUser, hasRole, logout } = useAuth();
   const [expandedMenus, setExpandedMenus] = useState<Record<string, boolean>>({});
+  const [pendingCount, setPendingCount] = useState(0);
+  const db = getFirestore(app);
+
+  useEffect(() => {
+    if (hasRole(['MasterAdmin'])) {
+      const q = query(collection(db, "CMG-HR-Database", "root", "users"), where("status", "==", "pending"));
+      const unsubscribe = onSnapshot(q, (snapshot) => {
+        setPendingCount(snapshot.size);
+      });
+      return () => unsubscribe();
+    }
+  }, [hasRole, db]);
 
   const menuItems = [
     {
@@ -263,7 +286,10 @@ const Sidebar = ({ activeModule, setActiveModule, user, dbConnected, sidebarOpen
         { id: "emp_direct_sub", label: "Direct: Sub Contractor" },
       ],
     },
-    { id: "users_data", label: "จัดการผู้ใช้ (Admin)", icon: UserCog },
+    { isDivider: true, id: "div1" },
+    { id: "projects", label: "โครงการ", icon: Briefcase },
+    { isDivider: true, id: "div2" },
+    ...(hasRole(['MasterAdmin']) ? [{ id: "users_data", label: "จัดการผู้ใช้ (Admin)", icon: UserCog, badge: pendingCount > 0 ? pendingCount : undefined }] : []),
   ];
 
   useEffect(() => {
@@ -283,7 +309,7 @@ const Sidebar = ({ activeModule, setActiveModule, user, dbConnected, sidebarOpen
     }));
   };
 
-  const isConnected = user || dbConnected;
+  const isConnected = firebaseUser || dbConnected;
 
   return (
     <div
@@ -330,7 +356,9 @@ const Sidebar = ({ activeModule, setActiveModule, user, dbConnected, sidebarOpen
       <nav className="flex-1 p-2 space-y-1 min-w-0">
         {menuItems.map((item) => (
           <div key={item.id}>
-            {!item.sub ? (
+            {item.isDivider ? (
+              <div className="border-t border-slate-800 my-2 mx-2" />
+            ) : !item.sub ? (
               <button
                 onClick={() => setActiveModule(item.id)}
                 className={`w-full flex items-center rounded-lg transition-colors ${
@@ -340,8 +368,10 @@ const Sidebar = ({ activeModule, setActiveModule, user, dbConnected, sidebarOpen
                 }`}
                 title={!sidebarOpen ? item.label : undefined}
               >
-                <item.icon size={20} className="shrink-0" />
+                {item.icon && <item.icon size={20} className="shrink-0" />}
                 {sidebarOpen && <span className="text-sm font-medium truncate">{item.label}</span>}
+                {sidebarOpen && item.badge && <span className="ml-auto bg-red-500 text-white text-xs font-bold px-2 py-0.5 rounded-full">{item.badge}</span>}
+                {!sidebarOpen && item.badge && <span className="absolute top-1 right-1 w-3 h-3 bg-red-500 rounded-full border-2 border-slate-900"></span>}
               </button>
             ) : (
               <div className="space-y-1">
@@ -355,7 +385,7 @@ const Sidebar = ({ activeModule, setActiveModule, user, dbConnected, sidebarOpen
                   title={!sidebarOpen ? item.label : undefined}
                 >
                   <div className={`flex items-center ${sidebarOpen ? "gap-3" : ""}`}>
-                    <item.icon size={20} className="shrink-0" />
+                    {item.icon && <item.icon size={20} className="shrink-0" />}
                     {sidebarOpen && <span className="text-sm font-semibold truncate">{item.label}</span>}
                   </div>
                   {sidebarOpen && (expandedMenus[item.id] ? <ChevronDown size={16} /> : <ChevronRight size={16} />)}
@@ -384,19 +414,27 @@ const Sidebar = ({ activeModule, setActiveModule, user, dbConnected, sidebarOpen
 
       <div className={`border-t border-slate-800 shrink-0 ${sidebarOpen ? "p-4" : "p-2 flex justify-center"}`}>
         {sidebarOpen ? (
-          <div className="flex items-center gap-3 text-slate-400 text-sm">
-            <div className="w-8 h-8 rounded-full bg-blue-900 flex items-center justify-center text-blue-200 font-bold shrink-0">
-              {user ? (user.email ?? "").charAt(0).toUpperCase() : "A"}
-            </div>
-            <div className="min-w-0">
-              <p className="text-white text-sm">Admin User</p>
-              <p className="text-xs text-slate-500">Version 18.0</p>
+          <div className="flex items-center gap-3 text-slate-400 text-sm w-full">
+            {userProfile?.photoURL ? (
+              <img src={userProfile.photoURL} alt="Profile" className="w-10 h-10 rounded-full object-cover border border-slate-700 shrink-0" />
+            ) : (
+              <div className="w-10 h-10 rounded-full bg-blue-900 flex items-center justify-center text-blue-200 font-bold shrink-0">
+                {userProfile?.firstName?.charAt(0) || firebaseUser?.email?.charAt(0).toUpperCase() || "A"}
+              </div>
+            )}
+            <div className="min-w-0 flex-1">
+              <p className="text-white text-sm font-semibold truncate">{userProfile?.firstName} {userProfile?.lastName}</p>
+              <p className="text-[10px] text-blue-400 font-medium truncate">{userProfile?.role?.join(', ')}</p>
             </div>
           </div>
         ) : (
-          <div className="w-8 h-8 rounded-full bg-blue-900 flex items-center justify-center text-blue-200 font-bold text-xs">
-            {user ? (user.email ?? "").charAt(0).toUpperCase() : "A"}
-          </div>
+          userProfile?.photoURL ? (
+            <img src={userProfile.photoURL} alt="Profile" className="w-10 h-10 rounded-full object-cover border border-slate-700" />
+          ) : (
+            <div className="w-10 h-10 rounded-full bg-blue-900 flex items-center justify-center text-blue-200 font-bold text-sm">
+              {userProfile?.firstName?.charAt(0) || firebaseUser?.email?.charAt(0).toUpperCase() || "A"}
+            </div>
+          )
         )}
       </div>
     </div>
@@ -606,9 +644,9 @@ const ConfirmationModal = ({ isOpen, onClose, onConfirm, title, message }: { isO
 };
 
 // --- MAIN APPLICATION COMPONENT ---
-export default function MasterDatabaseApp() {
+function MasterDatabaseApp() {
+  const { userProfile, firebaseUser, logout } = useAuth();
   const [activeModule, setActiveModule] = useState("emp_indirect");
-  const [user, setUser] = useState<User | null>(null);
   const [dbConnected, setDbConnected] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -640,37 +678,39 @@ export default function MasterDatabaseApp() {
     options: "",
   });
 
-  // --- Project Status Options (dynamic, persisted to localStorage) ---
-  const [projectStatusOptions, setProjectStatusOptions] = useState<string[]>(getInitialProjectOptions);
-  const [newProjectOption, setNewProjectOption] = useState("");
-  const [isAddingProjectOption, setIsAddingProjectOption] = useState(false);
+  // --- Project Status Options (dynamic, fetched from projects collection) ---
+  const [projectStatusOptions, setProjectStatusOptions] = useState<string[]>([]);
 
-  const saveProjectOptions = (opts: string[]) => {
-    setProjectStatusOptions(opts);
-    try { localStorage.setItem(PROJECT_STATUS_LS_KEY, JSON.stringify(opts)); } catch {}
-    // Also sync into current schema in memory
-    setSchemas((prev) => {
-      const updated: Record<string, SchemaField[]> = {};
-      for (const [modId, fields] of Object.entries(prev)) {
-        updated[modId] = (fields as SchemaField[]).map((f) =>
-          f.id === "สถานะโครงการ" ? { ...f, options: opts } : f
-        );
-      }
-      return updated;
-    });
-  };
-
-  const handleAddProjectOption = () => {
-    const trimmed = newProjectOption.trim();
-    if (!trimmed || projectStatusOptions.includes(trimmed)) {
-      setNewProjectOption("");
-      setIsAddingProjectOption(false);
-      return;
+  const fetchProjectOptions = async () => {
+    try {
+      const q = collection(db, "CMG-HR-Database", "root", "projects");
+      const snap = await getDocs(q);
+      const opts = snap.docs.map(d => {
+        const data = d.data();
+        return data.project_name ? `${data.project_no} - ${data.project_name}` : data.project_no;
+      }).filter(Boolean);
+      
+      setProjectStatusOptions(opts as string[]);
+      
+      setSchemas((prev) => {
+        const updated: Record<string, SchemaField[]> = {};
+        for (const [modId, fields] of Object.entries(prev)) {
+          updated[modId] = (fields as SchemaField[]).map((f) =>
+            f.id === "สถานะโครงการ" ? { ...f, options: opts as string[] } : f
+          );
+        }
+        return updated;
+      });
+    } catch (e) {
+      console.error("Error fetching project options:", e);
     }
-    saveProjectOptions([...projectStatusOptions, trimmed]);
-    setNewProjectOption("");
-    setIsAddingProjectOption(false);
   };
+
+  useEffect(() => {
+    if (dbConnected) {
+      fetchProjectOptions();
+    }
+  }, [dbConnected, activeModule]);
 
   const [hiddenColumnsMap, setHiddenColumnsMap] = useState<Record<string, string[]>>({});
   const [isColVisOpen, setIsColVisOpen] = useState(false);
@@ -755,25 +795,9 @@ export default function MasterDatabaseApp() {
   };
 
   useEffect(() => {
-    const email = "admin@cmg.com";
-    const password = "123456";
-    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
-      if (currentUser) {
-        setUser(currentUser);
-        setLoading(false);
-      } else {
-        signInWithEmailAndPassword(auth, email, password)
-          .then((userCredential) => {
-            setUser(userCredential.user);
-            setLoading(false);
-          })
-          .catch((error) => {
-            console.error("Login failed:", (error as Error).message);
-            setLoading(false);
-          });
-      }
-    });
-    return () => unsubscribe();
+    // Only setting DB connected state, since Firebase auth is handled globally now
+    setDbConnected(true);
+    setLoading(false);
   }, []);
 
   // อ่าน Firebase เฉพาะตอนกดเข้าเมนู (snapshot ครั้งเดียว) เพื่อลดโควต้า Read
@@ -813,7 +837,7 @@ export default function MasterDatabaseApp() {
             id: "สถานะโครงการ",
             label: "สถานะโครงการ",
             type: "select",
-            options: getInitialProjectOptions(),
+            options: projectStatusOptions,
           },
         ];
 
@@ -834,9 +858,9 @@ export default function MasterDatabaseApp() {
               console.warn("Could not auto-save merged schema:", e);
             }
           } else {
-            // Sync project options from localStorage into schema in memory
+            // Sync project options from fetched state into schema in memory
             loadedFields = loadedFields.map((f) =>
-              f.id === "สถานะโครงการ" ? { ...f, options: getInitialProjectOptions() } : f
+              f.id === "สถานะโครงการ" ? { ...f, options: projectStatusOptions } : f
             );
           }
           setSchemas((prev) => ({ ...prev, [moduleId]: loadedFields }));
@@ -846,9 +870,9 @@ export default function MasterDatabaseApp() {
             ?? (DEFAULT_SCHEMAS as Record<string, SchemaField[]>)[moduleId]
             ?? (DEFAULT_SCHEMAS as Record<string, SchemaField[]>)[fallbackKey]
             ?? [];
-          // Sync project options from localStorage
+          // Sync project options from fetched state
           defaultSchema = defaultSchema.map((f) =>
-            f.id === "สถานะโครงการ" ? { ...f, options: getInitialProjectOptions() } : f
+            f.id === "สถานะโครงการ" ? { ...f, options: projectStatusOptions } : f
           );
           setSchemas((prev) => ({ ...prev, [moduleId]: defaultSchema }));
         }
@@ -961,8 +985,10 @@ export default function MasterDatabaseApp() {
         const logItems = items as unknown as LogRecord[];
         logItems.sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0));
         setLogs(logItems);
-      } else {
         setCurrentData(items);
+      }
+      if (activeModule === "projects") {
+        await fetchProjectOptions();
       }
     } catch (e) {
       console.error("Refresh error:", e);
@@ -973,7 +999,7 @@ export default function MasterDatabaseApp() {
     try {
       await addDoc(collection(db, "CMG-HR-Database", "root", "activity_logs"), {
         timestamp: new Date().toLocaleString("th-TH"),
-        user: user?.email ?? "anonymous",
+        user: firebaseUser?.email ?? "anonymous",
         module: activeModule,
         action: action,
         details: details,
@@ -1620,7 +1646,6 @@ export default function MasterDatabaseApp() {
         <Sidebar
           activeModule={activeModule}
           setActiveModule={setActiveModule}
-          user={user}
           dbConnected={dbConnected}
           sidebarOpen={sidebarOpen}
           onToggleSidebar={() => setSidebarOpen((o) => !o)}
@@ -1704,7 +1729,6 @@ export default function MasterDatabaseApp() {
       <Sidebar
         activeModule={activeModule}
         setActiveModule={setActiveModule}
-        user={user}
         dbConnected={dbConnected}
         sidebarOpen={sidebarOpen}
         onToggleSidebar={() => setSidebarOpen((o) => !o)}
@@ -1715,7 +1739,7 @@ export default function MasterDatabaseApp() {
       >
         <header className="flex items-center gap-3 mb-3 bg-white px-3 py-2 rounded-xl shadow-sm border border-gray-200">
           <h1 className="text-base font-bold text-gray-800 whitespace-nowrap flex items-center gap-2 shrink-0">
-            {config.label}
+            {activeModule === 'users_data' ? 'จัดการสิทธิ์ผู้ใช้งาน' : config.label}
           </h1>
           <div className="w-px h-5 bg-gray-200 shrink-0" />
 
@@ -1862,6 +1886,25 @@ export default function MasterDatabaseApp() {
               <Plus size={14} /> เพิ่มรายการ
             </button>
           </div>
+          
+          <div className="ml-auto flex items-center gap-4 border-l pl-4">
+            <button onClick={logout} className="text-xs font-semibold text-gray-500 hover:text-red-500 flex items-center gap-1 transition-colors">
+              ออกจากระบบ
+            </button>
+            <div className="flex items-center gap-2 cursor-pointer hover:opacity-80 transition-opacity">
+              <div className="text-right hidden md:block">
+                <p className="text-xs font-bold text-gray-800">{userProfile?.firstName}</p>
+                <p className="text-[10px] text-gray-500">{userProfile?.role?.[0]}</p>
+              </div>
+              {userProfile?.photoURL ? (
+                <img src={userProfile.photoURL} alt="Profile" className="w-8 h-8 rounded-full border border-gray-200 object-cover" />
+              ) : (
+                <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center text-blue-700 font-bold text-xs">
+                  {userProfile?.firstName?.charAt(0) || "U"}
+                </div>
+              )}
+            </div>
+          </div>
         </header>
 
         <div className="relative bg-white rounded-xl shadow-sm border border-gray-200 flex-1 min-h-0 flex flex-col" style={{ maxWidth: "100%" }}>
@@ -1871,10 +1914,46 @@ export default function MasterDatabaseApp() {
             style={{ scrollbarWidth: "thin" }}
             onScroll={syncRailScrollFromTable}
           >
-            {dataLoading ? (
+            {activeModule === 'users_data' ? (
+              <UserManagement projectOptions={projectStatusOptions} />
+            ) : dataLoading ? (
               <div className="flex flex-col items-center justify-center h-[300px] text-gray-400 gap-3">
                 <Loader2 className="animate-spin text-blue-500" size={32} />
                 <p>กำลังประมวลผล...</p>
+              </div>
+            ) : activeModule === "projects" ? (
+              <div className="p-8 flex flex-wrap gap-6 items-start h-full overflow-y-auto">
+                {filteredData.length > 0 ? (
+                  filteredData.map((row) => (
+                    <div key={row.id} className="bg-white rounded-2xl shadow-sm hover:shadow border border-gray-200 p-6 relative group flex flex-col items-center justify-center w-64 transition-all">
+                      <div className="absolute top-3 right-3 opacity-0 group-hover:opacity-100 transition-opacity flex gap-1">
+                        <button onClick={() => { setEditingItem(row); setFormData(row); setIsAddModalOpen(true); }} className="p-1.5 text-blue-600 hover:bg-blue-50 rounded-lg bg-white shadow-sm border"><Edit size={14}/></button>
+                        <button onClick={() => handleDeleteItem(row.id)} className="p-1.5 text-red-600 hover:bg-red-50 rounded-lg bg-white shadow-sm border"><Trash2 size={14}/></button>
+                      </div>
+                      
+                      {/* Avatar/Icon Circle */}
+                      <div className="w-16 h-16 rounded-full bg-blue-50 flex items-center justify-center text-blue-600 mb-4 border border-blue-100 shadow-sm">
+                        <Briefcase size={28} />
+                      </div>
+                      
+                      {/* Texts */}
+                      <h3 className="font-bold text-gray-800 text-lg mb-1 truncate w-full text-center" title={String(row.project_no || row.id)}>{String(row.project_no || row.id)}</h3>
+                      <p className="text-gray-500 text-sm font-medium truncate w-full text-center mb-5" title={String(row.project_name || "-")}>{String(row.project_name || "-")}</p>
+                      
+                      {/* Pill Badges */}
+                      <div className="flex flex-wrap justify-center gap-2 mt-auto">
+                        <span className="px-3 py-1 bg-blue-50 text-blue-600 text-xs font-semibold rounded-full border border-blue-100 truncate max-w-[110px]" title={`PM: ${row.project_manager || "-"}`}>
+                          PM: {String(row.project_manager || "-").split(" ")[0]}
+                        </span>
+                        <span className="px-3 py-1 bg-emerald-50 text-emerald-600 text-xs font-semibold rounded-full border border-emerald-100 truncate max-w-[110px]" title={`CM: ${row.construction_manager || "-"}`}>
+                          CM: {String(row.construction_manager || "-").split(" ")[0]}
+                        </span>
+                      </div>
+                    </div>
+                  ))
+                ) : (
+                  <div className="col-span-full p-12 text-center text-gray-400">ยังไม่มีข้อมูลโครงการ</div>
+                )}
               </div>
             ) : (
               <table ref={tableElementRef} className="w-full text-left border-collapse min-w-max">
@@ -2034,7 +2113,7 @@ export default function MasterDatabaseApp() {
             </table>
           )}
           </div>
-          {!dataLoading && tableScrollWidth > 0 && (
+          {!dataLoading && activeModule !== "projects" && tableScrollWidth > 0 && (
             <div
               ref={scrollbarRailRef}
               className="absolute left-0 right-0 overflow-x-scroll overflow-y-hidden bg-gray-100 border-b border-gray-200 z-10 scrollbar-rail-horizontal"
@@ -2200,57 +2279,6 @@ export default function MasterDatabaseApp() {
                             );
                           })}
                         </div>
-                        {/* Add / Remove project option row */}
-                        <div className="flex gap-1 items-center pt-1">
-                          {isAddingProjectOption ? (
-                            <div className="flex gap-1">
-                              <input
-                                autoFocus
-                                type="text"
-                                className="w-20 px-2 py-1.5 border border-emerald-300 rounded-md text-sm outline-none focus:ring-2 focus:ring-emerald-400"
-                                placeholder="เช่น J-03"
-                                value={newProjectOption}
-                                onChange={(e) => setNewProjectOption(e.target.value)}
-                                onKeyDown={(e) => {
-                                  if (e.key === "Enter") handleAddProjectOption();
-                                  if (e.key === "Escape") { setIsAddingProjectOption(false); setNewProjectOption(""); }
-                                }}
-                              />
-                              <button type="button" onClick={handleAddProjectOption} className="p-1.5 rounded-md bg-emerald-500 text-white hover:bg-emerald-600" title="ยืนยัน">
-                                <Check size={14} />
-                              </button>
-                              <button type="button" onClick={() => { setIsAddingProjectOption(false); setNewProjectOption(""); }} className="p-1.5 rounded-md bg-gray-200 text-gray-600 hover:bg-gray-300" title="ยกเลิก">
-                                <X size={14} />
-                              </button>
-                            </div>
-                          ) : (
-                            <button
-                              type="button"
-                              onClick={() => setIsAddingProjectOption(true)}
-                              className="flex items-center gap-1 px-2 py-1 rounded-md bg-emerald-100 text-emerald-700 hover:bg-emerald-200 border border-emerald-200 text-xs"
-                              title="เพิ่มรายการโครงการ"
-                            >
-                              <Plus size={12} /> เพิ่มโครงการ
-                            </button>
-                          )}
-                          {projectStatusOptions.length > 0 && (
-                            <div className="flex flex-wrap gap-1 ml-2">
-                              {projectStatusOptions.map((opt) => (
-                                <span key={opt} className="inline-flex items-center gap-1 px-2 py-0.5 bg-white text-emerald-700 text-xs rounded-full border border-emerald-200">
-                                  {opt}
-                                  <button
-                                    type="button"
-                                    onClick={() => saveProjectOptions(projectStatusOptions.filter((o) => o !== opt))}
-                                    className="text-emerald-400 hover:text-red-500 ml-0.5"
-                                    title={`ลบ ${opt}`}
-                                  >
-                                    <X size={10} />
-                                  </button>
-                                </span>
-                              ))}
-                            </div>
-                          )}
-                        </div>
                       </div>
                     )}
 
@@ -2404,5 +2432,25 @@ export default function MasterDatabaseApp() {
         message={confirmation.message}
       />
     </div>
+  );
+}
+
+export default function App() {
+  return (
+    <Routes>
+      <Route path="/login" element={<LoginPage />} />
+      <Route path="/register" element={<RegisterPage />} />
+      <Route path="/pending" element={
+        <ProtectedRoute requireApproved={false}>
+          <PendingApprovalPage />
+        </ProtectedRoute>
+      } />
+      <Route path="/dashboard" element={
+        <ProtectedRoute>
+          <MasterDatabaseApp />
+        </ProtectedRoute>
+      } />
+      <Route path="*" element={<Navigate to="/dashboard" replace />} />
+    </Routes>
   );
 }
