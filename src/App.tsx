@@ -92,7 +92,10 @@ import {
   where,
   orderBy,
   getDoc,
-  onSnapshot
+  onSnapshot,
+  deleteField,
+  arrayRemove,
+  arrayUnion
 } from "firebase/firestore";
 
 // --- FIREBASE CONFIGURATION (ใช้ project cmg-hr-database ให้ตรงกับ Rules ใน Console) ---
@@ -981,11 +984,14 @@ function MasterDatabaseApp() {
       const items = snapshot.docs
         .map((d) => ({ id: d.id, ...d.data() } as DataRecord))
         .filter((item) => item.id !== "_schema_metadata");
+      
+      // Always update currentData for real-time updates
+      setCurrentData(items);
+      
       if (subcollectionName === "activity_logs") {
         const logItems = items as unknown as LogRecord[];
         logItems.sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0));
         setLogs(logItems);
-        setCurrentData(items);
       }
       if (activeModule === "projects") {
         await fetchProjectOptions();
@@ -1088,6 +1094,62 @@ function MasterDatabaseApp() {
         cleanData[config.filterField] = config.filterValue;
       }
 
+      // --- Handle project status field - Force replace with only selected values ---
+      const projectStatusField = "สถานะโครงการ";
+      
+      // Always process project status field if it exists in schema
+      const hasProjectStatusField = schemas[activeModule]?.some(field => field.id === projectStatusField);
+      
+      if (hasProjectStatusField) {
+        // Get selected projects from form data
+        const selectedProjects: string[] = cleanData[projectStatusField]
+          ? Array.isArray(cleanData[projectStatusField])
+            ? cleanData[projectStatusField] as string[]
+            : [String(cleanData[projectStatusField])]
+          : [];
+        
+        console.log(`📋 สถานะโครงการที่เลือก: [${selectedProjects.join(', ')}]`);
+        
+        // Log changes if editing existing item
+        if (editingItem) {
+          const originalProjects: string[] = editingItem[projectStatusField]
+            ? Array.isArray(editingItem[projectStatusField])
+              ? editingItem[projectStatusField] as string[]
+              : [String(editingItem[projectStatusField])]
+            : [];
+          
+          console.log(`🔄 อัพเดทสถานะโครงการ:`);
+          console.log(`   เดิม: [${originalProjects.join(', ')}]`);
+          console.log(`   ใหม่: [${selectedProjects.join(', ')}]`);
+          
+          const removedProjects = originalProjects.filter(project => !selectedProjects.includes(project));
+          const addedProjects = selectedProjects.filter(project => !originalProjects.includes(project));
+          
+          // IMPORTANT: Always force-update the field to ensure complete replacement
+          // We need to handle this specially because Firestore may merge arrays
+          if (originalProjects.length > 0 || selectedProjects.length > 0) {
+            console.log(`🔄 จะอัพเดทฟิลด์สถานะโครงการแบบพิเศษเพื่อให้แน่ใจว่าจะ replace ทั้งหมด`);
+            
+            // Don't delete field here - we'll force replace in the main update
+            // Mark that we need special handling
+            cleanData[`__forceReplace_${projectStatusField}`] = true;
+          }
+          
+          // Log the actions
+          if (removedProjects.length > 0) {
+            await addLog("ลบโครงการจากบุคคล", `ลบโครงการ: ${removedProjects.join(', ')} (ID: ${editingItem.id})`);
+          }
+          if (addedProjects.length > 0) {
+            await addLog("เพิ่มโครงการให้บุคคล", `เพิ่มโครงการ: ${addedProjects.join(', ')} (ID: ${editingItem.id})`);
+          }
+        }
+        
+        // Set the new values (or empty array to clear all)
+        cleanData[projectStatusField] = selectedProjects;
+        console.log(`💾 ตั้งค่าโครงการใหม่: [${selectedProjects.join(', ')}]`);
+      }
+
+      // Continue with normal save process
       const primaryKeyField = getPrimaryKeyField();
       if (!primaryKeyField) {
         showNotification("error", "Error", "ไม่พบโครงสร้างตาราง");
@@ -1096,7 +1158,56 @@ function MasterDatabaseApp() {
 
       if (editingItem) {
         const subcollectionName = config.subcollection || activeModule;
-        await updateDoc(doc(db, "CMG-HR-Database", "root", subcollectionName, editingItem.id), cleanData as any);
+        const docRef = doc(db, "CMG-HR-Database", "root", subcollectionName, editingItem.id);
+        
+        // Check if we have project status field to update
+        const hasProjectStatus = projectStatusField in cleanData;
+        
+        if (hasProjectStatus) {
+          // Special handling for project status field - MUST replace entire array
+          console.log(`🔄 พบฟิลด์สถานะโครงการ - จะทำการ replace ทั้งหมด`);
+          
+          // Remove the marker if exists
+          delete cleanData[`__forceReplace_${projectStatusField}`];
+          
+          // Extract project status value
+          const projectStatusValue = cleanData[projectStatusField] || [];
+          
+          // Remove from main update data
+          const updateDataWithoutProjects = { ...cleanData };
+          delete updateDataWithoutProjects[projectStatusField];
+          
+          // Step 1: Delete the entire field first
+          console.log(`🗑️ Step 1: ลบฟิลด์สถานะโครงการเก่าทั้งหมด...`);
+          await updateDoc(docRef, {
+            [projectStatusField]: deleteField()
+          });
+          
+          // Wait a moment to ensure deletion completes
+          await new Promise(resolve => setTimeout(resolve, 200));
+          
+          // Step 2: Update other fields (if any)
+          if (Object.keys(updateDataWithoutProjects).length > 0) {
+            console.log(`📝 Step 2: อัพเดทข้อมูลอื่นๆ...`);
+            await updateDoc(docRef, updateDataWithoutProjects as any);
+          }
+          
+          // Step 3: Set the project status field with new value
+          console.log(`💾 Step 3: บันทึกสถานะโครงการใหม่:`);
+          console.log(`   - Type: ${Array.isArray(projectStatusValue) ? 'Array' : typeof projectStatusValue}`);
+          console.log(`   - Value: ${JSON.stringify(projectStatusValue)}`);
+          console.log(`   - Count: ${Array.isArray(projectStatusValue) ? projectStatusValue.length : 'N/A'}`);
+          
+          await updateDoc(docRef, {
+            [projectStatusField]: projectStatusValue
+          });
+          
+          console.log(`✅ อัพเดทสถานะโครงการเสร็จสมบูรณ์`);
+        } else {
+          // Normal update for other fields
+          await updateDoc(docRef, cleanData as any);
+        }
+        
         await addLog("แก้ไข", `แก้ไขรายการ ID: ${editingItem.id}`);
         showNotification("success", "บันทึกสำเร็จ", "ข้อมูลถูกแก้ไขเรียบร้อยแล้ว");
         await refreshCurrentModuleData();
