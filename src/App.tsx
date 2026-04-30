@@ -35,6 +35,26 @@ interface ModuleConfig {
   filterValue?: string;
   schemaSource?: string; // อ้างอิง moduleId อื่นเพื่อใช้ schema ร่วมกัน
 }
+
+// ฟังก์ชันสำหรับตัด Project No. ให้เหลือ 5 ตัวท้าย
+// เช่น PRJ-2026-J-001 → J-001
+// หรือ PRJ-2026-J-001 - Project Name → J-001
+const formatProjectNo = (projectNo: string): string => {
+  if (!projectNo || projectNo === "ไม่ระบุ") return projectNo;
+  
+  // ถ้ามี " - " (มี project name ต่อท้าย) ให้ตัดออกก่อน
+  const cleanProjectNo = projectNo.includes(' - ') 
+    ? projectNo.split(' - ')[0] 
+    : projectNo;
+  
+  // ตัดเอา 2 ส่วนท้ายจาก "-" เช่น PRJ-2026-J-001 → J-001
+  const parts = cleanProjectNo.split('-');
+  if (parts.length >= 2) {
+    return parts.slice(-2).join('-'); // เอา 2 ส่วนท้ายมาต่อกัน
+  }
+  return cleanProjectNo;
+};
+
 import {
   LayoutDashboard,
   Users,
@@ -177,6 +197,50 @@ const STATUS_COLORS: Record<string, { header: string; cell: string; badge: strin
   },
 };
 
+// ฟังก์ชันสำหรับกำหนดสีของ badge ตามค่าของสถานะพนักงาน
+const getEmployeeStatusBadgeColor = (status: string): string => {
+  if (status === "ทำงาน") {
+    return "bg-green-100 text-green-700 border border-green-300";
+  } else if (status === "ลาออก") {
+    return "bg-gray-100 text-gray-600 border border-gray-300";
+  }
+  // default (สีชมพูเดิม)
+  return "bg-rose-100 text-rose-700 border border-rose-200";
+};
+
+// ฟังก์ชันสำหรับกำหนดสีของ badge ตามค่าของสถานะกลุ่มงาน
+const getWorkGroupBadgeColor = (group: string): string => {
+  const colors: Record<string, string> = {
+    "Indirect": "bg-purple-100 text-purple-700 border border-purple-300",
+    "Direct_TeamLeader": "bg-blue-100 text-blue-700 border border-blue-300",
+    "Direct: Team Leader": "bg-blue-100 text-blue-700 border border-blue-300",
+    "Direct_SupplyDC": "bg-amber-100 text-amber-700 border border-amber-300",
+    "Direct: Supply DC": "bg-amber-100 text-amber-700 border border-amber-300",
+    "Direct_SubContractor": "bg-orange-100 text-orange-700 border border-orange-300",
+    "Direct: Sub Contractor": "bg-orange-100 text-orange-700 border border-orange-300",
+  };
+  return colors[group] || "bg-sky-100 text-sky-700 border border-sky-200"; // default
+};
+
+// ฟังก์ชันสำหรับกำหนดสีของ badge ตามโครงการ (ใช้ตัวอักษรแรกของรหัสโครงการ)
+const getProjectBadgeColor = (projectNo: string): string => {
+  // ตัดเอาตัวอักษรหลัง - ตัวแรก เช่น J-001 → J, K-002 → K
+  const projectCode = projectNo.split('-')[0] || projectNo.charAt(0);
+  
+  const colors: Record<string, string> = {
+    "J": "bg-emerald-100 text-emerald-700 border border-emerald-300",
+    "K": "bg-teal-100 text-teal-700 border border-teal-300",
+    "L": "bg-cyan-100 text-cyan-700 border border-cyan-300",
+    "M": "bg-indigo-100 text-indigo-700 border border-indigo-300",
+    "N": "bg-violet-100 text-violet-700 border border-violet-300",
+    "O": "bg-fuchsia-100 text-fuchsia-700 border border-fuchsia-300",
+    "P": "bg-pink-100 text-pink-700 border border-pink-300",
+    "Q": "bg-rose-100 text-rose-700 border border-rose-300",
+  };
+  
+  return colors[projectCode] || "bg-emerald-100 text-emerald-700 border border-emerald-200"; // default
+};
+
 
 
 // --- INITIAL CONFIGURATION (Fallbacks) ---
@@ -281,30 +345,41 @@ const Sidebar = ({ activeModule, setActiveModule, dbConnected, sidebarOpen, onTo
   }, [hasRole, db]);
 
   const menuItems = [
-    {
-      id: "employees",
-      label: "พนักงาน (Employees)",
-      icon: Users,
-      sub: [
-        { id: "emp_indirect", label: "Employee Indirect" },
-        { id: "emp_direct_leader", label: "Direct: Team Leader" },
-        { id: "emp_direct_supply", label: "Direct: Supply DC" },
-        { id: "emp_direct_sub", label: "Direct: Sub Contractor" },
-      ],
-    },
-    { isDivider: true, id: "div1" },
-    { id: "projects", label: "โครงการ", icon: Briefcase },
-    { isDivider: true, id: "div2" },
+    // โครงการ - ทุก Role เห็น ยกเว้น Staff และ Admin Site ที่เห็นเฉพาะ Manpower
+    ...(hasRole(['MasterAdmin', 'MD', 'GM', 'PD', 'HRM', 'HR']) ? [
+      { id: "projects", label: "โครงการ", icon: Briefcase },
+      { isDivider: true, id: "div1" },
+    ] : []),
+    // พนักงาน - ทุก Role เห็น ยกเว้น Staff และ Admin Site
+    ...(hasRole(['MasterAdmin', 'MD', 'GM', 'PD', 'HRM', 'HR']) ? [
+      {
+        id: "employees",
+        label: "พนักงาน (Employees)",
+        icon: Users,
+        sub: [
+          { id: "emp_indirect", label: "Employee Indirect" },
+          { id: "emp_direct_leader", label: "Direct: Team Leader" },
+          { id: "emp_direct_supply", label: "Direct: Supply DC" },
+          { id: "emp_direct_sub", label: "Direct: Sub Contractor" },
+        ],
+      },
+      { isDivider: true, id: "div2" },
+    ] : []),
+    // Manpower - ทุก Role เห็น
     {
       id: "manpower",
       label: "Manpower",
       icon: Clock,
       sub: [
         { id: "manpower_dashboard", label: "Dashboard" },
-        { id: "attendance", label: "ลงเวลาการมาทำงาน" },
+        // Staff ไม่เห็นเมนู "ลงเวลาการมาทำงาน"
+        ...(hasRole(['MasterAdmin', 'MD', 'GM', 'PD', 'HRM', 'HR', 'Admin Site']) ? [
+          { id: "attendance", label: "ลงเวลาการมาทำงาน" }
+        ] : []),
       ],
     },
     { isDivider: true, id: "div3" },
+    // จัดการผู้ใช้ - เฉพาะ MasterAdmin
     ...(hasRole(['MasterAdmin']) ? [{ id: "users_data", label: "จัดการผู้ใช้ (Admin)", icon: UserCog, badge: pendingCount > 0 ? pendingCount : undefined }] : []),
   ];
 
@@ -661,13 +736,19 @@ const ConfirmationModal = ({ isOpen, onClose, onConfirm, title, message }: { isO
 
 // --- MAIN APPLICATION COMPONENT ---
 function MasterDatabaseApp() {
-  const { userProfile, firebaseUser, logout, updateColumnPreferences } = useAuth();
+  const { userProfile, firebaseUser, logout, updateColumnPreferences, hasRole } = useAuth();
   const [activeModule, setActiveModule] = useState("emp_indirect");
   const [dbConnected, setDbConnected] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
   const [dataLoading, setDataLoading] = useState(false);
+  
+  // ตรวจสอบสิทธิ์ตาม Role
+  const canEdit = useMemo(() => hasRole(['MasterAdmin', 'MD', 'GM', 'HRM', 'HR', 'Admin Site']), [hasRole]);
+  const canDelete = useMemo(() => hasRole(['MasterAdmin', 'MD', 'GM', 'HRM', 'Admin Site']), [hasRole]);
+  const canAdd = useMemo(() => hasRole(['MasterAdmin', 'MD', 'GM', 'HRM', 'HR', 'Admin Site']), [hasRole]);
+  
   const [notification, setNotification] = useState({
     isOpen: false,
     type: "info",
@@ -2002,7 +2083,7 @@ function MasterDatabaseApp() {
                     />
                   </label>
                 </div>
-                {selectedIds.size > 0 && (
+                {selectedIds.size > 0 && canDelete && (
                   <>
                     <span className="text-sm text-gray-500">เลือกแล้ว {selectedIds.size} รายการ</span>
                     <button
@@ -2021,16 +2102,18 @@ function MasterDatabaseApp() {
                 >
                   <Settings size={14} /> ตั้งค่าคอลัมน์
                 </button>
-                <button
-                  onClick={() => {
-                    setEditingItem(null);
-                    setFormData({});
-                    setIsAddModalOpen(true);
-                  }}
-                  className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 text-white rounded-lg shadow-sm hover:bg-blue-700 text-xs font-bold whitespace-nowrap shrink-0"
-                >
-                  <Plus size={14} /> เพิ่มรายการ
-                </button>
+                {canAdd && (
+                  <button
+                    onClick={() => {
+                      setEditingItem(null);
+                      setFormData({});
+                      setIsAddModalOpen(true);
+                    }}
+                    className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 text-white rounded-lg shadow-sm hover:bg-blue-700 text-xs font-bold whitespace-nowrap shrink-0"
+                  >
+                    <Plus size={14} /> เพิ่มรายการ
+                  </button>
+                )}
               </div>
             </>
           )}
@@ -2199,22 +2282,31 @@ function MasterDatabaseApp() {
                       {/* จัดการ — ย้ายมาอยู่คอลัมน์แรก */}
                       <td className="px-3 py-0.5 border-r border-gray-100">
                         <div className="flex justify-center gap-1 opacity-80 group-hover:opacity-100">
-                          <button
-                            onClick={() => {
-                              setEditingItem(row);
-                              setFormData(row);
-                              setIsAddModalOpen(true);
-                            }}
-                            className="p-1 text-blue-600 hover:bg-blue-100 rounded"
-                          >
-                            <Edit size={14} />
-                          </button>
-                          <button
-                            onClick={() => handleDeleteItem(row.id)}
-                            className="p-1 text-red-600 hover:bg-red-100 rounded"
-                          >
-                            <Trash2 size={14} />
-                          </button>
+                          {canEdit && (
+                            <button
+                              onClick={() => {
+                                setEditingItem(row);
+                                setFormData(row);
+                                setIsAddModalOpen(true);
+                              }}
+                              className="p-1 text-blue-600 hover:bg-blue-100 rounded"
+                              title="แก้ไข"
+                            >
+                              <Edit size={14} />
+                            </button>
+                          )}
+                          {canDelete && (
+                            <button
+                              onClick={() => handleDeleteItem(row.id)}
+                              className="p-1 text-red-600 hover:bg-red-100 rounded"
+                              title="ลบ"
+                            >
+                              <Trash2 size={14} />
+                            </button>
+                          )}
+                          {!canEdit && !canDelete && (
+                            <span className="text-xs text-gray-400">-</span>
+                          )}
                         </div>
                       </td>
                       {/* Fixed Cell */}
@@ -2229,7 +2321,14 @@ function MasterDatabaseApp() {
                         // สถานะโครงการ อาจเป็น array
                         const rawVal = row[col.id];
                         const isMultiProject = col.id === "สถานะโครงการ" && Array.isArray(rawVal);
-                        const cellVal = isMultiProject ? (rawVal as string[]).join(", ") : String(rawVal || "-");
+                        let cellVal: string;
+                        if (isMultiProject) {
+                          cellVal = (rawVal as string[]).map(formatProjectNo).join(", ");
+                        } else if (col.id === "สถานะโครงการ" && rawVal) {
+                          cellVal = formatProjectNo(String(rawVal));
+                        } else {
+                          cellVal = String(rawVal || "-");
+                        }
                         return (
                           <td
                             key={col.id}
@@ -2241,11 +2340,28 @@ function MasterDatabaseApp() {
                               isMultiProject ? (
                                 <span className="flex flex-wrap gap-1">
                                   {(rawVal as string[]).map((v) => (
-                                    <span key={v} className={`px-2 py-0.5 rounded-full text-xs font-medium ${statusColor.badge}`}>{v}</span>
+                                    <span 
+                                      key={v} 
+                                      className={`px-2 py-0.5 rounded-full text-xs font-medium ${getProjectBadgeColor(formatProjectNo(v))}`} 
+                                      title={v}
+                                    >
+                                      {formatProjectNo(v)}
+                                    </span>
                                   ))}
                                 </span>
                               ) : (
-                                <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${statusColor.badge}`}>
+                                <span 
+                                  className={`px-2 py-0.5 rounded-full text-xs font-medium ${
+                                    col.id === "สถานะพนักงาน" 
+                                      ? getEmployeeStatusBadgeColor(cellVal)
+                                      : col.id === "สถานะกลุ่มงาน"
+                                        ? getWorkGroupBadgeColor(cellVal)
+                                        : col.id === "สถานะโครงการ"
+                                          ? getProjectBadgeColor(cellVal)
+                                          : statusColor.badge
+                                  }`} 
+                                  title={String(rawVal)}
+                                >
                                   {cellVal}
                                 </span>
                               )
@@ -2428,9 +2544,10 @@ function MasterDatabaseApp() {
                                     ? "bg-emerald-500 text-white border-emerald-500 shadow-sm"
                                     : "bg-white text-emerald-700 border-emerald-300 hover:bg-emerald-100"
                                 }`}
+                                title={opt} // แสดง Project No. เต็มใน tooltip
                               >
                                 {isChecked && <Check size={11} />}
-                                {opt}
+                                {formatProjectNo(opt)}
                               </button>
                             );
                           })}

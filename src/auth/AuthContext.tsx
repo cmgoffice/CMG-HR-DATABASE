@@ -15,13 +15,14 @@ import {
   getDoc, 
   setDoc, 
   Timestamp, 
-  runTransaction 
+  runTransaction,
+  onSnapshot
 } from "firebase/firestore";
 
 // Shared type definitions
-export type UserRole = "MasterAdmin" | "MD" | "PD" | "HRM" | "HR" | "Admin Site" | "Staff";
+export type UserRole = "MasterAdmin" | "MD" | "GM" | "PD" | "HRM" | "HR" | "Admin Site" | "Staff";
 
-export const ALL_ROLES: UserRole[] = ["MasterAdmin", "MD", "PD", "HRM", "HR", "Admin Site", "Staff"];
+export const ALL_ROLES: UserRole[] = ["MasterAdmin", "MD", "GM", "PD", "HRM", "HR", "Admin Site", "Staff"];
 
 export interface UserProfile {
   uid: string;
@@ -104,6 +105,24 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       setUserProfile(profile);
     }
   };
+
+  // Listen to user profile changes in realtime
+  useEffect(() => {
+    if (!firebaseUser) return;
+
+    const userDocRef = doc(db, "CMG-HR-Database", "root", "users", firebaseUser.uid);
+    const unsubscribe = onSnapshot(userDocRef, (docSnap) => {
+      if (docSnap.exists()) {
+        setUserProfile(docSnap.data() as UserProfile);
+      } else {
+        setUserProfile(null);
+      }
+    }, (error) => {
+      console.error("Error listening to user profile:", error);
+    });
+
+    return () => unsubscribe();
+  }, [firebaseUser, db]);
 
   const handleFirstUserLogic = async (uid: string, email: string, firstName: string, lastName: string, position: string, photoURL?: string): Promise<UserProfile> => {
     const configRef = doc(db, "CMG-HR-Database", "root", "appMeta", "config");
@@ -240,6 +259,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       if (user) {
         setFirebaseUser(user);
+        // Initial fetch - realtime listener will handle updates
         const profile = await fetchProfile(user.uid);
         setUserProfile(profile);
       } else {

@@ -6,6 +6,8 @@ import {
   doc,
   setDoc,
   getDoc,
+  onSnapshot,
+  query
 } from "firebase/firestore";
 import {
   Calendar,
@@ -16,6 +18,7 @@ import {
   Columns,
   Check,
   GripVertical,
+  AlertCircle,
 } from "lucide-react";
 import { useAuth } from "../auth/AuthContext";
 
@@ -29,6 +32,7 @@ interface Employee {
   สถานะโครงการ?: string | string[];
   สถานะพนักงาน?: string;
   employee_type?: string;
+  ชื่อชุด?: string; // สำหรับ Supply Contract
   [key: string]: any;
 }
 
@@ -36,6 +40,7 @@ interface Employee {
 interface AttendanceEntry {
   status: string;       // "มา" | "ไม่มา" | "ลา"
   recordedAt: number;   // Unix timestamp (ms) ตอนที่กรอก
+  project?: string;     // โครงการที่ลงเวลา (เฉพาะเมื่อ status = "มา")
 }
 
 interface AttendanceDayData {
@@ -55,13 +60,32 @@ interface ColumnConfig {
   sticky: boolean;
 }
 
+// ฟังก์ชันสำหรับตัด Project No. ให้เหลือ 5 ตัวท้าย
+// เช่น PRJ-2026-J-001 → J-001
+// หรือ PRJ-2026-J-001 - Project Name → J-001
+const formatProjectNo = (projectNo: string): string => {
+  if (!projectNo || projectNo === "ไม่ระบุ") return projectNo;
+  
+  // ถ้ามี " - " (มี project name ต่อท้าย) ให้ตัดออกก่อน
+  const cleanProjectNo = projectNo.includes(' - ') 
+    ? projectNo.split(' - ')[0] 
+    : projectNo;
+  
+  // ตัดเอา 2 ส่วนท้ายจาก "-" เช่น PRJ-2026-J-001 → J-001
+  const parts = cleanProjectNo.split('-');
+  if (parts.length >= 2) {
+    return parts.slice(-2).join('-'); // เอา 2 ส่วนท้ายมาต่อกัน
+  }
+  return cleanProjectNo;
+};
+
 const DEFAULT_COLUMNS: ColumnConfig[] = [
   { id: "index",        label: "ลำดับ",         visible: true,  widthPx: 44,  sticky: true },
   { id: "รหัสพนักงาน",  label: "รหัสพนักงาน",   visible: true,  widthPx: 100, sticky: true },
   { id: "name",         label: "ชื่อ-นามสกุล",  visible: true,  widthPx: 160, sticky: true },
   { id: "ตำแหน่ง",      label: "ตำแหน่ง",       visible: true,  widthPx: 130, sticky: true },
-  { id: "สถานะกลุ่มงาน",label: "กลุ่มงาน",      visible: true,  widthPx: 90,  sticky: true },
-  { id: "สถานะโครงการ", label: "โครงการ",       visible: true,  widthPx: 160, sticky: true },
+  { id: "สถานะกลุ่มงาน",label: "กลุ่มงาน",      visible: false, widthPx: 90,  sticky: true },
+  { id: "สถานะโครงการ", label: "โครงการ",       visible: false, widthPx: 160, sticky: true },
 ];
 
 export const AttendancePage = ({ projectOptions }: { projectOptions: string[] }) => {
@@ -79,17 +103,40 @@ export const AttendancePage = ({ projectOptions }: { projectOptions: string[] })
   const [draggedIdx, setDraggedIdx] = useState<number | null>(null);
   const [columns, setColumns] = useState<ColumnConfig[]>(DEFAULT_COLUMNS);
 
-  // กรอง projectOptions ตาม assignedProjects ของ user
-  // MasterAdmin เห็นทุกโครงการ, user อื่นเห็นเฉพาะที่ assign ให้
+  // ── กรอง projectOptions ตาม assignedProjects ของ user
+  // MasterAdmin, MD, GM, PD, HRM, HR เห็นทุกโครงการ
+  // Admin Site, Staff เห็นเฉพาะที่ assign ให้ และไม่เห็น "ทุกโครงการ"
   const filteredProjectOptions = useMemo(() => {
-    if (hasRole(['MasterAdmin'])) {
-      return projectOptions; // MasterAdmin เห็นทุกโครงการ
+    if (hasRole(['MasterAdmin', 'MD', 'GM', 'PD', 'HRM', 'HR'])) {
+      return projectOptions; // เห็นทุกโครงการ
     }
     
-    // User ทั่วไป เห็นเฉพาะโครงการที่ถูก assign
+    // Admin Site, Staff เห็นเฉพาะโครงการที่ assign
     const assignedProjects = userProfile?.assignedProjects || [];
     return projectOptions.filter((project) => assignedProjects.includes(project));
   }, [projectOptions, userProfile, hasRole]);
+
+  // ตั้งค่า default project สำหรับ Admin Site/Staff
+  useEffect(() => {
+    if (hasRole(['Admin Site', 'Staff']) && filteredProjectOptions.length > 0) {
+      setSelectedProject(filteredProjectOptions[0]);
+    }
+  }, [hasRole, filteredProjectOptions]);
+
+  // ตรวจสอบว่าสามารถลงเวลาได้หรือไม่
+  // MasterAdmin, MD, GM, HR, Admin Site สามารถลงเวลาได้
+  // PD, HRM, Staff ดูอย่างเดียว
+  const canEditAttendance = useMemo(() => {
+    return hasRole(['MasterAdmin', 'MD', 'GM', 'HR', 'Admin Site']);
+  }, [hasRole]);
+
+  // ตรวจสอบว่า Admin Site/Staff มีโครงการที่ถูกกำหนดหรือไม่
+  const hasAssignedProjects = useMemo(() => {
+    if (hasRole(['MasterAdmin', 'MD', 'GM', 'PD', 'HRM', 'HR'])) {
+      return true; // Role เหล่านี้เห็นทุกโครงการ
+    }
+    return filteredProjectOptions.length > 0;
+  }, [hasRole, filteredProjectOptions]);
 
   // ── Mouse drag-to-scroll state ────────────────────────────────────────────
   // เก็บ ref ของ scroll container แต่ละกลุ่ม (key = groupName)
@@ -128,59 +175,71 @@ export const AttendancePage = ({ projectOptions }: { projectOptions: string[] })
     }
   }, []);
 
-  // ── โหลดพนักงาน ──────────────────────────────────────────────────────────
+  // ── โหลดพนักงาน (Realtime) ──────────────────────────────────────────────
   useEffect(() => {
-    const load = async () => {
-      setLoading(true);
-      try {
-        const snap = await getDocs(collection(db, "CMG-HR-Database", "root", "employee_data"));
-        const list = snap.docs
-          .map((d) => ({ id: d.id, ...d.data() } as Employee))
-          .filter((e) => e["สถานะพนักงาน"] === "ทำงาน");
-        setEmployees(list);
-      } catch (e) {
-        console.error(e);
-      } finally {
-        setLoading(false);
-      }
-    };
-    load();
+    setLoading(true);
+    
+    const employeeCollectionRef = collection(db, "CMG-HR-Database", "root", "employee_data");
+    
+    // Listen to employee changes in realtime
+    const unsubscribe = onSnapshot(employeeCollectionRef, (snapshot) => {
+      const list = snapshot.docs
+        .map((d) => ({ id: d.id, ...d.data() } as Employee))
+        .filter((e) => e["สถานะพนักงาน"] === "ทำงาน");
+      setEmployees(list);
+      setLoading(false);
+    }, (error) => {
+      console.error("Error listening to employees:", error);
+      setLoading(false);
+    });
+
+    return () => unsubscribe();
   }, [db]);
 
-  // ── โหลดข้อมูลลงเวลาทั้งเดือน ────────────────────────────────────────────
+  // ── โหลดข้อมูลลงเวลาทั้งเดือน (Realtime) ────────────────────────────────
   useEffect(() => {
     if (employees.length === 0) return;
-    const load = async () => {
-      const year = currentMonth.getFullYear();
-      const month = currentMonth.getMonth();
-      const totalDays = new Date(year, month + 1, 0).getDate();
-      const monthData: Record<string, Record<string, AttendanceEntry>> = {};
-
-      for (let d = 1; d <= totalDays; d++) {
-        const dateStr = `${year}-${String(month + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
-        const snap = await getDoc(doc(db, "CMG-HR-Database", "root", "attendance", dateStr));
-        if (snap.exists()) {
-          const raw = snap.data();
-          // รองรับทั้ง format เก่า (records เป็น string) และ format ใหม่ (records เป็น object)
+    
+    const year = currentMonth.getFullYear();
+    const month = currentMonth.getMonth();
+    const totalDays = new Date(year, month + 1, 0).getDate();
+    
+    const unsubscribes: (() => void)[] = [];
+    
+    // Listen to each day's attendance in realtime
+    for (let d = 1; d <= totalDays; d++) {
+      const dateStr = `${year}-${String(month + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+      const attendanceDocRef = doc(db, "CMG-HR-Database", "root", "attendance", dateStr);
+      
+      const unsubscribe = onSnapshot(attendanceDocRef, (docSnap) => {
+        if (docSnap.exists()) {
+          const raw = docSnap.data();
           const records: Record<string, AttendanceEntry> = {};
+          
           if (raw.records) {
             for (const [empId, val] of Object.entries(raw.records)) {
               if (typeof val === "string") {
-                // format เก่า — ไม่มี timestamp ให้ใช้ 0 (ล็อคทันที)
                 records[empId] = { status: val, recordedAt: 0 };
               } else if (val && typeof val === "object") {
                 records[empId] = val as AttendanceEntry;
               }
             }
           }
-          monthData[dateStr] = records;
+          
+          setAttendanceData((prev) => ({ ...prev, [dateStr]: records }));
         } else {
-          monthData[dateStr] = {};
+          setAttendanceData((prev) => ({ ...prev, [dateStr]: {} }));
         }
-      }
-      setAttendanceData(monthData);
+      }, (error) => {
+        console.error(`Error listening to attendance for ${dateStr}:`, error);
+      });
+      
+      unsubscribes.push(unsubscribe);
+    }
+    
+    return () => {
+      unsubscribes.forEach((unsub) => unsub());
     };
-    load();
   }, [currentMonth, employees, db]);
 
   // ── กรองพนักงานตามโครงการ ─────────────────────────────────────────────────
@@ -196,10 +255,23 @@ export const AttendancePage = ({ projectOptions }: { projectOptions: string[] })
   const groupedEmployees = useMemo(() => {
     const groups: Record<string, Employee[]> = {};
     filteredEmployees.forEach((emp) => {
-      const g = emp.สถานะกลุ่มงาน || "ไม่ระบุ";
-      if (!groups[g]) groups[g] = [];
-      groups[g].push(emp);
+      const groupKey = emp.สถานะกลุ่มงาน || "ไม่ระบุ";
+      if (!groups[groupKey]) groups[groupKey] = [];
+      groups[groupKey].push(emp);
     });
+    
+    // Sort พนักงานภายในแต่ละกลุ่ม
+    // ถ้าเป็น Supply Contract ให้ sort ตาม ชื่อชุด
+    Object.keys(groups).forEach((groupKey) => {
+      if (groupKey === "Supply Contract") {
+        groups[groupKey].sort((a, b) => {
+          const setA = a.ชื่อชุด || "ไม่ระบุชุด";
+          const setB = b.ชื่อชุด || "ไม่ระบุชุด";
+          return setA.localeCompare(setB, 'th');
+        });
+      }
+    });
+    
     return groups;
   }, [filteredEmployees]);
 
@@ -245,61 +317,184 @@ export const AttendancePage = ({ projectOptions }: { projectOptions: string[] })
   };
 
   // ── บันทึกการลงเวลา ───────────────────────────────────────────────────────
-  const handleAttendanceClick = async (
+  const handleAttendanceClick = useCallback(async (
     employeeId: string,
-    dateStr: string,
-    currentEntry: AttendanceEntry | undefined
+    dateStr: string
   ) => {
-    // ตรวจสอบว่าเป็นวันในอนาคตหรือไม่
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    
-    const targetDate = new Date(dateStr);
-    targetDate.setHours(0, 0, 0, 0);
-    
-    // ห้ามลงเวลาล่วงหน้า
-    if (targetDate > today) {
-      return; // วันในอนาคต ไม่ให้ลง
-    }
-    
-    // ตรวจสอบว่าล็อคแล้วหรือไม่
-    if (isLocked(currentEntry)) return; // ล็อคแล้ว ไม่ทำอะไร
+    // ใช้ functional update เพื่อดึง state ล่าสุด
+    setAttendanceData((prevData) => {
+      const currentEntry = prevData[dateStr]?.[employeeId];
+      
+      // ตรวจสอบว่าเป็นวันในอนาคตหรือไม่
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      
+      const targetDate = new Date(dateStr);
+      targetDate.setHours(0, 0, 0, 0);
+      
+      // ห้ามลงเวลาล่วงหน้า
+      if (targetDate > today) {
+        return prevData; // ไม่เปลี่ยนแปลง
+      }
+      
+      // ตรวจสอบว่าล็อคแล้วหรือไม่
+      const locked = currentEntry && currentEntry.status && 
+                     (Date.now() - (currentEntry.recordedAt || 0) > 24 * 60 * 60 * 1000);
+      if (locked) {
+        return prevData; // ไม่เปลี่ยนแปลง
+      }
 
-    const cur = currentEntry?.status || "";
-    let newStatus: string;
-    if (!cur) newStatus = "มา";
-    else if (cur === "มา") newStatus = "ไม่มา";
-    else if (cur === "ไม่มา") newStatus = "ลา";
-    else newStatus = ""; // ลา → ล้างออก
+      const cur = currentEntry?.status || "";
+      let newStatus: string;
+      if (!cur) newStatus = "มา";
+      else if (cur === "มา") newStatus = "ไม่มา";
+      else if (cur === "ไม่มา") newStatus = "ลา";
+      else newStatus = ""; // ลา → ล้างออก
 
-    const now = Date.now();
-    const newEntry: AttendanceEntry | null =
-      newStatus === "" ? null : { status: newStatus, recordedAt: now };
+      const now = Date.now();
+      let newEntry: AttendanceEntry | null = null;
+      
+      if (newStatus !== "") {
+        newEntry = {
+          status: newStatus,
+          recordedAt: now
+        };
+        
+        // เพิ่ม project field เฉพาะเมื่อเป็น "มา" และกรองโครงการอยู่
+        if (newStatus === "มา" && selectedProject !== "all") {
+          newEntry.project = selectedProject;
+        }
+      }
 
-    // อัพเดท local state ทันที
-    setAttendanceData((prev) => {
-      const dayRecords = { ...(prev[dateStr] || {}) };
+      // อัพเดท state
+      const dayRecords = { ...(prevData[dateStr] || {}) };
       if (newEntry === null) {
         delete dayRecords[employeeId];
       } else {
         dayRecords[employeeId] = newEntry;
       }
-      return { ...prev, [dateStr]: dayRecords };
-    });
+      
+      const updatedData = { ...prevData, [dateStr]: dayRecords };
 
+      // บันทึก Firestore (async)
+      (async () => {
+        setSaving(true);
+        try {
+          const attendanceRef = doc(db, "CMG-HR-Database", "root", "attendance", dateStr);
+          const updatedRecords: Record<string, AttendanceEntry> = { ...dayRecords };
+
+          await setDoc(
+            attendanceRef,
+            {
+              date: dateStr,
+              records: updatedRecords,
+              lastUpdatedBy: firebaseUser?.email || "unknown",
+              lastUpdatedAt: now,
+            },
+            { merge: false }
+          );
+        } catch (err) {
+          console.error("Save error:", err);
+          // revert
+          setAttendanceData((prev) => {
+            const revertRecords = { ...(prev[dateStr] || {}) };
+            if (currentEntry) {
+              revertRecords[employeeId] = currentEntry;
+            } else {
+              delete revertRecords[employeeId];
+            }
+            return { ...prev, [dateStr]: revertRecords };
+          });
+        } finally {
+          setSaving(false);
+        }
+      })();
+
+      return updatedData;
+    });
+  }, [db, firebaseUser, selectedProject]);
+
+  // ── ดับเบิ้ลคลิกที่หัวตารางวันที่ เพื่อเปลี่ยนสถานะทั้งวัน ─────────────────
+  const handleDateHeaderDoubleClick = async (dateStr: string) => {
+    // ตรวจสอบว่าเป็นวันในอนาคตหรือไม่
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const targetDate = new Date(dateStr);
+    targetDate.setHours(0, 0, 0, 0);
+    
+    if (targetDate > today) {
+      return; // วันในอนาคต ไม่ให้ลง
+    }
+
+    const now = Date.now();
+    const currentDayRecords = attendanceData[dateStr] || {};
+    
+    // หาสถานะส่วนใหญ่ของวันนั้น (ที่ไม่ล็อค)
+    const statuses = filteredEmployees
+      .map(emp => currentDayRecords[emp.id])
+      .filter(entry => !isLocked(entry))
+      .map(entry => entry?.status || "");
+    
+    // นับสถานะ
+    const statusCount: Record<string, number> = {};
+    statuses.forEach(s => {
+      statusCount[s] = (statusCount[s] || 0) + 1;
+    });
+    
+    // หาสถานะที่มีมากที่สุด
+    let dominantStatus = "";
+    let maxCount = 0;
+    for (const [status, count] of Object.entries(statusCount)) {
+      if (count > maxCount) {
+        maxCount = count;
+        dominantStatus = status;
+      }
+    }
+    
+    // กำหนดสถานะใหม่ตามลำดับ: "" → "มา" → "ไม่มา" → ""
+    let newStatus: string;
+    if (!dominantStatus || dominantStatus === "") {
+      newStatus = "มา";
+    } else if (dominantStatus === "มา") {
+      newStatus = "ไม่มา";
+    } else {
+      newStatus = ""; // ไม่มา → ว่าง
+    }
+    
+    // อัพเดททุกคนในวันนั้น (เฉพาะที่ไม่ล็อค)
+    const updatedRecords: Record<string, AttendanceEntry> = { ...currentDayRecords };
+    
+    filteredEmployees.forEach(emp => {
+      const currentEntry = currentDayRecords[emp.id];
+      if (!isLocked(currentEntry)) {
+        if (newStatus === "") {
+          delete updatedRecords[emp.id];
+        } else {
+          const newEntry: AttendanceEntry = {
+            status: newStatus,
+            recordedAt: now
+          };
+          
+          // เพิ่ม project field เฉพาะเมื่อเป็น "มา" และกรองโครงการอยู่
+          if (newStatus === "มา" && selectedProject !== "all") {
+            newEntry.project = selectedProject;
+          }
+          
+          updatedRecords[emp.id] = newEntry;
+        }
+      }
+    });
+    
+    // อัพเดท local state
+    setAttendanceData(prev => ({
+      ...prev,
+      [dateStr]: updatedRecords
+    }));
+    
     // บันทึก Firestore
     setSaving(true);
     try {
       const attendanceRef = doc(db, "CMG-HR-Database", "root", "attendance", dateStr);
-      const updatedRecords: Record<string, AttendanceEntry> = {
-        ...(attendanceData[dateStr] || {}),
-      };
-      if (newEntry === null) {
-        delete updatedRecords[employeeId];
-      } else {
-        updatedRecords[employeeId] = newEntry;
-      }
-
       await setDoc(
         attendanceRef,
         {
@@ -308,23 +503,56 @@ export const AttendancePage = ({ projectOptions }: { projectOptions: string[] })
           lastUpdatedBy: firebaseUser?.email || "unknown",
           lastUpdatedAt: now,
         },
-        { merge: false } // เขียนทับทั้ง document เพื่อให้ records สะอาด
+        { merge: false }
       );
     } catch (err) {
       console.error("Save error:", err);
       // revert
-      setAttendanceData((prev) => {
-        const dayRecords = { ...(prev[dateStr] || {}) };
-        if (currentEntry) {
-          dayRecords[employeeId] = currentEntry;
-        } else {
-          delete dayRecords[employeeId];
-        }
-        return { ...prev, [dateStr]: dayRecords };
-      });
+      setAttendanceData(prev => ({
+        ...prev,
+        [dateStr]: currentDayRecords
+      }));
     } finally {
       setSaving(false);
     }
+  };
+
+  // ── แปลงรหัสโครงการเป็นรหัสย่อ ────────────────────────────────────────────
+  const getProjectShortCode = (projectName: string): string => {
+    // ตัวอย่าง: PRJ-2026-J-001 → J01
+    // ตัวอย่าง: PRJ-2026-J-02B → J02B
+    // ตัวอย่าง: PRJ-2026-J-001 - Project Name → J01
+    
+    // ถ้ามี " - " (มี project name ต่อท้าย) ให้ตัดออกก่อน
+    const cleanProjectNo = projectName.includes(' - ') 
+      ? projectName.split(' - ')[0] 
+      : projectName;
+    
+    // รูปแบบ: PRJ-YYYY-X-NNN หรือ PRJ-YYYY-X-NNX
+    const match = cleanProjectNo.match(/PRJ-\d{4}-([A-Z]+)-0*(\d+[A-Z]*)$/i);
+    if (match) {
+      const letter = match[1].toUpperCase(); // J
+      let number = match[2]; // 1, 2B, 001, 02B
+      
+      // ลบ leading zeros และเติม 0 ข้างหน้าให้เป็น 2 หลัก (ถ้าเป็นตัวเลขล้วน)
+      if (/^\d+$/.test(number)) {
+        // ตัวเลขล้วน: 001 → 01, 1 → 01
+        number = number.padStart(2, '0');
+      } else {
+        // มีตัวอักษรปนอยู่: 02B → 02B, 2B → 02B
+        const numMatch = number.match(/^(\d+)([A-Z]+)$/i);
+        if (numMatch) {
+          const num = numMatch[1].padStart(2, '0');
+          const suffix = numMatch[2].toUpperCase();
+          number = num + suffix;
+        }
+      }
+      
+      return `${letter}${number}`; // J01, J02B
+    }
+    
+    // ถ้าไม่ตรงรูปแบบ ให้แสดงชื่อเต็ม
+    return projectName;
   };
 
   // ── เปลี่ยนเดือน ──────────────────────────────────────────────────────────
@@ -365,7 +593,7 @@ export const AttendancePage = ({ projectOptions }: { projectOptions: string[] })
   }, [columns]);
 
   // ── Render cell สถานะ ─────────────────────────────────────────────────────
-  const renderStatusCell = (employeeId: string, dateStr: string, isWeekend: boolean, isToday: boolean) => {
+  const renderStatusCell = (employeeId: string, dateStr: string, isWeekend: boolean, isToday: boolean, employee: Employee) => {
     const entry = attendanceData[dateStr]?.[employeeId];
     const displayStatus = getDisplayStatus(entry);
     const locked = isLocked(entry);
@@ -376,6 +604,22 @@ export const AttendancePage = ({ projectOptions }: { projectOptions: string[] })
     const targetDate = new Date(dateStr);
     targetDate.setHours(0, 0, 0, 0);
     const isFuture = targetDate > today;
+
+    // ตรวจสอบว่าพนักงานอยู่หลายโครงการหรือไม่
+    const empProjects = employee.สถานะโครงการ;
+    const projectList = Array.isArray(empProjects) ? empProjects : empProjects ? [empProjects] : [];
+    const isMultiProject = projectList.length > 1;
+    
+    // ตรวจสอบว่าลงเวลาในโครงการอื่นหรือไม่
+    const attendedProject = entry?.project;
+    const isOtherProject = isMultiProject && 
+                           attendedProject && 
+                           selectedProject !== "all" && 
+                           attendedProject !== selectedProject &&
+                           displayStatus === "มา";
+
+    // สามารถแก้ไขได้ถ้า: ไม่ใช่วันในอนาคต และ ไม่ล็อค และ มีสิทธิ์แก้ไข
+    const canEdit = !isFuture && !locked && canEditAttendance;
 
     let bg = isWeekend ? "bg-gray-100" : "bg-white hover:bg-gray-50";
     let text = "";
@@ -391,6 +635,12 @@ export const AttendancePage = ({ projectOptions }: { projectOptions: string[] })
       bg = "bg-gray-50";
       textCls = "text-gray-300";
       text = "";
+    } else if (isOtherProject) {
+      // แสดงรหัสย่อของโครงการที่ลงเวลา
+      bg = locked ? "bg-green-100" : "bg-green-100 hover:bg-green-200";
+      textCls = "text-green-700 font-semibold";
+      text = getProjectShortCode(attendedProject!);
+      if (isToday) bg += " border-2 border-blue-400";
     } else if (displayStatus === "มา") {
       bg = locked ? "bg-green-100" : "bg-green-100 hover:bg-green-200";
       textCls = "text-green-700 font-semibold";
@@ -418,6 +668,16 @@ export const AttendancePage = ({ projectOptions }: { projectOptions: string[] })
     let tooltipExtra = "";
     if (isFuture) {
       tooltipExtra = " ⏭️ ไม่สามารถลงล่วงหน้าได้";
+    } else if (isOtherProject) {
+      tooltipExtra = ` 📍 ลงเวลาที่โครงการ: ${attendedProject}`;
+      if (!locked) {
+        const remaining = 24 * 60 * 60 * 1000 - (Date.now() - (entry.recordedAt || 0));
+        const hrs = Math.floor(remaining / 3_600_000);
+        const mins = Math.floor((remaining % 3_600_000) / 60_000);
+        tooltipExtra += ` (แก้ไขได้อีก ${hrs}ชม. ${mins}น.)`;
+      } else {
+        tooltipExtra += " 🔒 ล็อคแล้ว";
+      }
     } else if (entry?.status && !locked) {
       const remaining = 24 * 60 * 60 * 1000 - (Date.now() - (entry.recordedAt || 0));
       const hrs = Math.floor(remaining / 3_600_000);
@@ -431,8 +691,6 @@ export const AttendancePage = ({ projectOptions }: { projectOptions: string[] })
       tooltipExtra = " 📅 วันนี้" + tooltipExtra;
     }
 
-    const canEdit = !isFuture && !locked;
-
     return (
       <td
         key={dateStr}
@@ -440,7 +698,7 @@ export const AttendancePage = ({ projectOptions }: { projectOptions: string[] })
         style={{ minWidth: 40, maxWidth: 40, width: 40, padding: "1px 0", fontSize: 10, height: 24 }}
         onDoubleClick={(e) => {
           e.stopPropagation(); // ป้องกัน event bubble ไปที่ scroll container
-          if (canEdit) handleAttendanceClick(employeeId, dateStr, entry);
+          if (canEdit) handleAttendanceClick(employeeId, dateStr);
         }}
         title={`${dateStr}: ${displayStatus || "ยังไม่ลงเวลา"}${tooltipExtra}\n${canEdit ? "(ดับเบิ้ลคลิกเพื่อเปลี่ยนสถานะ)" : ""}`}
       >
@@ -491,7 +749,10 @@ export const AttendancePage = ({ projectOptions }: { projectOptions: string[] })
               onChange={(e) => setSelectedProject(e.target.value)}
               className="w-full px-3 py-1.5 text-sm border rounded focus:ring-2 focus:ring-blue-500 outline-none bg-white"
             >
-              <option value="all">ทุกโครงการ</option>
+              {/* Admin Site และ Staff ไม่เห็น "ทุกโครงการ" */}
+              {hasRole(['MasterAdmin', 'MD', 'GM', 'PD', 'HRM', 'HR']) && (
+                <option value="all">ทุกโครงการ</option>
+              )}
               {filteredProjectOptions.map((p) => (
                 <option key={p} value={p}>{p}</option>
               ))}
@@ -566,13 +827,23 @@ export const AttendancePage = ({ projectOptions }: { projectOptions: string[] })
       </div>
 
       {/* ── Tables ── */}
-      {Object.keys(groupedEmployees).length === 0 ? (
+      {!hasAssignedProjects ? (
+        <div className="bg-white rounded-lg border border-orange-200 p-12 text-center">
+          <AlertCircle size={48} className="mx-auto mb-4 text-orange-500" />
+          <h3 className="text-lg font-bold text-gray-800 mb-2">คุณยังไม่ได้ถูกกำหนดโครงการ</h3>
+          <p className="text-gray-600">กรุณาติดต่อ MasterAdmin เพื่อกำหนดโครงการให้กับคุณ</p>
+        </div>
+      ) : Object.keys(groupedEmployees).length === 0 ? (
         <div className="bg-white rounded-lg border border-gray-200 p-12 text-center text-gray-400">
           <Users size={40} className="mx-auto mb-3 opacity-40" />
           <p>ไม่พบข้อมูลพนักงานในโครงการที่เลือก</p>
         </div>
       ) : (
-        Object.entries(groupedEmployees).map(([groupName, groupEmps]) => (
+        Object.entries(groupedEmployees).map(([groupName, groupEmps]) => {
+          // ตรวจสอบว่าเป็นกลุ่ม Supply Contract หรือไม่
+          const isSupplyContractGroup = groupName === "Supply Contract";
+          
+          return (
           <div key={groupName} className="bg-white rounded-lg border border-gray-200 overflow-hidden">
             {/* Group header */}
             <div className="bg-slate-800 px-4 py-2">
@@ -595,7 +866,7 @@ export const AttendancePage = ({ projectOptions }: { projectOptions: string[] })
               <table
                 className="border-collapse"
                 style={{ fontSize: 11, lineHeight: "1.1", tableLayout: "fixed",
-                  width: `${visibleColumns.reduce((s, c) => s + c.widthPx, 0) + daysInMonth.length * 40}px` }}
+                  width: `${visibleColumns.reduce((s, c) => s + c.widthPx, 0) + (isSupplyContractGroup ? 100 : 0) + daysInMonth.length * 40}px` }}
               >
                 <thead>
                   <tr style={{ height: 26 }}>
@@ -608,10 +879,19 @@ export const AttendancePage = ({ projectOptions }: { projectOptions: string[] })
                         {col.label}
                       </th>
                     ))}
-                    {daysInMonth.map(({ day, isWeekend, isToday }) => (
+                    {/* เพิ่มคอลัมน์ ชื่อชุด เฉพาะกลุ่ม Supply Contract */}
+                    {isSupplyContractGroup && (
+                      <th
+                        className="border border-gray-400 bg-orange-500 text-white px-1 py-0.5 sticky z-20 text-left"
+                        style={{ width: 100, minWidth: 100, left: visibleColumns.reduce((sum, c) => sum + c.widthPx, 0) }}
+                      >
+                        ชื่อชุด
+                      </th>
+                    )}
+                    {daysInMonth.map(({ day, isWeekend, isToday, dateStr }) => (
                       <th
                         key={day}
-                        className={`border border-gray-400 text-white px-0 py-0.5 text-center ${
+                        className={`border border-gray-400 text-white px-0 py-0.5 text-center ${canEditAttendance ? 'cursor-pointer hover:opacity-80' : 'cursor-not-allowed'} transition-opacity ${
                           isToday 
                             ? "bg-blue-600 font-bold shadow-md" 
                             : isWeekend 
@@ -619,7 +899,13 @@ export const AttendancePage = ({ projectOptions }: { projectOptions: string[] })
                               : "bg-orange-500"
                         }`}
                         style={{ width: 40, minWidth: 40 }}
-                        title={isToday ? "📅 วันนี้" : ""}
+                        title={isToday ? `📅 วันนี้${canEditAttendance ? '\n(ดับเบิ้ลคลิกเพื่อเปลี่ยนสถานะทั้งวัน)' : ''}` : (canEditAttendance ? "(ดับเบิ้ลคลิกเพื่อเปลี่ยนสถานะทั้งวัน)" : "")}
+                        onDoubleClick={(e) => {
+                          if (canEditAttendance) {
+                            e.stopPropagation();
+                            handleDateHeaderDoubleClick(dateStr);
+                          }
+                        }}
                       >
                         {day}
                       </th>
@@ -644,9 +930,12 @@ export const AttendancePage = ({ projectOptions }: { projectOptions: string[] })
                             {emp.สถานะกลุ่มงาน || "-"}
                           </span>
                         );
-                        else if (col.id === "สถานะโครงการ") content = Array.isArray(emp.สถานะโครงการ)
-                          ? emp.สถานะโครงการ.join(", ")
-                          : emp.สถานะโครงการ || "-";
+                        else if (col.id === "สถานะโครงการ") {
+                          const projects = Array.isArray(emp.สถานะโครงการ)
+                            ? emp.สถานะโครงการ
+                            : emp.สถานะโครงการ ? [emp.สถานะโครงการ] : ["-"];
+                          content = projects.map(formatProjectNo).join(", ");
+                        }
 
                         return (
                           <td
@@ -658,8 +947,19 @@ export const AttendancePage = ({ projectOptions }: { projectOptions: string[] })
                           </td>
                         );
                       })}
+                      {/* เพิ่มเซลล์ ชื่อชุด เฉพาะกลุ่ม Supply Contract */}
+                      {isSupplyContractGroup && (
+                        <td
+                          className="border border-gray-200 px-1 py-0 sticky bg-white z-10 overflow-hidden whitespace-nowrap text-ellipsis"
+                          style={{ width: 100, minWidth: 100, left: visibleColumns.reduce((sum, c) => sum + c.widthPx, 0) }}
+                        >
+                          <span className="px-1 py-0.5 bg-purple-100 text-purple-700 rounded" style={{ fontSize: 10 }}>
+                            {emp.ชื่อชุด || "-"}
+                          </span>
+                        </td>
+                      )}
                       {daysInMonth.map(({ dateStr, isWeekend, isToday }) =>
-                        renderStatusCell(emp.id, dateStr, isWeekend, isToday)
+                        renderStatusCell(emp.id, dateStr, isWeekend, isToday, emp)
                       )}
                     </tr>
                   ))}
@@ -667,7 +967,8 @@ export const AttendancePage = ({ projectOptions }: { projectOptions: string[] })
               </table>
             </div>
           </div>
-        ))
+          );
+        })
       )}
 
       {/* Saving toast */}
