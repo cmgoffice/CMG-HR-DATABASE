@@ -648,7 +648,7 @@ const ConfirmationModal = ({ isOpen, onClose, onConfirm, title, message }: { isO
 
 // --- MAIN APPLICATION COMPONENT ---
 function MasterDatabaseApp() {
-  const { userProfile, firebaseUser, logout } = useAuth();
+  const { userProfile, firebaseUser, logout, updateColumnPreferences } = useAuth();
   const [activeModule, setActiveModule] = useState("emp_indirect");
   const [dbConnected, setDbConnected] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -784,18 +784,31 @@ function MasterDatabaseApp() {
   const closeConfirm = () =>
     setConfirmation((prev) => ({ ...prev, isOpen: false }));
 
-  const toggleColumnVisibility = (colId: string) => {
+  const toggleColumnVisibility = async (colId: string) => {
+    const currentModuleHidden = hiddenColumnsMap[activeModule] || [];
+    let newHidden: string[];
+    
+    if (currentModuleHidden.includes(colId)) {
+      newHidden = currentModuleHidden.filter((id: string) => id !== colId);
+    } else {
+      newHidden = [...currentModuleHidden, colId];
+    }
+    
+    // อัพเดท local state
     setHiddenColumnsMap((prev) => {
-      const currentModuleHidden = prev[activeModule] || [];
-      let newHidden;
-      if (currentModuleHidden.includes(colId)) {
-        newHidden = currentModuleHidden.filter((id: string) => id !== colId);
-      } else {
-        newHidden = [...currentModuleHidden, colId];
-      }
       return { ...prev, [activeModule]: newHidden };
     });
+    
+    // บันทึกลง Firestore
+    await updateColumnPreferences(activeModule, newHidden);
   };
+
+  // โหลดการตั้งค่าคอลัมน์จาก user profile เมื่อ component mount หรือ user profile เปลี่ยน
+  useEffect(() => {
+    if (userProfile?.columnPreferences) {
+      setHiddenColumnsMap(userProfile.columnPreferences);
+    }
+  }, [userProfile]);
 
   useEffect(() => {
     // Only setting DB connected state, since Firebase auth is handled globally now
@@ -1779,27 +1792,27 @@ function MasterDatabaseApp() {
               <table className="w-full text-left border-collapse min-w-[600px]">
                 <thead className="bg-gray-100 text-gray-600 text-xs uppercase font-semibold">
                   <tr>
-                    <th className="px-3 py-1 border-b w-14 text-center">ลำดับ</th>
-                    <th className="px-3 py-1 border-b">เวลา</th>
-                    <th className="px-3 py-1 border-b">ผู้ใช้</th>
-                    <th className="px-3 py-1 border-b">Module</th>
-                    <th className="px-3 py-1 border-b">กิจกรรม</th>
-                    <th className="px-3 py-1 border-b">รายละเอียด</th>
+                    <th className="px-3 py-0.5 border-b w-14 text-center">ลำดับ</th>
+                    <th className="px-3 py-0.5 border-b">เวลา</th>
+                    <th className="px-3 py-0.5 border-b">ผู้ใช้</th>
+                    <th className="px-3 py-0.5 border-b">Module</th>
+                    <th className="px-3 py-0.5 border-b">กิจกรรม</th>
+                    <th className="px-3 py-0.5 border-b">รายละเอียด</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100 text-sm text-gray-700">
                   {logs.map((log, idx) => (
                     <tr key={log.id} className="hover:bg-gray-50">
-                      <td className="px-3 py-1 text-center text-gray-500">{idx + 1}</td>
-                      <td className="px-3 py-1">{log.timestamp}</td>
-                      <td className="px-3 py-1 font-medium">{log.user}</td>
-                      <td className="px-3 py-1">
+                      <td className="px-3 py-0.5 text-center text-gray-500">{idx + 1}</td>
+                      <td className="px-3 py-0.5">{log.timestamp}</td>
+                      <td className="px-3 py-0.5 font-medium">{log.user}</td>
+                      <td className="px-3 py-0.5">
                         <span className="px-2 py-0.5 bg-slate-100 rounded border">
                           {log.module}
                         </span>
                       </td>
-                      <td className="px-3 py-1 text-blue-600">{log.action}</td>
-                      <td className="px-3 py-1 text-gray-500">{log.details}</td>
+                      <td className="px-3 py-0.5 text-blue-600">{log.action}</td>
+                      <td className="px-3 py-0.5 text-gray-500">{log.details}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -2070,7 +2083,7 @@ function MasterDatabaseApp() {
               <table ref={tableElementRef} className="w-full text-left border-collapse min-w-max">
                 <thead ref={theadRef} className="bg-gray-50 border-b border-gray-200 sticky top-0 z-20">
                 <tr>
-                  <th className="px-2 py-1 w-10 bg-gray-50 border-r border-gray-200 sticky left-0 z-10">
+                  <th className="px-2 py-0.5 w-10 bg-gray-50 border-r border-gray-200 sticky left-0 z-10">
                     <input
                       type="checkbox"
                       ref={selectAllCheckboxRef}
@@ -2080,14 +2093,14 @@ function MasterDatabaseApp() {
                       title="เลือกทั้งหมด"
                     />
                   </th>
-                  <th className="px-3 py-1 text-xs font-semibold text-gray-500 uppercase tracking-wider w-14 text-center bg-gray-50 border-r border-gray-200 sticky left-0 z-10">ลำดับ</th>
+                  <th className="px-3 py-0.5 text-xs font-semibold text-gray-500 uppercase tracking-wider w-14 text-center bg-gray-50 border-r border-gray-200 sticky left-0 z-10">ลำดับ</th>
                   {/* จัดการ — ย้ายมาอยู่คอลัมน์แรก */}
-                  <th className="px-3 py-1 text-center text-xs font-semibold text-gray-500 uppercase border-r border-gray-200 whitespace-nowrap">
+                  <th className="px-3 py-0.5 text-center text-xs font-semibold text-gray-500 uppercase border-r border-gray-200 whitespace-nowrap">
                     จัดการ
                   </th>
                   {/* V18: Fixed Column Header (No Drag, No Delete Button) */}
                   {fixedColumn && (
-                    <th className="px-3 py-1 text-xs font-semibold text-gray-500 uppercase tracking-wider whitespace-nowrap bg-gray-100 border-r border-gray-200 sticky left-0 z-10 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)]">
+                    <th className="px-3 py-0.5 text-xs font-semibold text-gray-500 uppercase tracking-wider whitespace-nowrap bg-gray-100 border-r border-gray-200 sticky left-0 z-10 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)]">
                       <div className="flex items-center gap-2">
                         {fixedColumn.label}
                       </div>
@@ -2099,7 +2112,7 @@ function MasterDatabaseApp() {
                     return (
                       <th
                         key={col.id}
-                        className={`px-3 py-1 text-xs font-semibold uppercase tracking-wider whitespace-nowrap cursor-move group ${
+                        className={`px-3 py-0.5 text-xs font-semibold uppercase tracking-wider whitespace-nowrap cursor-move group ${
                           statusColor
                             ? `${statusColor.header} hover:brightness-95`
                             : "text-gray-500 hover:bg-gray-100"
@@ -2140,7 +2153,7 @@ function MasterDatabaseApp() {
                       key={row.id || idx}
                       className={`hover:bg-blue-50/50 group ${selectedIds.has(row.id) ? "bg-blue-50" : ""}`}
                     >
-                      <td className="px-2 py-1 bg-gray-50/50 border-r border-gray-100 sticky left-0 z-10">
+                      <td className="px-2 py-0.5 bg-gray-50/50 border-r border-gray-100 sticky left-0 z-10">
                         <input
                           type="checkbox"
                           checked={selectedIds.has(row.id)}
@@ -2148,11 +2161,11 @@ function MasterDatabaseApp() {
                           className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
                         />
                       </td>
-                      <td className="px-3 py-1 text-center text-gray-500 font-medium bg-gray-50/50 border-r border-gray-100 sticky left-0 z-10 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.05)]">
+                      <td className="px-3 py-0.5 text-center text-gray-500 font-medium bg-gray-50/50 border-r border-gray-100 sticky left-0 z-10 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.05)]">
                         {idx + 1}
                       </td>
                       {/* จัดการ — ย้ายมาอยู่คอลัมน์แรก */}
-                      <td className="px-3 py-1 border-r border-gray-100">
+                      <td className="px-3 py-0.5 border-r border-gray-100">
                         <div className="flex justify-center gap-1 opacity-80 group-hover:opacity-100">
                           <button
                             onClick={() => {
@@ -2160,21 +2173,21 @@ function MasterDatabaseApp() {
                               setFormData(row);
                               setIsAddModalOpen(true);
                             }}
-                            className="p-1.5 text-blue-600 hover:bg-blue-100 rounded"
+                            className="p-1 text-blue-600 hover:bg-blue-100 rounded"
                           >
-                            <Edit size={16} />
+                            <Edit size={14} />
                           </button>
                           <button
                             onClick={() => handleDeleteItem(row.id)}
-                            className="p-1.5 text-red-600 hover:bg-red-100 rounded"
+                            className="p-1 text-red-600 hover:bg-red-100 rounded"
                           >
-                            <Trash2 size={16} />
+                            <Trash2 size={14} />
                           </button>
                         </div>
                       </td>
                       {/* Fixed Cell */}
                       {fixedColumn && (
-                        <td className="px-3 py-1 text-gray-700 whitespace-nowrap max-w-xs overflow-hidden text-ellipsis font-bold bg-gray-50/50 border-r border-gray-100 sticky left-0 z-10 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.05)]">
+                        <td className="px-3 py-0.5 text-gray-700 whitespace-nowrap max-w-xs overflow-hidden text-ellipsis font-bold bg-gray-50/50 border-r border-gray-100 sticky left-0 z-10 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.05)]">
                           {String(row[fixedColumn.id] || "-")}
                         </td>
                       )}
@@ -2188,7 +2201,7 @@ function MasterDatabaseApp() {
                         return (
                           <td
                             key={col.id}
-                            className={`px-3 py-1 whitespace-nowrap max-w-xs overflow-hidden text-ellipsis ${
+                            className={`px-3 py-0.5 whitespace-nowrap max-w-xs overflow-hidden text-ellipsis ${
                               statusColor ? statusColor.cell : "text-gray-700"
                             }`}
                           >

@@ -35,6 +35,7 @@ export interface UserProfile {
   createdAt: Timestamp;
   photoURL?: string;
   isFirstUser: boolean;
+  columnPreferences?: Record<string, string[]>; // เก็บคอลัมน์ที่ซ่อนของแต่ละ module
 }
 
 interface AuthContextType {
@@ -47,6 +48,7 @@ interface AuthContextType {
   logout: () => Promise<void>;
   refreshProfile: () => Promise<void>;
   hasRole: (roles: UserRole[]) => boolean;
+  updateColumnPreferences: (moduleId: string, hiddenColumns: string[]) => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | null>(null);
@@ -207,6 +209,33 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     return roles.some(role => userProfile.role.includes(role));
   };
 
+  const updateColumnPreferences = async (moduleId: string, hiddenColumns: string[]) => {
+    if (!firebaseUser) return;
+    
+    try {
+      const userRef = doc(db, "CMG-HR-Database", "root", "users", firebaseUser.uid);
+      const currentPrefs = userProfile?.columnPreferences || {};
+      const updatedPrefs = {
+        ...currentPrefs,
+        [moduleId]: hiddenColumns
+      };
+      
+      await setDoc(userRef, {
+        columnPreferences: updatedPrefs
+      }, { merge: true });
+      
+      // Update local state
+      if (userProfile) {
+        setUserProfile({
+          ...userProfile,
+          columnPreferences: updatedPrefs
+        });
+      }
+    } catch (error) {
+      console.error("Failed to update column preferences", error);
+    }
+  };
+
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       if (user) {
@@ -233,7 +262,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       registerWithEmail,
       logout,
       refreshProfile,
-      hasRole
+      hasRole,
+      updateColumnPreferences
     }}>
       {children}
     </AuthContext.Provider>

@@ -65,24 +65,24 @@ export const UserManagement = ({
           <table className="w-full text-left border-collapse min-w-max">
             <thead className="bg-gray-50 border-b border-gray-200 text-gray-600 text-sm">
               <tr>
-                <th className="px-4 py-3 font-semibold">ผู้ใช้งาน</th>
-                <th className="px-4 py-3 font-semibold">อีเมล</th>
-                <th className="px-4 py-3 font-semibold">ตำแหน่ง</th>
-                <th className="px-4 py-3 font-semibold">สถานะ</th>
-                <th className="px-4 py-3 font-semibold">สิทธิ์ (Roles)</th>
-                <th className="px-4 py-3 font-semibold">โครงการที่รับผิดชอบ</th>
-                <th className="px-4 py-3 font-semibold text-center">จัดการ</th>
+                <th className="px-4 py-0.5 font-semibold">ผู้ใช้งาน</th>
+                <th className="px-4 py-0.5 font-semibold">อีเมล</th>
+                <th className="px-4 py-0.5 font-semibold">ตำแหน่ง</th>
+                <th className="px-4 py-0.5 font-semibold">สถานะ</th>
+                <th className="px-4 py-0.5 font-semibold">สิทธิ์ (Roles)</th>
+                <th className="px-4 py-0.5 font-semibold">โครงการที่รับผิดชอบ</th>
+                <th className="px-4 py-0.5 font-semibold text-center">จัดการ</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100 text-sm">
               {users.map((user) => (
                 <tr key={user.uid} className="hover:bg-blue-50/50">
-                  <td className="px-4 py-3">
+                  <td className="px-4 py-0.5">
                     <div className="flex items-center gap-3">
                       {user.photoURL ? (
-                        <img src={user.photoURL} alt="Profile" className="w-10 h-10 rounded-full object-cover shadow-sm border border-gray-200" />
+                        <img src={user.photoURL} alt="Profile" className="w-8 h-8 rounded-full object-cover shadow-sm border border-gray-200" />
                       ) : (
-                        <div className="w-10 h-10 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center font-bold">
+                        <div className="w-8 h-8 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center font-bold text-xs">
                           {user.firstName?.charAt(0) || user.email.charAt(0).toUpperCase()}
                         </div>
                       )}
@@ -92,43 +92,43 @@ export const UserManagement = ({
                       </div>
                     </div>
                   </td>
-                  <td className="px-4 py-3 text-gray-600">
+                  <td className="px-4 py-0.5 text-gray-600">
                     <div className="flex items-center gap-1.5"><Mail size={14} className="text-gray-400"/> {user.email}</div>
                   </td>
-                  <td className="px-4 py-3 text-gray-600">{user.position || "-"}</td>
-                  <td className="px-4 py-3">
+                  <td className="px-4 py-0.5 text-gray-600">{user.position || "-"}</td>
+                  <td className="px-4 py-0.5">
                     {user.status === 'pending' ? (
-                      <span className="px-2.5 py-1 bg-orange-100 text-orange-700 text-xs font-semibold rounded-full border border-orange-200">รออนุมัติ</span>
+                      <span className="px-2.5 py-0.5 bg-orange-100 text-orange-700 text-xs font-semibold rounded-full border border-orange-200">รออนุมัติ</span>
                     ) : user.status === 'approved' ? (
-                      <span className="px-2.5 py-1 bg-green-100 text-green-700 text-xs font-semibold rounded-full border border-green-200">อนุมัติแล้ว</span>
+                      <span className="px-2.5 py-0.5 bg-green-100 text-green-700 text-xs font-semibold rounded-full border border-green-200">อนุมัติแล้ว</span>
                     ) : (
-                      <span className="px-2.5 py-1 bg-red-100 text-red-700 text-xs font-semibold rounded-full border border-red-200">ปฏิเสธ</span>
+                      <span className="px-2.5 py-0.5 bg-red-100 text-red-700 text-xs font-semibold rounded-full border border-red-200">ปฏิเสธ</span>
                     )}
                   </td>
-                  <td className="px-4 py-3">
+                  <td className="px-4 py-0.5">
                     <div className="flex flex-wrap gap-1">
                       {user.role.map(r => (
                         <span key={r} className="px-2 py-0.5 bg-blue-50 text-blue-700 text-[10px] font-semibold rounded border border-blue-100">{r}</span>
                       ))}
                     </div>
                   </td>
-                  <td className="px-4 py-3 text-xs text-gray-500 max-w-[200px] truncate">
+                  <td className="px-4 py-0.5 text-xs text-gray-500 max-w-[200px] truncate">
                     {user.assignedProjects?.length > 0 ? user.assignedProjects.join(', ') : "ไม่ได้กำหนด"}
                   </td>
-                  <td className="px-4 py-3 text-center">
+                  <td className="px-4 py-0.5 text-center">
                     {user.status === 'pending' ? (
                       <div className="flex justify-center gap-2">
-                        <button onClick={() => handleUpdateUserStatus(user.uid, 'approved')} className="p-1.5 bg-green-50 text-green-600 hover:bg-green-100 rounded-lg" title="อนุมัติ"><CheckCircle size={18} /></button>
-                        <button onClick={() => handleUpdateUserStatus(user.uid, 'rejected')} className="p-1.5 bg-red-50 text-red-600 hover:bg-red-100 rounded-lg" title="ปฏิเสธ"><AlertCircle size={18} /></button>
+                        <button onClick={() => handleUpdateUserStatus(user.uid, 'approved')} className="p-1 bg-green-50 text-green-600 hover:bg-green-100 rounded-lg" title="อนุมัติ"><CheckCircle size={16} /></button>
+                        <button onClick={() => handleUpdateUserStatus(user.uid, 'rejected')} className="p-1 bg-red-50 text-red-600 hover:bg-red-100 rounded-lg" title="ปฏิเสธ"><AlertCircle size={16} /></button>
                       </div>
                     ) : (
                       <button 
                         onClick={() => setEditingUser(user)} 
-                        className="p-1.5 bg-blue-50 text-blue-600 hover:bg-blue-100 rounded-lg"
+                        className="p-1 bg-blue-50 text-blue-600 hover:bg-blue-100 rounded-lg"
                         disabled={user.isFirstUser && user.uid === userProfile?.uid}
                         title="แก้ไขสิทธิ์"
                       >
-                        <Edit size={18} />
+                        <Edit size={16} />
                       </button>
                     )}
                   </td>
