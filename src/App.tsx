@@ -74,6 +74,7 @@ import {
   WifiOff,
   PanelLeft,
   PanelLeftClose,
+  Clock,
 } from "lucide-react";
 
 // --- FIREBASE IMPORTS ---
@@ -257,6 +258,8 @@ import { RegisterPage } from './auth/RegisterPage';
 import { PendingApprovalPage } from './auth/PendingApprovalPage';
 import { ProtectedRoute } from './auth/ProtectedRoute';
 import { UserManagement } from './components/UserManagement';
+import { AttendancePage } from './components/AttendancePage';
+import { ManpowerDashboard } from './components/ManpowerDashboard';
 
 const Sidebar = ({ activeModule, setActiveModule, dbConnected, sidebarOpen, onToggleSidebar }: {
   activeModule: string; setActiveModule: (id: string) => void; dbConnected: boolean;
@@ -292,6 +295,16 @@ const Sidebar = ({ activeModule, setActiveModule, dbConnected, sidebarOpen, onTo
     { isDivider: true, id: "div1" },
     { id: "projects", label: "โครงการ", icon: Briefcase },
     { isDivider: true, id: "div2" },
+    {
+      id: "manpower",
+      label: "Manpower",
+      icon: Clock,
+      sub: [
+        { id: "manpower_dashboard", label: "Dashboard" },
+        { id: "attendance", label: "ลงเวลาการมาทำงาน" },
+      ],
+    },
+    { isDivider: true, id: "div3" },
     ...(hasRole(['MasterAdmin']) ? [{ id: "users_data", label: "จัดการผู้ใช้ (Admin)", icon: UserCog, badge: pendingCount > 0 ? pendingCount : undefined }] : []),
   ];
 
@@ -1863,153 +1876,164 @@ function MasterDatabaseApp() {
       >
         <header className="flex items-center gap-3 mb-3 bg-white px-3 py-2 rounded-xl shadow-sm border border-gray-200">
           <h1 className="text-base font-bold text-gray-800 whitespace-nowrap flex items-center gap-2 shrink-0">
-            {activeModule === 'users_data' ? 'จัดการสิทธิ์ผู้ใช้งาน' : config.label}
+            {activeModule === 'users_data' 
+              ? 'จัดการสิทธิ์ผู้ใช้งาน' 
+              : activeModule === 'attendance' 
+                ? 'ลงเวลาการมาทำงาน' 
+                : activeModule === 'manpower_dashboard'
+                  ? 'Manpower Dashboard'
+                  : config.label}
           </h1>
-          <div className="w-px h-5 bg-gray-200 shrink-0" />
+          
+          {activeModule !== 'attendance' && activeModule !== 'manpower_dashboard' && (
+            <>
+              <div className="w-px h-5 bg-gray-200 shrink-0" />
 
-          <div className="relative flex-1 min-w-[200px]">
-            <Search
-              className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"
-              size={18}
-            />
-            <input
-              type="text"
-              placeholder="ค้นหา..."
-              className="w-full pl-10 pr-4 py-1.5 border rounded-lg focus:ring-2 focus:ring-blue-100 outline-none text-sm"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-            />
-          </div>
-          <div className="flex gap-2 text-sm items-center flex-wrap">
-            <div className="relative">
-              <button
-                onClick={() => setIsColVisOpen(!isColVisOpen)}
-                className="flex items-center gap-1.5 px-2.5 py-1.5 text-gray-600 hover:bg-gray-100 rounded border hover:border-gray-200 text-xs"
-              >
-                <Columns size={16} /> เลือกคอลัมน์
-              </button>
-              {isColVisOpen && (
-                <>
-                  <div
-                    className="fixed inset-0 z-10"
-                    onClick={() => setIsColVisOpen(false)}
-                  ></div>
-                  <div className="absolute right-0 top-full mt-2 w-56 bg-white border border-gray-200 rounded-lg shadow-xl z-20 max-h-64 overflow-y-auto p-2">
-                    <div className="text-xs font-semibold text-gray-500 px-2 py-1 mb-1">
-                      แสดง/ซ่อน คอลัมน์
-                    </div>
-                    {currentSchema.map((col) => {
-                      // V18: Prevent hiding the core IDs
-                      const isFixed =
-                        (activeModule === "client_list" &&
-                          col.id === "Customer_ID") ||
-                        (activeModule === "contractors" && col.id === "con_id");
-                      if (isFixed) return null;
-
-                      return (
-                        <div
-                          key={col.id}
-                          className="flex items-center gap-2 px-2 py-1.5 hover:bg-gray-50 rounded cursor-pointer"
-                          onClick={() => toggleColumnVisibility(col.id)}
-                        >
-                          <div
-                            className={`w-4 h-4 flex items-center justify-center rounded border ${
-                              currentModuleHidden.includes(col.id)
-                                ? "border-gray-300"
-                                : "bg-blue-500 border-blue-500"
-                            }`}
-                          >
-                            {!currentModuleHidden.includes(col.id) && (
-                              <Check size={12} className="text-white" />
-                            )}
-                          </div>
-                          <span
-                            className={`text-sm ${
-                              currentModuleHidden.includes(col.id)
-                                ? "text-gray-400"
-                                : "text-gray-700"
-                            }`}
-                          >
-                            {col.label}
-                          </span>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </>
-              )}
-            </div>
-
-            <button
-              onClick={downloadCSV}
-              className="flex items-center gap-1.5 px-2.5 py-1.5 text-gray-600 hover:bg-gray-100 rounded border hover:border-gray-200 text-xs"
-            >
-              <Download size={16} /> Export
-            </button>
-            <div className="relative group">
-              <button
-                onClick={downloadTemplate}
-                className="flex items-center gap-1.5 px-2.5 py-1.5 text-gray-600 hover:bg-gray-100 rounded border hover:border-gray-200 text-xs"
-              >
-                <FileText size={16} /> Template
-              </button>
-              <div className="absolute left-0 top-full mt-1 w-72 p-2 bg-slate-800 text-white text-xs rounded shadow-lg opacity-0 pointer-events-none group-hover:opacity-100 transition-opacity z-20">
-                ไฟล์เป็น UTF-8 BOM ถ้าเปิดใน Excel แล้วตัวหนังสือเป็น ??? ให้ใช้: ข้อมูล → จากไฟล์ข้อความ/CSV → เลือกไฟล์ → ตั้ง Encoding เป็น Unicode (UTF-8) แล้วบันทึกเป็น CSV UTF-8
-              </div>
-            </div>
-            <div className="flex items-center gap-2">
-              <label className="text-sm text-gray-500 whitespace-nowrap" title="ข้าม N แถวข้อมูลหลังหัวตาราง (เช่น 5 = นำเข้าเฉพาะแถวที่ 6 เป็นต้นไป)">
-                ข้ามแถวแรก:
-              </label>
-              <input
-                type="number"
-                min={0}
-                max={100}
-                value={skipImportRows}
-                onChange={(e) => setSkipImportRows(Math.max(0, parseInt(e.target.value, 10) || 0))}
-                className="w-14 px-2 py-1 border rounded text-sm text-center"
-                title="จำนวนแถวข้อมูลที่ข้าม (หลังหัวตาราง)"
-              />
-              <label className="flex items-center gap-1.5 px-2.5 py-1.5 text-gray-600 hover:bg-gray-100 rounded border hover:border-gray-200 cursor-pointer bg-blue-50 text-blue-700 font-medium text-xs">
-                <Upload size={16} /> Import{" "}
-                <input
-                  type="file"
-                  className="hidden"
-                  accept=".csv"
-                  onChange={handleImportCSV}
+              <div className="relative flex-1 min-w-[200px]">
+                <Search
+                  className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"
+                  size={18}
                 />
-              </label>
-            </div>
-            {selectedIds.size > 0 && (
-              <>
-                <span className="text-sm text-gray-500">เลือกแล้ว {selectedIds.size} รายการ</span>
+                <input
+                  type="text"
+                  placeholder="ค้นหา..."
+                  className="w-full pl-10 pr-4 py-1.5 border rounded-lg focus:ring-2 focus:ring-blue-100 outline-none text-sm"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                />
+              </div>
+              <div className="flex gap-2 text-sm items-center flex-wrap">
+                <div className="relative">
+                  <button
+                    onClick={() => setIsColVisOpen(!isColVisOpen)}
+                    className="flex items-center gap-1.5 px-2.5 py-1.5 text-gray-600 hover:bg-gray-100 rounded border hover:border-gray-200 text-xs"
+                  >
+                    <Columns size={16} /> เลือกคอลัมน์
+                  </button>
+                  {isColVisOpen && (
+                    <>
+                      <div
+                        className="fixed inset-0 z-10"
+                        onClick={() => setIsColVisOpen(false)}
+                      ></div>
+                      <div className="absolute right-0 top-full mt-2 w-56 bg-white border border-gray-200 rounded-lg shadow-xl z-20 max-h-64 overflow-y-auto p-2">
+                        <div className="text-xs font-semibold text-gray-500 px-2 py-1 mb-1">
+                          แสดง/ซ่อน คอลัมน์
+                        </div>
+                        {currentSchema.map((col) => {
+                          // V18: Prevent hiding the core IDs
+                          const isFixed =
+                            (activeModule === "client_list" &&
+                              col.id === "Customer_ID") ||
+                            (activeModule === "contractors" && col.id === "con_id");
+                          if (isFixed) return null;
+
+                          return (
+                            <div
+                              key={col.id}
+                              className="flex items-center gap-2 px-2 py-1.5 hover:bg-gray-50 rounded cursor-pointer"
+                              onClick={() => toggleColumnVisibility(col.id)}
+                            >
+                              <div
+                                className={`w-4 h-4 flex items-center justify-center rounded border ${
+                                  currentModuleHidden.includes(col.id)
+                                    ? "border-gray-300"
+                                    : "bg-blue-500 border-blue-500"
+                                }`}
+                              >
+                                {!currentModuleHidden.includes(col.id) && (
+                                  <Check size={12} className="text-white" />
+                                )}
+                              </div>
+                              <span
+                                className={`text-sm ${
+                                  currentModuleHidden.includes(col.id)
+                                    ? "text-gray-400"
+                                    : "text-gray-700"
+                                }`}
+                              >
+                                {col.label}
+                              </span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </>
+                  )}
+                </div>
+
                 <button
-                  type="button"
-                  onClick={handleDeleteSelected}
-                  className="flex items-center gap-1.5 px-2.5 py-1.5 text-white bg-red-600 hover:bg-red-700 rounded border border-red-700 text-xs font-medium"
+                  onClick={downloadCSV}
+                  className="flex items-center gap-1.5 px-2.5 py-1.5 text-gray-600 hover:bg-gray-100 rounded border hover:border-gray-200 text-xs"
                 >
-                  <Trash2 size={16} /> ลบที่เลือก
+                  <Download size={16} /> Export
                 </button>
-              </>
-            )}
-            <div className="w-px h-5 bg-gray-200 shrink-0" />
-            <button
-              onClick={() => setIsSchemaModalOpen(true)}
-              className="flex items-center gap-1.5 px-2.5 py-1.5 bg-indigo-50 text-indigo-700 rounded-lg hover:bg-indigo-100 text-xs font-medium whitespace-nowrap shrink-0"
-            >
-              <Settings size={14} /> ตั้งค่าคอลัมน์
-            </button>
-            <button
-              onClick={() => {
-                setEditingItem(null);
-                setFormData({});
-                setIsAddModalOpen(true);
-              }}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 text-white rounded-lg shadow-sm hover:bg-blue-700 text-xs font-bold whitespace-nowrap shrink-0"
-            >
-              <Plus size={14} /> เพิ่มรายการ
-            </button>
-          </div>
+                <div className="relative group">
+                  <button
+                    onClick={downloadTemplate}
+                    className="flex items-center gap-1.5 px-2.5 py-1.5 text-gray-600 hover:bg-gray-100 rounded border hover:border-gray-200 text-xs"
+                  >
+                    <FileText size={16} /> Template
+                  </button>
+                  <div className="absolute left-0 top-full mt-1 w-72 p-2 bg-slate-800 text-white text-xs rounded shadow-lg opacity-0 pointer-events-none group-hover:opacity-100 transition-opacity z-20">
+                    ไฟล์เป็น UTF-8 BOM ถ้าเปิดใน Excel แล้วตัวหนังสือเป็น ??? ให้ใช้: ข้อมูล → จากไฟล์ข้อความ/CSV → เลือกไฟล์ → ตั้ง Encoding เป็น Unicode (UTF-8) แล้วบันทึกเป็น CSV UTF-8
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <label className="text-sm text-gray-500 whitespace-nowrap" title="ข้าม N แถวข้อมูลหลังหัวตาราง (เช่น 5 = นำเข้าเฉพาะแถวที่ 6 เป็นต้นไป)">
+                    ข้ามแถวแรก:
+                  </label>
+                  <input
+                    type="number"
+                    min={0}
+                    max={100}
+                    value={skipImportRows}
+                    onChange={(e) => setSkipImportRows(Math.max(0, parseInt(e.target.value, 10) || 0))}
+                    className="w-14 px-2 py-1 border rounded text-sm text-center"
+                    title="จำนวนแถวข้อมูลที่ข้าม (หลังหัวตาราง)"
+                  />
+                  <label className="flex items-center gap-1.5 px-2.5 py-1.5 text-gray-600 hover:bg-gray-100 rounded border hover:border-gray-200 cursor-pointer bg-blue-50 text-blue-700 font-medium text-xs">
+                    <Upload size={16} /> Import{" "}
+                    <input
+                      type="file"
+                      className="hidden"
+                      accept=".csv"
+                      onChange={handleImportCSV}
+                    />
+                  </label>
+                </div>
+                {selectedIds.size > 0 && (
+                  <>
+                    <span className="text-sm text-gray-500">เลือกแล้ว {selectedIds.size} รายการ</span>
+                    <button
+                      type="button"
+                      onClick={handleDeleteSelected}
+                      className="flex items-center gap-1.5 px-2.5 py-1.5 text-white bg-red-600 hover:bg-red-700 rounded border border-red-700 text-xs font-medium"
+                    >
+                      <Trash2 size={16} /> ลบที่เลือก
+                    </button>
+                  </>
+                )}
+                <div className="w-px h-5 bg-gray-200 shrink-0" />
+                <button
+                  onClick={() => setIsSchemaModalOpen(true)}
+                  className="flex items-center gap-1.5 px-2.5 py-1.5 bg-indigo-50 text-indigo-700 rounded-lg hover:bg-indigo-100 text-xs font-medium whitespace-nowrap shrink-0"
+                >
+                  <Settings size={14} /> ตั้งค่าคอลัมน์
+                </button>
+                <button
+                  onClick={() => {
+                    setEditingItem(null);
+                    setFormData({});
+                    setIsAddModalOpen(true);
+                  }}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 text-white rounded-lg shadow-sm hover:bg-blue-700 text-xs font-bold whitespace-nowrap shrink-0"
+                >
+                  <Plus size={14} /> เพิ่มรายการ
+                </button>
+              </div>
+            </>
+          )}
           
           <div className="ml-auto flex items-center gap-4 border-l pl-4">
             <button onClick={logout} className="text-xs font-semibold text-gray-500 hover:text-red-500 flex items-center gap-1 transition-colors">
@@ -2038,7 +2062,15 @@ function MasterDatabaseApp() {
             style={{ scrollbarWidth: "thin" }}
             onScroll={syncRailScrollFromTable}
           >
-            {activeModule === 'users_data' ? (
+            {activeModule === 'manpower_dashboard' ? (
+              <div className="p-6">
+                <ManpowerDashboard projectOptions={projectStatusOptions} />
+              </div>
+            ) : activeModule === 'attendance' ? (
+              <div className="p-6">
+                <AttendancePage projectOptions={projectStatusOptions} />
+              </div>
+            ) : activeModule === 'users_data' ? (
               <UserManagement projectOptions={projectStatusOptions} />
             ) : dataLoading ? (
               <div className="flex flex-col items-center justify-center h-[300px] text-gray-400 gap-3">
