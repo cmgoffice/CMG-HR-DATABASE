@@ -170,6 +170,11 @@ const MODULE_CONFIG = {
     filterValue: "Direct_SubContractor",
     schemaSource: "emp_direct_leader", // ใช้ schema เดียวกับ Team Leader
   },
+  position_labor: {
+    collection: "CMG-HR-Database",
+    subcollection: "position_labor",
+    label: "Position Labor",
+  },
   projects: {
     collection: "CMG-HR-Database",
     subcollection: "projects",
@@ -256,7 +261,7 @@ const DEFAULT_SCHEMAS = {
     },
     { id: "ชื่อตัว", label: "ชื่อตัว", type: "text", required: true },
     { id: "ชื่อสกุล", label: "ชื่อสกุล", type: "text", required: true },
-    { id: "ตำแหน่ง", label: "ตำแหน่ง", type: "text" },
+    { id: "ตำแหน่ง", label: "ตำแหน่ง", type: "select", options: [] },
     { id: "แผนก", label: "แผนก", type: "text" },
     {
       id: "Type",
@@ -288,6 +293,10 @@ const DEFAULT_SCHEMAS = {
       type: "select",
       options: [],
     },
+  ],
+  position_labor: [
+    { id: "position", label: "Position", type: "text", required: true },
+    { id: "labor_cost_baht", label: "ค่าแรง (บาท)", type: "number", required: true },
   ],
   projects: [
     { id: "project_no", label: "Project No.", type: "text", required: true },
@@ -361,6 +370,7 @@ const Sidebar = ({ activeModule, setActiveModule, dbConnected, sidebarOpen, onTo
           { id: "emp_direct_leader", label: "Direct: Team Leader" },
           { id: "emp_direct_supply", label: "Direct: Supply DC" },
           { id: "emp_direct_sub", label: "Direct: Sub Contractor" },
+          { id: "position_labor", label: "Position Labor" },
         ],
       },
       { isDivider: true, id: "div2" },
@@ -775,8 +785,17 @@ function MasterDatabaseApp() {
     options: "",
   });
 
-  // --- Project Status Options (dynamic, fetched from projects collection) ---
+  // --- Dynamic options from related collections ---
   const [projectStatusOptions, setProjectStatusOptions] = useState<string[]>([]);
+  const [positionOptions, setPositionOptions] = useState<string[]>([]);
+
+  const applyDynamicSchemaOptions = (fields: SchemaField[], projectOptions = projectStatusOptions, positions = positionOptions) => {
+    return fields.map((f) => {
+      if (f.id === "สถานะโครงการ") return { ...f, options: projectOptions };
+      if (f.id === "ตำแหน่ง") return { ...f, type: "select", options: positions };
+      return f;
+    });
+  };
 
   const fetchProjectOptions = async () => {
     try {
@@ -792,9 +811,7 @@ function MasterDatabaseApp() {
       setSchemas((prev) => {
         const updated: Record<string, SchemaField[]> = {};
         for (const [modId, fields] of Object.entries(prev)) {
-          updated[modId] = (fields as SchemaField[]).map((f) =>
-            f.id === "สถานะโครงการ" ? { ...f, options: opts as string[] } : f
-          );
+          updated[modId] = applyDynamicSchemaOptions(fields as SchemaField[], opts as string[], positionOptions);
         }
         return updated;
       });
@@ -803,12 +820,35 @@ function MasterDatabaseApp() {
     }
   };
 
+  const fetchPositionOptions = async () => {
+    try {
+      const q = collection(db, "CMG-HR-Database", "root", "position_labor");
+      const snap = await getDocs(q);
+      const opts = snap.docs
+        .map((d) => String(d.data().position || d.id || "").trim())
+        .filter(Boolean)
+        .sort((a, b) => a.localeCompare(b, "th"));
+
+      setPositionOptions(opts);
+
+      setSchemas((prev) => {
+        const updated: Record<string, SchemaField[]> = {};
+        for (const [modId, fields] of Object.entries(prev)) {
+          updated[modId] = applyDynamicSchemaOptions(fields as SchemaField[], projectStatusOptions, opts);
+        }
+        return updated;
+      });
+    } catch (e) {
+      console.error("Error fetching position options:", e);
+    }
+  };
+
   useEffect(() => {
     if (dbConnected) {
       fetchProjectOptions();
+      fetchPositionOptions();
     }
   }, [dbConnected, activeModule]);
-
   const [hiddenColumnsMap, setHiddenColumnsMap] = useState<Record<string, string[]>>({});
   const [isColVisOpen, setIsColVisOpen] = useState(false);
   const [skipImportRows, setSkipImportRows] = useState(0);
@@ -969,9 +1009,7 @@ function MasterDatabaseApp() {
             }
           } else {
             // Sync project options from fetched state into schema in memory
-            loadedFields = loadedFields.map((f) =>
-              f.id === "สถานะโครงการ" ? { ...f, options: projectStatusOptions } : f
-            );
+            loadedFields = applyDynamicSchemaOptions(loadedFields);
           }
           setSchemas((prev) => ({ ...prev, [moduleId]: loadedFields }));
         } else {
@@ -981,9 +1019,7 @@ function MasterDatabaseApp() {
             ?? (DEFAULT_SCHEMAS as Record<string, SchemaField[]>)[fallbackKey]
             ?? [];
           // Sync project options from fetched state
-          defaultSchema = defaultSchema.map((f) =>
-            f.id === "สถานะโครงการ" ? { ...f, options: projectStatusOptions } : f
-          );
+          defaultSchema = applyDynamicSchemaOptions(defaultSchema);
           setSchemas((prev) => ({ ...prev, [moduleId]: defaultSchema }));
         }
 
@@ -1102,6 +1138,9 @@ function MasterDatabaseApp() {
       }
       if (activeModule === "projects") {
         await fetchProjectOptions();
+      }
+      if (activeModule === "position_labor") {
+        await fetchPositionOptions();
       }
     } catch (e) {
       console.error("Refresh error:", e);
@@ -2111,7 +2150,7 @@ function MasterDatabaseApp() {
                     }}
                     className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 text-white rounded-lg shadow-sm hover:bg-blue-700 text-xs font-bold whitespace-nowrap shrink-0"
                   >
-                    <Plus size={14} /> เพิ่มรายการ
+                    <Plus size={14} /> {activeModule === "position_labor" ? "Add Position" : "เพิ่มรายการ"}
                   </button>
                 )}
               </div>
@@ -2406,7 +2445,7 @@ function MasterDatabaseApp() {
       <Modal
         isOpen={isAddModalOpen}
         onClose={() => setIsAddModalOpen(false)}
-        title={editingItem ? "แก้ไขข้อมูล" : "เพิ่มข้อมูลใหม่"}
+        title={editingItem ? "แก้ไขข้อมูล" : activeModule === "position_labor" ? "เพิ่ม Position" : "เพิ่มข้อมูลใหม่"}
         footer={
           <>
             <button
@@ -2727,3 +2766,4 @@ export default function App() {
     </Routes>
   );
 }
+

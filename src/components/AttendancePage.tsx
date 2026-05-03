@@ -627,7 +627,7 @@ export const AttendancePage = ({ projectOptions }: { projectOptions: string[] })
 
     // ถ้าเป็นวันนี้ ให้มีสีพื้นหลังเด่นขึ้น
     if (isToday && !displayStatus) {
-      bg = "bg-blue-50 hover:bg-blue-100 border-2 border-blue-300";
+      bg = "bg-blue-100 hover:bg-blue-200 border border-gray-300";
     }
 
     // ถ้าเป็นวันในอนาคต แสดงเป็นสีเทาและ disable
@@ -640,28 +640,28 @@ export const AttendancePage = ({ projectOptions }: { projectOptions: string[] })
       bg = locked ? "bg-green-100" : "bg-green-100 hover:bg-green-200";
       textCls = "text-green-700 font-semibold";
       text = getProjectShortCode(attendedProject!);
-      if (isToday) bg += " border-2 border-blue-400";
+      if (isToday) bg = locked ? "bg-green-200 border border-gray-300" : "bg-green-200 hover:bg-green-300 border border-gray-300";
     } else if (displayStatus === "มา") {
       bg = locked ? "bg-green-100" : "bg-green-100 hover:bg-green-200";
       textCls = "text-green-700 font-semibold";
       text = "มา";
-      // เพิ่มเส้นขอบถ้าเป็นวันนี้
-      if (isToday) bg += " border-2 border-blue-400";
+      // เพิ่มสีพาสเทลถ้าเป็นวันนี้
+      if (isToday) bg = locked ? "bg-green-200 border border-gray-300" : "bg-green-200 hover:bg-green-300 border border-gray-300";
     } else if (displayStatus === "ไม่มา") {
       bg = locked ? "bg-red-100" : "bg-red-100 hover:bg-red-200";
       textCls = "text-red-700 font-semibold";
       text = "ไม่มา";
-      if (isToday) bg += " border-2 border-blue-400";
+      if (isToday) bg = locked ? "bg-red-200 border border-gray-300" : "bg-red-200 hover:bg-red-300 border border-gray-300";
     } else if (displayStatus === "ลา") {
       bg = locked ? "bg-orange-100" : "bg-orange-100 hover:bg-orange-200";
       textCls = "text-orange-700 font-semibold";
       text = "ลา";
-      if (isToday) bg += " border-2 border-blue-400";
+      if (isToday) bg = locked ? "bg-orange-200 border border-gray-300" : "bg-orange-200 hover:bg-orange-300 border border-gray-300";
     } else if (displayStatus === "ขาดงาน") {
       bg = "bg-red-200";
       textCls = "text-red-900 font-bold";
       text = "ขาด";
-      if (isToday) bg += " border-2 border-blue-400";
+      if (isToday) bg = "bg-red-300 border border-gray-300";
     }
 
     // คำนวณเวลาที่เหลือก่อนล็อค (สำหรับ tooltip)
