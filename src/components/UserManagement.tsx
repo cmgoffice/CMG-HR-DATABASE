@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { getFirestore, collection, query, getDocs, doc, updateDoc, onSnapshot } from 'firebase/firestore';
+import { getFirestore, collection, query, getDocs, doc, updateDoc, onSnapshot, addDoc } from 'firebase/firestore';
 import { useAuth, UserRole, ALL_ROLES, UserProfile } from '../auth/AuthContext';
 import { Loader2, Check, X, Edit, Shield, Mail, CheckCircle, AlertCircle } from 'lucide-react';
 
@@ -28,7 +28,18 @@ export const UserManagement = ({
 
   const handleUpdateUserStatus = async (uid: string, status: 'approved' | 'rejected') => {
     try {
+      const user = users.find(u => u.uid === uid);
       await updateDoc(doc(db, "CMG-HR-Database", "root", "users", uid), { status });
+      
+      // Log activity
+      await addDoc(collection(db, "CMG-HR-Database", "root", "activity_logs"), {
+        timestamp: new Date().toLocaleString("th-TH"),
+        user: userProfile?.email ?? "anonymous",
+        module: "User Management",
+        action: status === 'approved' ? "อนุมัติผู้ใช้" : "ปฏิเสธผู้ใช้",
+        details: `${status === 'approved' ? 'อนุมัติ' : 'ปฏิเสธ'}ผู้ใช้: ${user?.email} (${user?.firstName} ${user?.lastName})`,
+        createdAt: Date.now(),
+      });
     } catch (error) {
       console.error("Error updating user status:", error);
     }
@@ -36,10 +47,55 @@ export const UserManagement = ({
 
   const handleSaveUser = async (user: UserProfile) => {
     try {
+      const originalUser = users.find(u => u.uid === user.uid);
+      
       await updateDoc(doc(db, "CMG-HR-Database", "root", "users", user.uid), {
         role: user.role,
         assignedProjects: user.assignedProjects
       });
+      
+      // Log activity - track changes
+      const roleChanges = [];
+      const originalRoles = originalUser?.role || [];
+      const newRoles = user.role;
+      
+      const addedRoles = newRoles.filter(r => !originalRoles.includes(r));
+      const removedRoles = originalRoles.filter(r => !newRoles.includes(r));
+      
+      if (addedRoles.length > 0) {
+        roleChanges.push(`เพิ่มสิทธิ์: ${addedRoles.join(', ')}`);
+      }
+      if (removedRoles.length > 0) {
+        roleChanges.push(`ลบสิทธิ์: ${removedRoles.join(', ')}`);
+      }
+      
+      const projectChanges = [];
+      const originalProjects = originalUser?.assignedProjects || [];
+      const newProjects = user.assignedProjects || [];
+      
+      const addedProjects = newProjects.filter(p => !originalProjects.includes(p));
+      const removedProjects = originalProjects.filter(p => !newProjects.includes(p));
+      
+      if (addedProjects.length > 0) {
+        projectChanges.push(`เพิ่มโครงการ: ${addedProjects.join(', ')}`);
+      }
+      if (removedProjects.length > 0) {
+        projectChanges.push(`ลบโครงการ: ${removedProjects.join(', ')}`);
+      }
+      
+      const changes = [...roleChanges, ...projectChanges];
+      
+      if (changes.length > 0) {
+        await addDoc(collection(db, "CMG-HR-Database", "root", "activity_logs"), {
+          timestamp: new Date().toLocaleString("th-TH"),
+          user: userProfile?.email ?? "anonymous",
+          module: "User Management",
+          action: "แก้ไขสิทธิ์ผู้ใช้",
+          details: `แก้ไขผู้ใช้: ${user.email} - ${changes.join('; ')}`,
+          createdAt: Date.now(),
+        });
+      }
+      
       setEditingUser(null);
     } catch (error) {
       console.error("Error saving user:", error);

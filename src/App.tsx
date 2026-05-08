@@ -95,6 +95,10 @@ import {
   PanelLeft,
   PanelLeftClose,
   Clock,
+  ArrowUpDown,
+  ArrowUp,
+  ArrowDown,
+  RefreshCw,
 } from "lucide-react";
 
 // --- FIREBASE IMPORTS ---
@@ -333,6 +337,8 @@ import { ProtectedRoute } from './auth/ProtectedRoute';
 import { UserManagement } from './components/UserManagement';
 import { AttendancePage } from './components/AttendancePage';
 import { ManpowerDashboard } from './components/ManpowerDashboard';
+import { ActivityLogPage } from './components/ActivityLogPage';
+import { ColumnMappingModal } from './components/ColumnMappingModal';
 
 const Sidebar = ({ activeModule, setActiveModule, dbConnected, sidebarOpen, onToggleSidebar }: {
   activeModule: string; setActiveModule: (id: string) => void; dbConnected: boolean;
@@ -391,6 +397,11 @@ const Sidebar = ({ activeModule, setActiveModule, dbConnected, sidebarOpen, onTo
     { isDivider: true, id: "div3" },
     // จัดการผู้ใช้ - เฉพาะ MasterAdmin
     ...(hasRole(['MasterAdmin']) ? [{ id: "users_data", label: "จัดการผู้ใช้ (Admin)", icon: UserCog, badge: pendingCount > 0 ? pendingCount : undefined }] : []),
+    // Activity Logs - เฉพาะ MasterAdmin, MD, GM, HRM
+    ...(hasRole(['MasterAdmin', 'MD', 'GM', 'HRM']) ? [
+      { isDivider: true, id: "div4" },
+      { id: "activity_logs", label: "Activity Logs", icon: Activity }
+    ] : []),
   ];
 
   useEffect(() => {
@@ -775,6 +786,7 @@ function MasterDatabaseApp() {
   const [currentData, setCurrentData] = useState<DataRecord[]>([]);
   const [logs, setLogs] = useState<LogRecord[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
+  const [sortConfig, setSortConfig] = useState<{ key: string; direction: 'asc' | 'desc' | null }>({ key: '', direction: null });
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [isSchemaModalOpen, setIsSchemaModalOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<DataRecord | null>(null);
@@ -853,6 +865,13 @@ function MasterDatabaseApp() {
   const [isColVisOpen, setIsColVisOpen] = useState(false);
   const [skipImportRows, setSkipImportRows] = useState(0);
   const [selectedColumnIdsForDelete, setSelectedColumnIdsForDelete] = useState<Set<string>>(new Set());
+  
+  // Column Mapping Modal state
+  const [isColumnMappingOpen, setIsColumnMappingOpen] = useState(false);
+  const [csvHeaders, setCsvHeaders] = useState<string[]>([]);
+  const [csvRows, setCsvRows] = useState<string[][]>([]);
+  const [pendingFile, setPendingFile] = useState<File | null>(null);
+  
   const selectAllCheckboxRef = useRef<HTMLInputElement>(null);
   const tableScrollRef = useRef<HTMLDivElement>(null);
   const scrollbarRailRef = useRef<HTMLDivElement>(null);
@@ -870,6 +889,27 @@ function MasterDatabaseApp() {
 
   const getPrimaryKeyField = () => {
     const currentSchema = schemas[activeModule] || [];
+    
+    // Define fixed primary key for each module (not affected by column reordering)
+    const primaryKeyMap: Record<string, string> = {
+      'client_list': 'Customer_ID',
+      'contractors': 'con_id',
+      'emp_indirect': 'รหัสพนักงาน',
+      'emp_direct_leader': 'รหัสพนักงาน',
+      'emp_direct_supply': 'รหัสพนักงาน',
+      'emp_direct_sub': 'รหัสพนักงาน',
+      'employee_data': 'รหัสพนักงาน',
+      'position_labor': 'position',
+      'projects': 'project_no',
+      'users_data': 'uid',
+    };
+    
+    // Return fixed primary key for the module
+    if (primaryKeyMap[activeModule]) {
+      return primaryKeyMap[activeModule];
+    }
+    
+    // Fallback: use first column (old behavior)
     return currentSchema.length > 0 ? currentSchema[0].id : null;
   };
 
@@ -906,6 +946,48 @@ function MasterDatabaseApp() {
       return `CT-${String(maxId + 1).padStart(3, "0")}`;
     }
     return "";
+  };
+
+  const getAutoIdConfig = (module: string) => {
+    if (module === "client_list") {
+      return { field: "Customer_ID", prefix: "customer", pad: 3 };
+    }
+    if (module === "contractors") {
+      return { field: "con_id", prefix: "CT-", pad: 3 };
+    }
+    return null;
+  };
+
+  const getMaxAutoIdNumber = (module: string, data: DataRecord[]): number => {
+    const autoIdConfig = getAutoIdConfig(module);
+    if (!autoIdConfig) return 0;
+
+    const { field, prefix } = autoIdConfig;
+    const normalizedPrefix = prefix.toLowerCase();
+
+    const ids = data
+      .map((item) => item[field])
+      .filter(
+        (id) =>
+          id &&
+          typeof id === "string" &&
+          id.toLowerCase().startsWith(normalizedPrefix)
+      )
+      .map((id) =>
+        parseInt(
+          String(id).toLowerCase().replace(normalizedPrefix, ""),
+          10
+        )
+      )
+      .filter((num) => !isNaN(num));
+
+    return ids.length > 0 ? Math.max(...ids) : 0;
+  };
+
+  const formatAutoId = (module: string, idNumber: number): string => {
+    const autoIdConfig = getAutoIdConfig(module);
+    if (!autoIdConfig) return "";
+    return `${autoIdConfig.prefix}${String(idNumber).padStart(autoIdConfig.pad, "0")}`;
   };
 
   const showNotification = (type: string, title: string, message: string) =>
@@ -1063,6 +1145,7 @@ function MasterDatabaseApp() {
 
   useEffect(() => {
     setSelectedIds(new Set());
+    setSortConfig({ key: '', direction: null }); // Reset sort when changing module
   }, [activeModule]);
 
   useEffect(() => {
@@ -1107,27 +1190,34 @@ function MasterDatabaseApp() {
     if (rail && table) rail.scrollLeft = table.scrollLeft;
   };
 
-  const refreshCurrentModuleData = async () => {
-    const config = getModuleInfo(activeModule);
-    const subcollectionName = config.subcollection || activeModule;
-    try {
-      let dataQuery: CollectionReference<DocumentData> | Query<DocumentData> = collection(
-        db,
-        "CMG-HR-Database",
-        "root",
-        subcollectionName
-      );
-      if (config.filterField && config.filterValue) {
+  const fetchModuleData = async (moduleId = activeModule, applyModuleFilter = true): Promise<DataRecord[]> => {
+    const config = getModuleInfo(moduleId);
+    const subcollectionName = config.subcollection || moduleId;
+    let dataQuery: CollectionReference<DocumentData> | Query<DocumentData> = collection(
+      db,
+      "CMG-HR-Database",
+      "root",
+      subcollectionName
+    );
+    if (applyModuleFilter && config.filterField && config.filterValue) {
         dataQuery = query(
           dataQuery as CollectionReference<DocumentData>,
           where(config.filterField, "==", config.filterValue)
         );
-      }
-      const snapshot = await getDocs(dataQuery);
-      const items = snapshot.docs
-        .map((d) => ({ id: d.id, ...d.data() } as DataRecord))
-        .filter((item) => item.id !== "_schema_metadata");
-      
+    }
+
+    const snapshot = await getDocs(dataQuery);
+    return snapshot.docs
+      .map((d) => ({ id: d.id, ...d.data() } as DataRecord))
+      .filter((item) => item.id !== "_schema_metadata");
+  };
+
+  const refreshCurrentModuleData = async (): Promise<DataRecord[]> => {
+    const config = getModuleInfo(activeModule);
+    const subcollectionName = config.subcollection || activeModule;
+    try {
+      const items = await fetchModuleData(activeModule);
+
       // Always update currentData for real-time updates
       setCurrentData(items);
       
@@ -1142,8 +1232,10 @@ function MasterDatabaseApp() {
       if (activeModule === "position_labor") {
         await fetchPositionOptions();
       }
+      return items;
     } catch (e) {
       console.error("Refresh error:", e);
+      return [];
     }
   };
 
@@ -1297,12 +1389,15 @@ function MasterDatabaseApp() {
 
       // Continue with normal save process
       const primaryKeyField = getPrimaryKeyField();
+      console.log(`🔑 Primary Key Field for ${activeModule}:`, primaryKeyField);
+      
       if (!primaryKeyField) {
         showNotification("error", "Error", "ไม่พบโครงสร้างตาราง");
         return;
       }
 
       if (editingItem) {
+        console.log(`✏️ EDITING existing item:`, editingItem.id);
         const subcollectionName = config.subcollection || activeModule;
         const docRef = doc(db, "CMG-HR-Database", "root", subcollectionName, editingItem.id);
         
@@ -1358,14 +1453,22 @@ function MasterDatabaseApp() {
         showNotification("success", "บันทึกสำเร็จ", "ข้อมูลถูกแก้ไขเรียบร้อยแล้ว");
         await refreshCurrentModuleData();
       } else {
+        console.log(`➕ CREATING new item`);
+        console.log(`📝 Form Data:`, cleanData);
+        console.log(`🔑 Primary Key Field:`, primaryKeyField);
+        console.log(`📊 Primary Key Value:`, cleanData[primaryKeyField]);
+        
+        const freshModuleData = await fetchModuleData(activeModule);
         let docId;
         // Auto ID Generation strictly at save time for new items
         if (activeModule === "client_list") {
-          docId = generateNextID("client_list", currentData);
+          docId = generateNextID("client_list", freshModuleData);
           cleanData["Customer_ID"] = docId;
+          console.log(`🆔 Auto-generated Customer_ID:`, docId);
         } else if (activeModule === "contractors") {
-          docId = generateNextID("contractors", currentData);
+          docId = generateNextID("contractors", freshModuleData);
           cleanData["con_id"] = docId;
+          console.log(`🆔 Auto-generated con_id:`, docId);
         } else if (activeModule === "emp_direct_sub") {
           // Sub Contractor: ใช้ชื่อตัว+ชื่อสกุลเป็น unique key
           const firstName = String(cleanData["ชื่อตัว"] || "").trim();
@@ -1375,7 +1478,7 @@ function MasterDatabaseApp() {
             return;
           }
           const fullName = `${firstName} ${lastName}`;
-          const isDuplicate = currentData.some((item) => {
+          const isDuplicate = freshModuleData.some((item) => {
             const iFirst = String(item["ชื่อตัว"] || "").trim();
             const iLast = String(item["ชื่อสกุล"] || "").trim();
             return iFirst === firstName && iLast === lastName;
@@ -1385,11 +1488,14 @@ function MasterDatabaseApp() {
             return;
           }
           docId = `${firstName}_${lastName}`.replace(/[\/#${}\s]/g, "_");
+          console.log(`🆔 Generated docId from name:`, docId);
         } else {
           docId = cleanData[primaryKeyField];
+          console.log(`🆔 Using primary key value as docId:`, docId);
         }
 
         if (!docId) {
+          console.error(`❌ No docId! Primary key "${primaryKeyField}" is missing or empty`);
           showNotification(
             "error",
             "ข้อมูลไม่ครบ",
@@ -1399,8 +1505,43 @@ function MasterDatabaseApp() {
         }
 
         docId = String(docId).replace(/[\/\.\#\$\{\}]/g, "_");
+        console.log(`🆔 Final docId (after sanitization):`, docId);
+        
         const subcollectionName = config.subcollection || activeModule;
-        await setDoc(doc(db, "CMG-HR-Database", "root", subcollectionName, docId), cleanData);
+        console.log(`📂 Subcollection:`, subcollectionName);
+        console.log(`📍 Full path: CMG-HR-Database/root/${subcollectionName}/${docId}`);
+        
+        // Check if document ID already exists. Auto IDs are advanced until they are really free.
+        let docRef = doc(db, "CMG-HR-Database", "root", subcollectionName, docId);
+        let docSnap = await getDoc(docRef);
+        const autoIdConfig = getAutoIdConfig(activeModule);
+        if (autoIdConfig) {
+          let nextNumber = getMaxAutoIdNumber(activeModule, freshModuleData) + 1;
+          while (docSnap.exists()) {
+            nextNumber++;
+            docId = formatAutoId(activeModule, nextNumber);
+            cleanData[autoIdConfig.field] = docId;
+            docRef = doc(db, "CMG-HR-Database", "root", subcollectionName, docId);
+            docSnap = await getDoc(docRef);
+          }
+        }
+        
+        if (docSnap.exists()) {
+          console.error(`❌ Document already exists!`);
+          showNotification(
+            "error",
+            "ข้อมูลซ้ำ",
+            `${primaryKeyField} "${cleanData[primaryKeyField]}" มีอยู่ในระบบแล้ว\nไม่สามารถเพิ่มซ้ำได้`
+          );
+          return;
+        }
+        
+        console.log(`✅ Document doesn't exist, proceeding to create...`);
+        console.log(`💾 Data to save:`, cleanData);
+        
+        await setDoc(docRef, cleanData);
+        console.log(`✅ Document created successfully!`);
+        
         await addLog("เพิ่มใหม่", `เพิ่มรายการ ID: ${docId}`);
         showNotification("success", "บันทึกสำเร็จ", `เพิ่มข้อมูล ${docId} เรียบร้อยแล้ว`);
         await refreshCurrentModuleData();
@@ -1633,13 +1774,19 @@ function MasterDatabaseApp() {
     const file = event.target.files?.[0];
     if (!file) return;
     event.target.value = "";
+    
+    setPendingFile(file);
     setDataLoading(true);
 
     const reader = new FileReader();
     reader.onload = async (e) => {
       try {
         const rawResult = e.target?.result;
-        if (rawResult == null || !(rawResult instanceof ArrayBuffer)) return;
+        if (rawResult == null || !(rawResult instanceof ArrayBuffer)) {
+          setDataLoading(false);
+          return;
+        }
+        
         const text = decodeCSVFile(rawResult);
         const rows = text.split("\n").filter((r) => r.trim() !== "");
 
@@ -1683,90 +1830,90 @@ function MasterDatabaseApp() {
         };
 
         const headers = parseCSVRow(rows[0]);
-        let updatedSchema = [...currentSchema];
-        let schemaChanged = false;
+        const dataRows = rows.slice(1).map(parseCSVRow);
+        
+        // Store headers and rows for later use
+        setCsvHeaders(headers);
+        setCsvRows(dataRows);
+        
+        // Open column mapping modal
+        setIsColumnMappingOpen(true);
+        setDataLoading(false);
+        
+      } catch (error) {
+        console.error("CSV Parse Error:", error);
+        showNotification("error", "อ่านไฟล์ล้มเหลว", (error as Error).message);
+        setDataLoading(false);
+      }
+    };
+    reader.readAsArrayBuffer(file);
+  };
 
-        headers.forEach((headerText: string) => {
-          const cleanHeader = headerText.trim();
-          const exists = updatedSchema.some(
-            (f) => f.label === cleanHeader || f.id === cleanHeader
-          );
-          if (!exists) {
-            const newId = cleanHeader
-              .toLowerCase()
-              .replace(/\s+/g, "_")
-              .replace(/[^\w\u0E00-\u0E7F_]/g, "");
-            updatedSchema.push({
-              id: newId,
-              label: cleanHeader,
-              type: "text",
-              required: false,
-            });
-            schemaChanged = true;
-          }
-        });
-
-        const config = getModuleInfo(activeModule);
-        const subcollectionName = config.subcollection || activeModule;
-
-        if (schemaChanged) {
-          await setDoc(
-            doc(db, "CMG-HR-Database", "root", "module_schemas", activeModule),
-            { fields: updatedSchema }
-          );
-          setSchemas((prev) => ({
-            ...prev,
-            [activeModule]: updatedSchema,
-          }));
+  const handleConfirmMapping = async (columnMapping: Record<string, string>) => {
+    setDataLoading(true);
+    setIsColumnMappingOpen(false);
+    
+    try {
+      // Debug: Show Firebase project info
+      console.log("🔥 Firebase Project ID:", db.app.options.projectId);
+      console.log("🔥 Firebase Auth Domain:", db.app.options.authDomain);
+      
+      // Refresh data first to ensure we have the latest data from Firebase
+      console.log("🔄 Refreshing data before import...");
+      const latestModuleData = await refreshCurrentModuleData();
+      const importedData: DataRecord[] = [];
+      console.log("✅ Data refreshed. Current records:", latestModuleData.length);
+      
+      const config = getModuleInfo(activeModule);
+      const subcollectionName = config.subcollection || activeModule;
+      
+      console.log("📍 Active Module:", activeModule);
+      console.log("📍 Subcollection Name:", subcollectionName);
+      console.log("📍 Full Path: CMG-HR-Database/root/" + subcollectionName);
+      
+      // Create reverse mapping: CSV header -> field ID
+      const reverseMapping: Record<string, string> = {};
+      Object.entries(columnMapping).forEach(([fieldId, csvHeader]) => {
+        if (csvHeader) {
+          reverseMapping[csvHeader] = fieldId;
         }
+      });
+      
+      console.log("🗺️ Column Mapping:", columnMapping);
+      console.log("🔄 Reverse Mapping:", reverseMapping);
+      console.log("📦 Subcollection:", subcollectionName);
+      console.log("📊 Total rows to process:", csvRows.length);
+      
+      const primaryKeyField = getPrimaryKeyField() || currentSchema[0]?.id || "รหัสพนักงาน";
+      
+      let successCount = 0;
+      let skipCount = 0;
+      let errorCount = 0;
+      let skippedIds: any[] = [];
+      let errorMessages: string[] = [];
+      let currentMaxIdNum = 0;
+      let visibleAfterRefreshCount = 0;
 
-        const primaryKeyField = updatedSchema[0].id;
-        const headerMap = headers.map((headerText: string) => {
-          const cleanHeader = headerText.trim();
-          const field = updatedSchema.find(
-            (f) => f.label === cleanHeader || f.id === cleanHeader
-          );
-          return field ? field.id : null;
-        });
+      // Find max ID before processing loop
+      if (activeModule === "client_list" || activeModule === "contractors") {
+        currentMaxIdNum = getMaxAutoIdNumber(activeModule, latestModuleData);
+      }
 
-        let successCount = 0;
-        let skipCount = 0;
-        let skippedIds = [];
-        let currentMaxIdNum = 0;
-
-        // Find max ID before processing loop
-        if (activeModule === "client_list" || activeModule === "contractors") {
-          let prefix = activeModule === "client_list" ? "customer" : "CT-";
-          let key = activeModule === "client_list" ? "Customer_ID" : "con_id";
-
-          const ids = currentData
-            .map((item) => item[key])
-            .filter(
-              (id) =>
-                id &&
-                typeof id === "string" &&
-                id.toLowerCase().startsWith(prefix.toLowerCase())
-            )
-            .map((id) =>
-              parseInt(
-                String(id).toLowerCase().replace(prefix.toLowerCase(), ""),
-                10
-              )
-            )
-            .filter((num) => !isNaN(num));
-          currentMaxIdNum = ids.length > 0 ? Math.max(...ids) : 0;
-        }
-
-        const dataStartIndex = 1 + Math.max(0, skipImportRows || 0);
-        for (let i = dataStartIndex; i < rows.length; i++) {
-          let values = parseCSVRow(rows[i]);
-          if (values.length > headers.length) values = values.slice(0, headers.length);
-          while (values.length < headers.length) values.push("");
+      const dataStartIndex = Math.max(0, skipImportRows || 0);
+      
+      console.log(`🚀 Starting import from row ${dataStartIndex}...`);
+      
+      for (let i = dataStartIndex; i < csvRows.length; i++) {
+        try {
+          const values = csvRows[i];
           const docData: Record<string, unknown> = {};
           let hasActualData = false;
 
-          headerMap.forEach((fieldId: string | null, index: number) => {
+          // Map CSV values to schema fields using column mapping
+          csvHeaders.forEach((csvHeader, index) => {
+            const fieldId = reverseMapping[csvHeader];
             const raw = (values[index] ?? "").trim();
+            
             if (fieldId && raw !== "") {
               // สถานะโครงการ: parse pipe-separated values → array
               if (fieldId === "สถานะโครงการ" && raw.includes("|")) {
@@ -1776,18 +1923,25 @@ function MasterDatabaseApp() {
               } else {
                 docData[fieldId] = raw;
               }
-              // Verify if row actually has data besides empty strings
+              
+              // Verify if row actually has data
               if (fieldId !== "Customer_ID" && fieldId !== "con_id") {
                 hasActualData = true;
               }
             }
           });
 
-          // Prevent processing completely empty rows (e.g. trailing empty tabs)
-          if (!hasActualData && Object.keys(docData).length === 0) continue;
+          // Prevent processing completely empty rows
+          if (!hasActualData && Object.keys(docData).length === 0) {
+            console.log(`⏭️ Row ${i}: Empty, skipping`);
+            continue;
+          }
+          
+          console.log(`📝 Row ${i}: Processing data:`, docData);
 
           if (config.filterField && config.filterValue) {
             docData[config.filterField] = config.filterValue;
+            console.log(`🏷️ Added filter: ${config.filterField} = ${config.filterValue}`);
           }
 
           // V18: Force Auto ID if it's missing OR empty
@@ -1797,17 +1951,12 @@ function MasterDatabaseApp() {
               String(docData["Customer_ID"]).trim() === ""
             ) {
               currentMaxIdNum++;
-              docData["Customer_ID"] = `customer${String(
-                currentMaxIdNum
-              ).padStart(3, "0")}`;
+              docData["Customer_ID"] = formatAutoId(activeModule, currentMaxIdNum);
             }
           } else if (activeModule === "contractors") {
             if (!docData["con_id"] || String(docData["con_id"]).trim() === "") {
               currentMaxIdNum++;
-              docData["con_id"] = `CT-${String(currentMaxIdNum).padStart(
-                3,
-                "0"
-              )}`;
+              docData["con_id"] = formatAutoId(activeModule, currentMaxIdNum);
             }
           }
 
@@ -1815,9 +1964,12 @@ function MasterDatabaseApp() {
           if (activeModule === "emp_direct_sub") {
             const firstName = String(docData["ชื่อตัว"] || "").trim();
             const lastName = String(docData["ชื่อสกุล"] || "").trim();
-            if (!firstName || !lastName) continue; // ข้ามแถวที่ไม่มีชื่อ
+            if (!firstName || !lastName) {
+              console.log(`⏭️ Row ${i}: Missing name, skipping`);
+              continue;
+            }
             const fullName = `${firstName} ${lastName}`;
-            const alreadyInDb = currentData.some((item) => {
+              const alreadyInDb = [...latestModuleData, ...importedData].some((item) => {
               const iFirst = String(item["ชื่อตัว"] || "").trim();
               const iLast = String(item["ชื่อสกุล"] || "").trim();
               return iFirst === firstName && iLast === lastName;
@@ -1825,60 +1977,259 @@ function MasterDatabaseApp() {
             if (alreadyInDb) {
               skipCount++;
               skippedIds.push(fullName);
+              console.log(`❌ Row ${i}: Duplicate name ${fullName}`);
             } else {
               const docId = `${firstName}_${lastName}`.replace(/[\/#${}\s]/g, "_");
-              await setDoc(doc(db, "CMG-HR-Database", "root", subcollectionName, docId), docData);
-              successCount++;
+              const docPath = `CMG-HR-Database/root/${subcollectionName}/${docId}`;
+              console.log(`💾 Row ${i}: Writing to ${docPath}`);
+              const docRef = doc(db, "CMG-HR-Database", "root", subcollectionName, docId);
+              await setDoc(docRef, docData);
+              const verifySnap = await getDoc(docRef);
+              if (verifySnap.exists()) {
+                importedData.push({ id: docId, ...docData } as DataRecord);
+                successCount++;
+                console.log(`✅ Row ${i}: Success!`);
+              } else {
+                errorCount++;
+                errorMessages.push(`Row ${i}: Write succeeded but document not found`);
+                console.error(`❌ Row ${i}: Write succeeded but document not found!`);
+              }
             }
           } else if (docData[primaryKeyField]) {
             const rawId = docData[primaryKeyField];
             const docId = String(rawId).replace(/[\/\.\#\$\{\}]/g, "_");
-            const docRef = doc(db, "CMG-HR-Database", "root", subcollectionName, docId);
-            const docSnap = await getDoc(docRef);
-
-            if (docSnap.exists()) {
-              skipCount++;
-              skippedIds.push(rawId);
+            
+            // สำหรับ Employee modules: เช็คจากรหัสพนักงานในข้อมูลที่มีอยู่แล้ว
+            const isEmployeeModule = activeModule.startsWith("emp_") || activeModule === "employee_data";
+            
+            if (isEmployeeModule && docData["รหัสพนักงาน"]) {
+              // เช็คว่ามีรหัสพนักงานนี้อยู่ในระบบแล้วหรือไม่
+              const employeeId = String(docData["รหัสพนักงาน"] || "").trim();
+              
+              console.log(`👤 Row ${i}: Checking Employee ID: ${employeeId}`);
+              
+              if (!employeeId) {
+                console.log(`⚠️ Row ${i}: No employee ID found, skipping`);
+                continue;
+              }
+              
+              // เช็คจาก Firebase โดยตรง แทนการเช็คจาก currentData
+              // เพราะ currentData อาจถูก filter แล้ว ไม่ครบทั้งหมด
+              const checkQuery = query(
+                collection(db, "CMG-HR-Database", "root", subcollectionName),
+                where("รหัสพนักงาน", "==", employeeId)
+              );
+              const checkSnapshot = await getDocs(checkQuery);
+              const alreadyImported = importedData.some(
+                (item) => String(item["รหัสพนักงาน"] || "").trim() === employeeId
+              );
+              const alreadyExists = !checkSnapshot.empty || alreadyImported;
+              
+              if (alreadyExists) {
+                skipCount++;
+                skippedIds.push(employeeId);
+                console.log(`❌ Row ${i}: Employee ID ${employeeId} already exists in Firebase`);
+              } else {
+                const docPath = `CMG-HR-Database/root/${subcollectionName}/${docId}`;
+                console.log(`💾 Row ${i}: Writing employee ${employeeId} to ${docPath}`);
+                console.log(`📄 Document ID:`, docId);
+                console.log(`📄 Data to write:`, JSON.stringify(docData, null, 2));
+                
+                try {
+                  const docRef = doc(db, "CMG-HR-Database", "root", subcollectionName, docId);
+                  await setDoc(docRef, docData);
+                  
+                  // Verify the write was successful
+                  const verifySnap = await getDoc(docRef);
+                  if (verifySnap.exists()) {
+                    importedData.push({ id: docId, ...docData } as DataRecord);
+                    successCount++;
+                    console.log(`✅ Row ${i}: Employee ${employeeId} imported and verified!`);
+                  } else {
+                    errorCount++;
+                    errorMessages.push(`Row ${i}: Write succeeded but document not found`);
+                    console.error(`❌ Row ${i}: Write succeeded but document not found!`);
+                  }
+                } catch (writeError) {
+                  errorCount++;
+                  errorMessages.push(`Row ${i}: ${(writeError as Error).message}`);
+                  console.error(`❌ Row ${i}: Write error:`, writeError);
+                }
+              }
             } else {
-              await setDoc(docRef, docData);
-              successCount++;
-            }
-          }
-        }
+              // สำหรับ module อื่นๆ: เช็คจาก document ID ตามเดิม
+              let finalDocId = docId;
+              let finalRawId = rawId;
+              let docRef = doc(db, "CMG-HR-Database", "root", subcollectionName, finalDocId);
+              let docSnap = await getDoc(docRef);
+              const autoIdConfig = getAutoIdConfig(activeModule);
+              if (autoIdConfig) {
+                while (docSnap.exists()) {
+                  currentMaxIdNum++;
+                  finalDocId = formatAutoId(activeModule, currentMaxIdNum);
+                  finalRawId = finalDocId;
+                  docData[autoIdConfig.field] = finalDocId;
+                  docRef = doc(db, "CMG-HR-Database", "root", subcollectionName, finalDocId);
+                  docSnap = await getDoc(docRef);
+                }
+              }
 
-        await addLog(
-          "Import CSV",
-          `Imported ${successCount}, Skipped ${skipCount}`
-        );
-        if (successCount > 0) await refreshCurrentModuleData();
-        let msg = `นำเข้าสำเร็จ: ${successCount} รายการ\nข้าม (มีอยู่แล้ว): ${skipCount} รายการ`;
-        if (skipCount > 0)
-          msg += `\n(ID ที่ข้าม: ${skippedIds.slice(0, 5).join(", ")}${
-            skippedIds.length > 5 ? "..." : ""
-          })`;
-        showNotification(
-          skipCount > 0 && successCount === 0 ? "info" : "success",
-          "ผลการ Import",
-          msg
-        );
-      } catch (error) {
-        console.error("Import Error:", error);
-        showNotification("error", "Import ล้มเหลว", (error as Error).message);
-      } finally {
-        setDataLoading(false);
+              if (docSnap.exists()) {
+                skipCount++;
+                skippedIds.push(finalRawId);
+                console.log(`❌ Row ${i}: Document ${finalDocId} already exists`);
+              } else {
+                console.log(`💾 Row ${i}: Writing document ${finalDocId}`);
+                await setDoc(docRef, docData);
+                const verifySnap = await getDoc(docRef);
+                if (verifySnap.exists()) {
+                  importedData.push({ id: finalDocId, ...docData } as DataRecord);
+                  successCount++;
+                  console.log(`✅ Row ${i}: Document ${finalDocId} imported successfully!`);
+                } else {
+                  errorCount++;
+                  errorMessages.push(`Row ${i}: Write succeeded but document not found`);
+                  console.error(`❌ Row ${i}: Write succeeded but document not found!`);
+                }
+              }
+            }
+          } else {
+            console.log(`⚠️ Row ${i}: No primary key field found, skipping`);
+          }
+        } catch (rowError) {
+          errorCount++;
+          const errorMsg = `Row ${i}: ${(rowError as Error).message}`;
+          errorMessages.push(errorMsg);
+          console.error(`❌ Error processing row ${i}:`, rowError);
+        }
       }
-    };
-    reader.readAsArrayBuffer(file);
+
+      console.log(`\n📊 Import Summary:`);
+      console.log(`✅ Success: ${successCount}`);
+      console.log(`⏭️ Skipped: ${skipCount}`);
+      console.log(`❌ Errors: ${errorCount}`);
+      
+      await addLog(
+        "Import CSV",
+        `Imported ${successCount}, Skipped ${skipCount}, Errors ${errorCount}`
+      );
+      
+      // Always refresh data after import to show new records
+      console.log("🔄 Refreshing data to show imported records...");
+      if (successCount > 0 && searchQuery) {
+        setSearchQuery("");
+      }
+      const refreshedItems = await refreshCurrentModuleData();
+      const refreshedIds = new Set(refreshedItems.map((item) => item.id));
+      visibleAfterRefreshCount = importedData.filter((item) => refreshedIds.has(item.id)).length;
+      console.log("✅ Data refreshed!");
+      
+      let msg = `นำเข้าสำเร็จ: ${successCount} รายการ\nข้าม (มีอยู่แล้ว): ${skipCount} รายการ`;
+      if (errorCount > 0) {
+        msg += `\nข้อผิดพลาด: ${errorCount} รายการ`;
+      }
+      if (successCount > 0) {
+        msg += `\nแสดงในหน้าปัจจุบัน: ${visibleAfterRefreshCount}/${successCount} รายการ`;
+      }
+      if (successCount > 0 && visibleAfterRefreshCount < successCount) {
+        msg += `\n\nมีบางรายการถูกบันทึกแล้วแต่ไม่เข้าเงื่อนไขหน้าปัจจุบัน กรุณาตรวจสอบประเภทข้อมูล/โมดูลที่เลือก และคอลัมน์ที่ใช้ Import`;
+      }
+      if (skipCount > 0)
+        msg += `\n(ID ที่ข้าม: ${skippedIds.slice(0, 5).join(", ")}${
+          skippedIds.length > 5 ? "..." : ""
+        })`;
+      if (errorCount > 0 && errorMessages.length > 0) {
+        msg += `\n\nข้อผิดพลาด:\n${errorMessages.slice(0, 3).join("\n")}${
+          errorMessages.length > 3 ? "\n..." : ""
+        }`;
+      }
+      
+      showNotification(
+        errorCount > 0 || (successCount > 0 && visibleAfterRefreshCount === 0)
+          ? "error"
+          : skipCount > 0 && successCount === 0
+            ? "info"
+            : successCount > 0 && visibleAfterRefreshCount < successCount
+              ? "info"
+              : "success",
+        "ผลการ Import",
+        msg
+      );
+    } catch (error) {
+      console.error("❌ Import Error:", error);
+      showNotification("error", "Import ล้มเหลว", (error as Error).message);
+    } finally {
+      setDataLoading(false);
+      setPendingFile(null);
+      setCsvHeaders([]);
+      setCsvRows([]);
+    }
+  };
+
+  // Handle column header sort - cycle through: null -> asc -> desc -> null
+  const handleSort = (columnKey: string) => {
+    setSortConfig((prev) => {
+      if (prev.key !== columnKey) {
+        // New column - start with ascending
+        return { key: columnKey, direction: 'asc' };
+      }
+      
+      // Same column - cycle through states
+      if (prev.direction === null) {
+        return { key: columnKey, direction: 'asc' };
+      } else if (prev.direction === 'asc') {
+        return { key: columnKey, direction: 'desc' };
+      } else {
+        // desc -> null (clear sort)
+        return { key: '', direction: null };
+      }
+    });
   };
 
   const filteredData = useMemo(() => {
-    if (!searchQuery) return currentData;
-    return currentData.filter((row) =>
-      Object.values(row).some((val) =>
-        String(val).toLowerCase().includes(searchQuery.toLowerCase())
-      )
-    );
-  }, [currentData, searchQuery]);
+    let data = currentData;
+    
+    // Filter by search query
+    if (searchQuery) {
+      data = data.filter((row) =>
+        Object.values(row).some((val) =>
+          String(val).toLowerCase().includes(searchQuery.toLowerCase())
+        )
+      );
+    }
+    
+    // Sort data
+    if (sortConfig.key && sortConfig.direction) {
+      data = [...data].sort((a, b) => {
+        const aVal = a[sortConfig.key];
+        const bVal = b[sortConfig.key];
+        
+        // Handle null/undefined values
+        if (aVal == null && bVal == null) return 0;
+        if (aVal == null) return sortConfig.direction === 'asc' ? 1 : -1;
+        if (bVal == null) return sortConfig.direction === 'asc' ? -1 : 1;
+        
+        // Convert to string for comparison
+        const aStr = String(aVal);
+        const bStr = String(bVal);
+        
+        // Try to parse as numbers
+        const aNum = parseFloat(aStr);
+        const bNum = parseFloat(bStr);
+        
+        // If both are valid numbers, compare as numbers
+        if (!isNaN(aNum) && !isNaN(bNum)) {
+          return sortConfig.direction === 'asc' ? aNum - bNum : bNum - aNum;
+        }
+        
+        // Otherwise compare as strings (with Thai locale support)
+        const comparison = aStr.localeCompare(bStr, 'th', { numeric: true, sensitivity: 'base' });
+        return sortConfig.direction === 'asc' ? comparison : -comparison;
+      });
+    }
+    
+    return data;
+  }, [currentData, searchQuery, sortConfig]);
 
   useEffect(() => {
     const el = selectAllCheckboxRef.current;
@@ -2002,10 +2353,12 @@ function MasterDatabaseApp() {
                 ? 'ลงเวลาการมาทำงาน' 
                 : activeModule === 'manpower_dashboard'
                   ? 'Manpower Dashboard'
-                  : config.label}
+                  : activeModule === 'activity_logs'
+                    ? 'บันทึกกิจกรรมระบบ (Activity Logs)'
+                    : config.label}
           </h1>
           
-          {activeModule !== 'attendance' && activeModule !== 'manpower_dashboard' && (
+          {activeModule !== 'attendance' && activeModule !== 'manpower_dashboard' && activeModule !== 'activity_logs' && (
             <>
               <div className="w-px h-5 bg-gray-200 shrink-0" />
 
@@ -2082,6 +2435,18 @@ function MasterDatabaseApp() {
                   )}
                 </div>
 
+                <button
+                  onClick={async () => {
+                    setDataLoading(true);
+                    await refreshCurrentModuleData();
+                    setDataLoading(false);
+                  }}
+                  disabled={dataLoading}
+                  className="flex items-center gap-1.5 px-2.5 py-1.5 text-gray-600 hover:bg-gray-100 rounded border hover:border-gray-200 text-xs disabled:opacity-50 disabled:cursor-not-allowed"
+                  title="รีเฟรชข้อมูล"
+                >
+                  <RefreshCw size={16} className={dataLoading ? 'animate-spin' : ''} /> Refresh
+                </button>
                 <button
                   onClick={downloadCSV}
                   className="flex items-center gap-1.5 px-2.5 py-1.5 text-gray-600 hover:bg-gray-100 rounded border hover:border-gray-200 text-xs"
@@ -2194,6 +2559,8 @@ function MasterDatabaseApp() {
               </div>
             ) : activeModule === 'users_data' ? (
               <UserManagement projectOptions={projectStatusOptions} />
+            ) : activeModule === 'activity_logs' ? (
+              <ActivityLogPage />
             ) : dataLoading ? (
               <div className="flex flex-col items-center justify-center h-[300px] text-gray-400 gap-3">
                 <Loader2 className="animate-spin text-blue-500" size={32} />
@@ -2254,9 +2621,22 @@ function MasterDatabaseApp() {
                   </th>
                   {/* V18: Fixed Column Header (No Drag, No Delete Button) */}
                   {fixedColumn && (
-                    <th className="px-3 py-0.5 text-xs font-semibold text-gray-500 uppercase tracking-wider whitespace-nowrap bg-gray-100 border-r border-gray-200 sticky left-0 z-10 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)]">
+                    <th 
+                      className="px-3 py-0.5 text-xs font-semibold text-gray-500 uppercase tracking-wider whitespace-nowrap bg-gray-100 border-r border-gray-200 sticky left-0 z-10 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)] cursor-pointer hover:bg-gray-200 select-none"
+                      onClick={() => handleSort(fixedColumn!.id)}
+                    >
                       <div className="flex items-center gap-2">
                         {fixedColumn.label}
+                        {sortConfig.key === fixedColumn.id && (
+                          sortConfig.direction === 'asc' ? (
+                            <ArrowUp size={14} className="text-blue-600" />
+                          ) : sortConfig.direction === 'desc' ? (
+                            <ArrowDown size={14} className="text-blue-600" />
+                          ) : null
+                        )}
+                        {sortConfig.key !== fixedColumn.id && (
+                          <ArrowUpDown size={14} className="text-gray-400 opacity-0 group-hover:opacity-100" />
+                        )}
                       </div>
                     </th>
                   )}
@@ -2266,7 +2646,7 @@ function MasterDatabaseApp() {
                     return (
                       <th
                         key={col.id}
-                        className={`px-3 py-0.5 text-xs font-semibold uppercase tracking-wider whitespace-nowrap cursor-move group ${
+                        className={`px-3 py-0.5 text-xs font-semibold uppercase tracking-wider whitespace-nowrap group ${
                           statusColor
                             ? `${statusColor.header} hover:brightness-95`
                             : "text-gray-500 hover:bg-gray-100"
@@ -2279,9 +2659,24 @@ function MasterDatabaseApp() {
                         <div className="flex items-center gap-2">
                           <GripVertical
                             size={14}
-                            className="text-current opacity-40 group-hover:opacity-70"
-                          />{" "}
-                          {col.label}
+                            className="text-current opacity-40 group-hover:opacity-70 cursor-move"
+                          />
+                          <span 
+                            className="cursor-pointer select-none flex-1"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleSort(col.id);
+                            }}
+                          >
+                            {col.label}
+                            {sortConfig.key === col.id && (
+                              sortConfig.direction === 'asc' ? (
+                                <ArrowUp size={14} className="inline ml-1 text-blue-600" />
+                              ) : sortConfig.direction === 'desc' ? (
+                                <ArrowDown size={14} className="inline ml-1 text-blue-600" />
+                              ) : null
+                            )}
+                          </span>
                           <button
                             onClick={(e) => {
                               e.stopPropagation();
@@ -2742,6 +3137,18 @@ function MasterDatabaseApp() {
         onConfirm={confirmation.onConfirm}
         title={confirmation.title}
         message={confirmation.message}
+      />
+      <ColumnMappingModal
+        isOpen={isColumnMappingOpen}
+        onClose={() => {
+          setIsColumnMappingOpen(false);
+          setPendingFile(null);
+          setCsvHeaders([]);
+          setCsvRows([]);
+        }}
+        onConfirm={handleConfirmMapping}
+        csvHeaders={csvHeaders}
+        schemaFields={currentSchema}
       />
     </div>
   );
