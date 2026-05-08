@@ -621,47 +621,47 @@ export const AttendancePage = ({ projectOptions }: { projectOptions: string[] })
     // สามารถแก้ไขได้ถ้า: ไม่ใช่วันในอนาคต และ ไม่ล็อค และ มีสิทธิ์แก้ไข
     const canEdit = !isFuture && !locked && canEditAttendance;
 
-    let bg = isWeekend ? "bg-gray-100" : "bg-white hover:bg-gray-50";
+    let bg = isWeekend ? "bg-rose-50" : "bg-white hover:bg-amber-50";
     let text = "";
     let textCls = "text-gray-300";
 
     // ถ้าเป็นวันนี้ ให้มีสีพื้นหลังเด่นขึ้น
     if (isToday && !displayStatus) {
-      bg = "bg-blue-100 hover:bg-blue-200 border border-gray-300";
+      bg = "bg-sky-100 hover:bg-sky-200 border border-sky-200";
     }
 
     // ถ้าเป็นวันในอนาคต แสดงเป็นสีเทาและ disable
     if (isFuture) {
-      bg = "bg-gray-50";
+      bg = "bg-slate-50";
       textCls = "text-gray-300";
       text = "";
     } else if (isOtherProject) {
       // แสดงรหัสย่อของโครงการที่ลงเวลา
-      bg = locked ? "bg-green-100" : "bg-green-100 hover:bg-green-200";
-      textCls = "text-green-700 font-semibold";
+      bg = locked ? "bg-emerald-100" : "bg-emerald-100 hover:bg-emerald-200";
+      textCls = "text-emerald-700 font-semibold";
       text = getProjectShortCode(attendedProject!);
-      if (isToday) bg = locked ? "bg-green-200 border border-gray-300" : "bg-green-200 hover:bg-green-300 border border-gray-300";
+      if (isToday) bg = locked ? "bg-emerald-200 border border-emerald-300" : "bg-emerald-200 hover:bg-emerald-300 border border-emerald-300";
     } else if (displayStatus === "มา") {
-      bg = locked ? "bg-green-100" : "bg-green-100 hover:bg-green-200";
-      textCls = "text-green-700 font-semibold";
+      bg = locked ? "bg-emerald-100" : "bg-emerald-100 hover:bg-emerald-200";
+      textCls = "text-emerald-700 font-semibold";
       text = "มา";
       // เพิ่มสีพาสเทลถ้าเป็นวันนี้
-      if (isToday) bg = locked ? "bg-green-200 border border-gray-300" : "bg-green-200 hover:bg-green-300 border border-gray-300";
+      if (isToday) bg = locked ? "bg-emerald-200 border border-emerald-300" : "bg-emerald-200 hover:bg-emerald-300 border border-emerald-300";
     } else if (displayStatus === "ไม่มา") {
-      bg = locked ? "bg-red-100" : "bg-red-100 hover:bg-red-200";
-      textCls = "text-red-700 font-semibold";
+      bg = locked ? "bg-rose-100" : "bg-rose-100 hover:bg-rose-200";
+      textCls = "text-rose-700 font-semibold";
       text = "ไม่มา";
-      if (isToday) bg = locked ? "bg-red-200 border border-gray-300" : "bg-red-200 hover:bg-red-300 border border-gray-300";
+      if (isToday) bg = locked ? "bg-rose-200 border border-rose-300" : "bg-rose-200 hover:bg-rose-300 border border-rose-300";
     } else if (displayStatus === "ลา") {
-      bg = locked ? "bg-orange-100" : "bg-orange-100 hover:bg-orange-200";
-      textCls = "text-orange-700 font-semibold";
+      bg = locked ? "bg-amber-100" : "bg-amber-100 hover:bg-amber-200";
+      textCls = "text-amber-700 font-semibold";
       text = "ลา";
-      if (isToday) bg = locked ? "bg-orange-200 border border-gray-300" : "bg-orange-200 hover:bg-orange-300 border border-gray-300";
+      if (isToday) bg = locked ? "bg-amber-200 border border-amber-300" : "bg-amber-200 hover:bg-amber-300 border border-amber-300";
     } else if (displayStatus === "ขาดงาน") {
-      bg = "bg-red-200";
-      textCls = "text-red-900 font-bold";
+      bg = "bg-rose-200";
+      textCls = "text-rose-900 font-bold";
       text = "ขาด";
-      if (isToday) bg = "bg-red-300 border border-gray-300";
+      if (isToday) bg = "bg-rose-300 border border-rose-300";
     }
 
     // คำนวณเวลาที่เหลือก่อนล็อค (สำหรับ tooltip)
@@ -721,7 +721,7 @@ export const AttendancePage = ({ projectOptions }: { projectOptions: string[] })
   return (
     <div className="space-y-3">
       {/* ── Controls ── */}
-      <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-3">
+      <div className="bg-gradient-to-r from-rose-50 via-orange-50 to-sky-50 rounded-xl shadow-sm border border-rose-100 p-3">
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
           {/* เดือน */}
           <div>
@@ -729,11 +729,11 @@ export const AttendancePage = ({ projectOptions }: { projectOptions: string[] })
               <Calendar size={13} className="inline mr-1" />เลือกเดือน
             </label>
             <div className="flex items-center gap-1">
-              <button onClick={() => changeMonth(-1)} className="p-1.5 border rounded hover:bg-gray-100">
+              <button onClick={() => changeMonth(-1)} className="p-1.5 border border-rose-200 rounded-lg bg-white/80 hover:bg-rose-100 text-rose-700 transition-colors">
                 <ChevronLeft size={16} />
               </button>
               <div className="flex-1 text-center font-bold text-sm">{monthName}</div>
-              <button onClick={() => changeMonth(1)} className="p-1.5 border rounded hover:bg-gray-100">
+              <button onClick={() => changeMonth(1)} className="p-1.5 border border-rose-200 rounded-lg bg-white/80 hover:bg-rose-100 text-rose-700 transition-colors">
                 <ChevronRight size={16} />
               </button>
             </div>
@@ -747,7 +747,7 @@ export const AttendancePage = ({ projectOptions }: { projectOptions: string[] })
             <select
               value={selectedProject}
               onChange={(e) => setSelectedProject(e.target.value)}
-              className="w-full px-3 py-1.5 text-sm border rounded focus:ring-2 focus:ring-blue-500 outline-none bg-white"
+              className="w-full px-3 py-1.5 text-sm border border-sky-200 rounded-lg focus:ring-2 focus:ring-sky-300 outline-none bg-white/90"
             >
               {/* Admin Site และ Staff ไม่เห็น "ทุกโครงการ" */}
               {hasRole(['MasterAdmin', 'MD', 'GM', 'PD', 'HRM', 'HR']) && (
@@ -767,7 +767,7 @@ export const AttendancePage = ({ projectOptions }: { projectOptions: string[] })
             <div className="relative">
               <button
                 onClick={() => setIsColumnMenuOpen((o) => !o)}
-                className="w-full px-3 py-1.5 text-sm border rounded hover:bg-gray-50 flex items-center justify-between"
+                className="w-full px-3 py-1.5 text-sm border border-orange-200 rounded-lg bg-white/90 hover:bg-orange-50 flex items-center justify-between"
               >
                 <span>แสดง/ซ่อน &amp; จัดเรียง</span>
                 <Columns size={15} />
@@ -775,8 +775,8 @@ export const AttendancePage = ({ projectOptions }: { projectOptions: string[] })
               {isColumnMenuOpen && (
                 <>
                   <div className="fixed inset-0 z-20" onClick={() => setIsColumnMenuOpen(false)} />
-                  <div className="absolute right-0 top-full mt-1 w-60 bg-white border border-gray-200 rounded-lg shadow-xl z-30 overflow-hidden">
-                    <div className="px-3 py-2 bg-gray-50 border-b text-xs font-semibold text-gray-500">
+                  <div className="absolute right-0 top-full mt-1 w-60 bg-white border border-orange-100 rounded-xl shadow-xl z-30 overflow-hidden">
+                    <div className="px-3 py-2 bg-orange-50 border-b border-orange-100 text-xs font-semibold text-orange-700">
                       ลากเพื่อจัดเรียง · คลิก ✓ เพื่อซ่อน
                     </div>
                     {columns.map((col, i) => (
@@ -786,16 +786,16 @@ export const AttendancePage = ({ projectOptions }: { projectOptions: string[] })
                         onDragStart={() => handleDragStart(i)}
                         onDragOver={handleDragOver}
                         onDrop={() => handleDrop(i)}
-                        className={`flex items-center gap-2 px-3 py-2 border-b border-gray-100 cursor-move hover:bg-gray-50 ${draggedIdx === i ? "opacity-40" : ""}`}
+                        className={`flex items-center gap-2 px-3 py-2 border-b border-orange-50 cursor-move hover:bg-orange-50 ${draggedIdx === i ? "opacity-40" : ""}`}
                       >
-                        <GripVertical size={13} className="text-gray-400 shrink-0" />
+                        <GripVertical size={13} className="text-orange-300 shrink-0" />
                         <div
-                          className={`w-4 h-4 flex items-center justify-center rounded border shrink-0 cursor-pointer ${col.visible ? "bg-blue-500 border-blue-500" : "border-gray-300"}`}
+                          className={`w-4 h-4 flex items-center justify-center rounded border shrink-0 cursor-pointer ${col.visible ? "bg-sky-400 border-sky-400" : "border-orange-200"}`}
                           onClick={(e) => { e.stopPropagation(); toggleColumnVisibility(col.id); }}
                         >
                           {col.visible && <Check size={11} className="text-white" />}
                         </div>
-                        <span className="text-sm text-gray-700">{col.label}</span>
+                        <span className="text-sm text-orange-800">{col.label}</span>
                       </div>
                     ))}
                   </div>
@@ -807,23 +807,23 @@ export const AttendancePage = ({ projectOptions }: { projectOptions: string[] })
       </div>
 
       {/* ── Legend ── */}
-      <div className="bg-blue-50 border border-blue-200 rounded-lg px-3 py-2 flex items-center gap-4 text-xs flex-wrap">
-        <span className="font-semibold text-blue-900">คำอธิบาย:</span>
+      <div className="bg-gradient-to-r from-sky-50 via-rose-50 to-amber-50 border border-sky-100 rounded-xl px-3 py-2 flex items-center gap-4 text-xs flex-wrap">
+        <span className="font-semibold text-sky-900">คำอธิบาย:</span>
         {[
-          { bg: "bg-green-100 border-green-300", text: "text-green-700", label: "มา", desc: "= มา" },
-          { bg: "bg-red-100 border-red-300",     text: "text-red-700",   label: "ไม่มา", desc: "= ไม่มา" },
-          { bg: "bg-orange-100 border-orange-300",text: "text-orange-700",label: "ลา",   desc: "= ลา" },
-          { bg: "bg-red-200 border-red-400",      text: "text-red-900 font-bold", label: "ขาด", desc: "= ขาดงาน 🔒" },
-          { bg: "bg-gray-100 border-gray-300",    text: "",              label: "",     desc: "= วันหยุด" },
+          { bg: "bg-emerald-100 border-emerald-300", text: "text-emerald-700", label: "มา", desc: "= มา" },
+          { bg: "bg-rose-100 border-rose-300",       text: "text-rose-700",    label: "ไม่มา", desc: "= ไม่มา" },
+          { bg: "bg-amber-100 border-amber-300",     text: "text-amber-700",   label: "ลา",   desc: "= ลา" },
+          { bg: "bg-rose-200 border-rose-400",       text: "text-rose-900 font-bold", label: "ขาด", desc: "= ขาดงาน 🔒" },
+          { bg: "bg-slate-100 border-slate-300",     text: "",                 label: "",     desc: "= วันหยุด" },
         ].map((item) => (
           <div key={item.label} className="flex items-center gap-1">
             <div className={`w-6 h-5 border rounded flex items-center justify-center ${item.bg} ${item.text}`} style={{ fontSize: 9 }}>
               {item.label}
             </div>
-            <span className="text-gray-600">{item.desc}</span>
+            <span className="text-slate-600">{item.desc}</span>
           </div>
         ))}
-        <span className="text-gray-400 ml-auto">🔒 = ล็อคหลังกรอก 24 ชม.</span>
+        <span className="text-slate-500 ml-auto">🔒 = ล็อคหลังกรอก 24 ชม.</span>
       </div>
 
       {/* ── Tables ── */}
@@ -844,13 +844,13 @@ export const AttendancePage = ({ projectOptions }: { projectOptions: string[] })
           const isSupplyContractGroup = groupName === "Supply Contract";
           
           return (
-          <div key={groupName} className="bg-white rounded-lg border border-gray-200 overflow-hidden">
+          <div key={groupName} className="bg-white rounded-xl border border-rose-100 overflow-hidden shadow-sm">
             {/* Group header */}
-            <div className="bg-slate-800 px-4 py-2">
-              <h2 className="text-sm font-bold text-white flex items-center gap-2">
+            <div className="bg-gradient-to-r from-rose-300 via-orange-300 to-sky-300 px-4 py-2">
+              <h2 className="text-sm font-bold text-slate-800 flex items-center gap-2">
                 <Users size={15} />
                 {groupName}
-                <span className="ml-auto bg-white/20 px-2 py-0.5 rounded-full text-xs">{groupEmps.length} คน</span>
+                <span className="ml-auto bg-white/70 text-slate-700 px-2 py-0.5 rounded-full text-xs">{groupEmps.length} คน</span>
               </h2>
             </div>
 
@@ -873,7 +873,7 @@ export const AttendancePage = ({ projectOptions }: { projectOptions: string[] })
                     {visibleColumns.map((col) => (
                       <th
                         key={col.id}
-                        className="border border-gray-400 bg-orange-500 text-white px-1 py-0.5 sticky z-20 text-left"
+                        className="border border-rose-200 bg-rose-100 text-rose-900 px-1 py-0.5 sticky z-20 text-left"
                         style={{ width: col.widthPx, minWidth: col.widthPx, left: col.computedLeft }}
                       >
                         {col.label}
@@ -882,7 +882,7 @@ export const AttendancePage = ({ projectOptions }: { projectOptions: string[] })
                     {/* เพิ่มคอลัมน์ ชื่อชุด เฉพาะกลุ่ม Supply Contract */}
                     {isSupplyContractGroup && (
                       <th
-                        className="border border-gray-400 bg-orange-500 text-white px-1 py-0.5 sticky z-20 text-left"
+                        className="border border-rose-200 bg-rose-100 text-rose-900 px-1 py-0.5 sticky z-20 text-left"
                         style={{ width: 100, minWidth: 100, left: visibleColumns.reduce((sum, c) => sum + c.widthPx, 0) }}
                       >
                         ชื่อชุด
@@ -891,12 +891,12 @@ export const AttendancePage = ({ projectOptions }: { projectOptions: string[] })
                     {daysInMonth.map(({ day, isWeekend, isToday, dateStr }) => (
                       <th
                         key={day}
-                        className={`border border-gray-400 text-white px-0 py-0.5 text-center ${canEditAttendance ? 'cursor-pointer hover:opacity-80' : 'cursor-not-allowed'} transition-opacity ${
+                        className={`border border-rose-200 text-slate-800 px-0 py-0.5 text-center ${canEditAttendance ? 'cursor-pointer hover:opacity-85' : 'cursor-not-allowed'} transition-opacity ${
                           isToday 
-                            ? "bg-blue-600 font-bold shadow-md" 
+                            ? "bg-sky-200 font-bold shadow-sm" 
                             : isWeekend 
-                              ? "bg-orange-400" 
-                              : "bg-orange-500"
+                              ? "bg-amber-100" 
+                              : "bg-rose-100"
                         }`}
                         style={{ width: 40, minWidth: 40 }}
                         title={isToday ? `📅 วันนี้${canEditAttendance ? '\n(ดับเบิ้ลคลิกเพื่อเปลี่ยนสถานะทั้งวัน)' : ''}` : (canEditAttendance ? "(ดับเบิ้ลคลิกเพื่อเปลี่ยนสถานะทั้งวัน)" : "")}
@@ -916,7 +916,7 @@ export const AttendancePage = ({ projectOptions }: { projectOptions: string[] })
                   {groupEmps.map((emp, idx) => (
                     <tr
                       key={emp.id}
-                      className="hover:bg-blue-50 transition-colors"
+                      className="hover:bg-amber-50/70 transition-colors"
                       style={{ height: 24 }}
                     >
                       {visibleColumns.map((col) => {
@@ -940,7 +940,7 @@ export const AttendancePage = ({ projectOptions }: { projectOptions: string[] })
                         return (
                           <td
                             key={col.id}
-                            className="border border-gray-200 px-1 py-0 sticky bg-white z-10 overflow-hidden whitespace-nowrap text-ellipsis"
+                            className="border border-rose-100 px-1 py-0 sticky bg-white z-10 overflow-hidden whitespace-nowrap text-ellipsis"
                             style={{ width: col.widthPx, minWidth: col.widthPx, left: col.computedLeft }}
                           >
                             {content}
@@ -950,10 +950,10 @@ export const AttendancePage = ({ projectOptions }: { projectOptions: string[] })
                       {/* เพิ่มเซลล์ ชื่อชุด เฉพาะกลุ่ม Supply Contract */}
                       {isSupplyContractGroup && (
                         <td
-                          className="border border-gray-200 px-1 py-0 sticky bg-white z-10 overflow-hidden whitespace-nowrap text-ellipsis"
+                          className="border border-rose-100 px-1 py-0 sticky bg-white z-10 overflow-hidden whitespace-nowrap text-ellipsis"
                           style={{ width: 100, minWidth: 100, left: visibleColumns.reduce((sum, c) => sum + c.widthPx, 0) }}
                         >
-                          <span className="px-1 py-0.5 bg-purple-100 text-purple-700 rounded" style={{ fontSize: 10 }}>
+                          <span className="px-1 py-0.5 bg-violet-100 text-violet-700 rounded" style={{ fontSize: 10 }}>
                             {emp.ชื่อชุด || "-"}
                           </span>
                         </td>

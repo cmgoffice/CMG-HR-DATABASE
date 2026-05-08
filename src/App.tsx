@@ -73,6 +73,7 @@ import {
   Save,
   X,
   ChevronRight,
+  ChevronLeft,
   ChevronDown,
   Settings,
   Database,
@@ -389,9 +390,21 @@ const Sidebar = ({ activeModule, setActiveModule, dbConnected, sidebarOpen, onTo
       ],
     },
     { isDivider: true, id: "div3" },
-    // จัดการผู้ใช้ - เฉพาะ MasterAdmin
-    ...(hasRole(['MasterAdmin']) ? [{ id: "users_data", label: "จัดการผู้ใช้ (Admin)", icon: UserCog, badge: pendingCount > 0 ? pendingCount : undefined }] : []),
   ];
+  const adminMenuItem = hasRole(['MasterAdmin'])
+    ? { id: "users_data", label: "จัดการผู้ใช้ (Admin)", icon: UserCog, badge: pendingCount > 0 ? pendingCount : undefined }
+    : null;
+
+  const getMenuIconColor = (id: string, isActive: boolean) => {
+    if (isActive) return "text-white";
+    const colors: Record<string, string> = {
+      projects: "text-amber-500",
+      employees: "text-emerald-500",
+      manpower: "text-sky-500",
+      users_data: "text-violet-500",
+    };
+    return colors[id] || "text-slate-500";
+  };
 
   useEffect(() => {
     const parentMenu = menuItems.find(
@@ -414,30 +427,45 @@ const Sidebar = ({ activeModule, setActiveModule, dbConnected, sidebarOpen, onTo
 
   return (
     <div
-      className="bg-slate-900 text-white flex flex-col h-screen fixed left-0 top-0 overflow-y-auto overflow-x-hidden z-10 shadow-xl transition-[width] duration-200 ease-in-out"
+      className="bg-slate-100 text-slate-700 flex flex-col h-screen fixed left-0 top-0 overflow-y-auto overflow-x-hidden z-10 shadow-xl border-r border-slate-200 transition-[width] duration-200 ease-in-out"
       style={{ width: sidebarOpen ? SIDEBAR_WIDTH : SIDEBAR_COLLAPSED_WIDTH }}
     >
       {/* Header */}
-      <div className={`border-b border-slate-700 flex items-center gap-3 shrink-0 ${sidebarOpen ? "p-6" : "p-3 justify-center"}`}>
-        <div className="relative shrink-0">
-          <Database className="text-blue-400" size={sidebarOpen ? 28 : 24} />
-          <div
-            className={`absolute -top-1 -right-1 w-3 h-3 rounded-full border-2 border-slate-900 ${
-              isConnected ? "bg-green-500" : "bg-red-500"
-            }`}
-          />
-        </div>
-        {sidebarOpen && (
-          <div className="min-w-0">
-            <h1 className="font-bold text-base leading-tight">
-              Master Database
-              <br />
-              CMG
-            </h1>
-            <p className={`text-[10px] flex items-center gap-1 ${isConnected ? "text-green-400" : "text-red-400"}`}>
-              {isConnected ? <Wifi size={10} /> : <WifiOff size={10} />}
-              {isConnected ? "Connected" : "Disconnected"}
-            </p>
+      <div className={`border-b border-slate-200 shrink-0 ${sidebarOpen ? "p-3" : "p-3 flex justify-center"}`}>
+        {!sidebarOpen ? (
+          <div className="relative shrink-0 w-11 h-11 rounded-2xl bg-white border border-slate-200 shadow-sm flex items-center justify-center">
+            <Database className="text-sky-500" size={20} />
+            <div className={`absolute -top-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-white ${isConnected ? "bg-emerald-500" : "bg-rose-500"}`} />
+          </div>
+        ) : (
+          <div className="rounded-2xl bg-white border border-slate-200 shadow-sm p-3 space-y-3">
+            <div className="flex items-start gap-3">
+              <div className="relative shrink-0 w-11 h-11 rounded-2xl bg-gradient-to-br from-sky-50 to-blue-100 border border-sky-200 flex items-center justify-center">
+                <Database className="text-sky-600" size={20} />
+                <div className={`absolute -top-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-white ${isConnected ? "bg-emerald-500" : "bg-rose-500"}`} />
+              </div>
+              <div className="min-w-0">
+                <h1 className="font-bold text-[18px] text-slate-800 leading-tight">Master Database CMG</h1>
+                <p className={`text-[10px] mt-1 inline-flex items-center gap-1 font-semibold uppercase tracking-wide px-2 py-0.5 rounded-full ${isConnected ? "bg-emerald-50 text-emerald-700" : "bg-rose-50 text-rose-700"}`}>
+                  {isConnected ? <Wifi size={10} /> : <WifiOff size={10} />}
+                  {isConnected ? "Connected" : "Disconnected"}
+                </p>
+              </div>
+            </div>
+            <div className="h-px bg-slate-100" />
+            <div className="flex items-center gap-3">
+              {userProfile?.photoURL ? (
+                <img src={userProfile.photoURL} alt="Profile" className="w-10 h-10 rounded-xl object-cover border border-slate-200 shrink-0" />
+              ) : (
+                <div className="w-10 h-10 rounded-xl bg-blue-100 flex items-center justify-center text-blue-700 font-bold shrink-0">
+                  {userProfile?.firstName?.charAt(0) || firebaseUser?.email?.charAt(0).toUpperCase() || "A"}
+                </div>
+              )}
+              <div className="min-w-0 flex-1">
+                <p className="text-slate-800 text-sm font-semibold truncate">{userProfile?.firstName} {userProfile?.lastName}</p>
+                <p className="text-[10px] text-slate-500 font-semibold truncate uppercase tracking-wide">{userProfile?.role?.join(', ')}</p>
+              </div>
+            </div>
           </div>
         )}
       </div>
@@ -447,10 +475,13 @@ const Sidebar = ({ activeModule, setActiveModule, dbConnected, sidebarOpen, onTo
         <button
           type="button"
           onClick={onToggleSidebar}
-          className="p-2 rounded-lg text-slate-400 hover:bg-slate-800 hover:text-white transition-colors"
+          className={`h-8 w-8 inline-flex items-center justify-center rounded-md border border-slate-200 bg-white text-slate-500 hover:text-slate-700 hover:border-slate-300 transition-colors ${
+            sidebarOpen ? "" : "shadow-sm"
+          }`}
           title={sidebarOpen ? "ย่อเมนู" : "ขยายเมนู"}
+          aria-label={sidebarOpen ? "ย่อเมนู" : "ขยายเมนู"}
         >
-          {sidebarOpen ? <PanelLeft size={20} /> : <PanelLeftClose size={20} />}
+          {sidebarOpen ? <ChevronLeft size={16} /> : <ChevronRight size={16} />}
         </button>
       </div>
 
@@ -458,48 +489,46 @@ const Sidebar = ({ activeModule, setActiveModule, dbConnected, sidebarOpen, onTo
         {menuItems.map((item) => (
           <div key={item.id}>
             {item.isDivider ? (
-              <div className="border-t border-slate-800 my-2 mx-2" />
+              <div className="border-t border-slate-200 my-2 mx-2" />
             ) : !item.sub ? (
               <button
                 onClick={() => setActiveModule(item.id)}
                 className={`w-full flex items-center rounded-lg transition-colors ${
                   sidebarOpen ? "gap-3 px-4 py-3" : "justify-center p-3"
                 } ${
-                  activeModule === item.id ? "bg-blue-600 text-white shadow-md" : "text-slate-300 hover:bg-slate-800"
+                  activeModule === item.id ? "bg-blue-600 text-white shadow-sm" : "text-slate-600 hover:bg-white hover:text-slate-800"
                 }`}
                 title={!sidebarOpen ? item.label : undefined}
               >
-                {item.icon && <item.icon size={20} className="shrink-0" />}
+                {item.icon && <item.icon size={20} className={`shrink-0 ${getMenuIconColor(item.id, activeModule === item.id)}`} />}
                 {sidebarOpen && <span className="text-sm font-medium truncate">{item.label}</span>}
-                {sidebarOpen && item.badge && <span className="ml-auto bg-red-500 text-white text-xs font-bold px-2 py-0.5 rounded-full">{item.badge}</span>}
-                {!sidebarOpen && item.badge && <span className="absolute top-1 right-1 w-3 h-3 bg-red-500 rounded-full border-2 border-slate-900"></span>}
               </button>
             ) : (
               <div className="space-y-1">
                 <button
                   onClick={() => sidebarOpen ? toggleMenu(item.id) : onToggleSidebar()}
-                  className={`w-full flex items-center rounded-lg transition-colors hover:bg-slate-800 ${
+                  className={`w-full flex items-center rounded-lg transition-colors hover:bg-white ${
                     sidebarOpen ? "justify-between px-4 py-3" : "justify-center p-3"
                   } ${
-                    expandedMenus[item.id] ? "text-white bg-slate-800/50" : "text-slate-400"
+                    expandedMenus[item.id] ? "text-slate-800 bg-white border border-slate-200" : "text-slate-500"
                   }`}
                   title={!sidebarOpen ? item.label : undefined}
                 >
                   <div className={`flex items-center ${sidebarOpen ? "gap-3" : ""}`}>
-                    {item.icon && <item.icon size={20} className="shrink-0" />}
+                    {item.icon && <item.icon size={20} className={`shrink-0 ${getMenuIconColor(item.id, false)}`} />}
                     {sidebarOpen && <span className="text-sm font-semibold truncate">{item.label}</span>}
                   </div>
                   {sidebarOpen && (expandedMenus[item.id] ? <ChevronDown size={16} /> : <ChevronRight size={16} />)}
                 </button>
 
                 {sidebarOpen && expandedMenus[item.id] && (
-                  <div className="pl-12 space-y-1 border-l-2 border-slate-800 ml-6 animate-fade-in-down">
+                  <div className="pl-6 space-y-1 border-l-2 border-slate-200 ml-6 animate-fade-in-down">
                     {item.sub.map((subItem) => (
                       <button
                         key={subItem.id}
                         onClick={() => setActiveModule(subItem.id)}
                         className={`w-full text-left px-3 py-2 text-sm rounded-md transition-colors ${
-                          activeModule === subItem.id ? "text-blue-400 font-medium bg-slate-800" : "text-slate-500 hover:text-slate-300"
+                          activeModule === subItem.id ? "text-blue-700 font-semibold bg-blue-50" : "text-slate-500 hover:text-slate-700 hover:bg-white"
                         }`}
                       >
                         {subItem.label}
@@ -513,31 +542,24 @@ const Sidebar = ({ activeModule, setActiveModule, dbConnected, sidebarOpen, onTo
         ))}
       </nav>
 
-      <div className={`border-t border-slate-800 shrink-0 ${sidebarOpen ? "p-4" : "p-2 flex justify-center"}`}>
-        {sidebarOpen ? (
-          <div className="flex items-center gap-3 text-slate-400 text-sm w-full">
-            {userProfile?.photoURL ? (
-              <img src={userProfile.photoURL} alt="Profile" className="w-10 h-10 rounded-full object-cover border border-slate-700 shrink-0" />
-            ) : (
-              <div className="w-10 h-10 rounded-full bg-blue-900 flex items-center justify-center text-blue-200 font-bold shrink-0">
-                {userProfile?.firstName?.charAt(0) || firebaseUser?.email?.charAt(0).toUpperCase() || "A"}
-              </div>
-            )}
-            <div className="min-w-0 flex-1">
-              <p className="text-white text-sm font-semibold truncate">{userProfile?.firstName} {userProfile?.lastName}</p>
-              <p className="text-[10px] text-blue-400 font-medium truncate">{userProfile?.role?.join(', ')}</p>
-            </div>
-          </div>
-        ) : (
-          userProfile?.photoURL ? (
-            <img src={userProfile.photoURL} alt="Profile" className="w-10 h-10 rounded-full object-cover border border-slate-700" />
-          ) : (
-            <div className="w-10 h-10 rounded-full bg-blue-900 flex items-center justify-center text-blue-200 font-bold text-sm">
-              {userProfile?.firstName?.charAt(0) || firebaseUser?.email?.charAt(0).toUpperCase() || "A"}
-            </div>
-          )
-        )}
-      </div>
+      {adminMenuItem && (
+        <div className={`border-t border-slate-200 shrink-0 ${sidebarOpen ? "p-3" : "p-2"}`}>
+          <button
+            onClick={() => setActiveModule(adminMenuItem.id)}
+            className={`w-full flex items-center rounded-lg transition-colors ${
+              sidebarOpen ? "gap-3 px-4 py-3" : "justify-center p-3"
+            } ${
+              activeModule === adminMenuItem.id ? "bg-blue-600 text-white shadow-sm" : "text-slate-600 hover:bg-white hover:text-slate-800"
+            }`}
+            title={!sidebarOpen ? adminMenuItem.label : undefined}
+          >
+            <adminMenuItem.icon size={20} className={`shrink-0 ${getMenuIconColor(adminMenuItem.id, activeModule === adminMenuItem.id)}`} />
+            {sidebarOpen && <span className="text-sm font-medium truncate">{adminMenuItem.label}</span>}
+            {sidebarOpen && adminMenuItem.badge && <span className="ml-auto bg-red-500 text-white text-xs font-bold px-2 py-0.5 rounded-full">{adminMenuItem.badge}</span>}
+            {!sidebarOpen && adminMenuItem.badge && <span className="absolute top-1 right-1 w-3 h-3 bg-red-500 rounded-full border-2 border-white"></span>}
+          </button>
+        </div>
+      )}
     </div>
   );
 };
@@ -1685,12 +1707,47 @@ function MasterDatabaseApp() {
         const headers = parseCSVRow(rows[0]);
         let updatedSchema = [...currentSchema];
         let schemaChanged = false;
+        const normalizeHeader = (value: string) =>
+          value
+            .trim()
+            .toLowerCase()
+            .replace(/[\s_\-./\\()[\]{}]+/g, "");
+        const headerAliasMap: Record<string, string> = {
+          // Name fields (TH/EN aliases)
+          firstname: "ชื่อตัว",
+          name: "ชื่อตัว",
+          givenname: "ชื่อตัว",
+          forename: "ชื่อตัว",
+          ชอ: "ชื่อตัว",
+          ชอผ: "ชื่อตัว",
+          ชอตว: "ชื่อตัว",
+          lastname: "ชื่อสกุล",
+          surname: "ชื่อสกุล",
+          familyname: "ชื่อสกุล",
+          ชอสกล: "ชื่อสกุล",
+          // Prefix/title aliases
+          title: "คำนำหน้าชื่อ",
+          prefix: "คำนำหน้าชื่อ",
+          คำนำหนาชอ: "คำนำหน้าชื่อ",
+        };
+        const resolveHeaderToFieldId = (headerText: string): string | null => {
+          const cleanHeader = headerText.trim();
+          const direct = updatedSchema.find(
+            (f) => f.label === cleanHeader || f.id === cleanHeader
+          );
+          if (direct) return direct.id;
+          const normalized = normalizeHeader(cleanHeader);
+          const aliasTarget = headerAliasMap[normalized];
+          if (!aliasTarget) return null;
+          const aliasField = updatedSchema.find(
+            (f) => f.label === aliasTarget || f.id === aliasTarget
+          );
+          return aliasField ? aliasField.id : aliasTarget;
+        };
 
         headers.forEach((headerText: string) => {
           const cleanHeader = headerText.trim();
-          const exists = updatedSchema.some(
-            (f) => f.label === cleanHeader || f.id === cleanHeader
-          );
+          const exists = !!resolveHeaderToFieldId(cleanHeader);
           if (!exists) {
             const newId = cleanHeader
               .toLowerCase()
@@ -1721,13 +1778,9 @@ function MasterDatabaseApp() {
         }
 
         const primaryKeyField = updatedSchema[0].id;
-        const headerMap = headers.map((headerText: string) => {
-          const cleanHeader = headerText.trim();
-          const field = updatedSchema.find(
-            (f) => f.label === cleanHeader || f.id === cleanHeader
-          );
-          return field ? field.id : null;
-        });
+        const headerMap = headers.map((headerText: string) =>
+          resolveHeaderToFieldId(headerText)
+        );
 
         let successCount = 0;
         let skipCount = 0;
@@ -1811,22 +1864,25 @@ function MasterDatabaseApp() {
             }
           }
 
-          // Sub Contractor: ใช้ชื่อตัว+ชื่อสกุลเป็น unique key แทนรหัสพนักงาน
+          // Sub Contractor: อนุญาตไม่มีชื่อสกุล (บังคับเฉพาะชื่อตัว)
+          // ใช้ชื่อตัว+ชื่อสกุลเป็น unique key; ถ้าไม่มีชื่อสกุลจะเทียบจากชื่อตัวอย่างเดียว
           if (activeModule === "emp_direct_sub") {
             const firstName = String(docData["ชื่อตัว"] || "").trim();
             const lastName = String(docData["ชื่อสกุล"] || "").trim();
-            if (!firstName || !lastName) continue; // ข้ามแถวที่ไม่มีชื่อ
-            const fullName = `${firstName} ${lastName}`;
+            if (!firstName) continue; // ข้ามเฉพาะแถวที่ไม่มีชื่อตัว
+            const fullName = `${firstName}${lastName ? ` ${lastName}` : ""}`;
             const alreadyInDb = currentData.some((item) => {
               const iFirst = String(item["ชื่อตัว"] || "").trim();
               const iLast = String(item["ชื่อสกุล"] || "").trim();
+              if (!lastName) return iFirst === firstName && !iLast;
               return iFirst === firstName && iLast === lastName;
             });
             if (alreadyInDb) {
               skipCount++;
               skippedIds.push(fullName);
             } else {
-              const docId = `${firstName}_${lastName}`.replace(/[\/#${}\s]/g, "_");
+              const rawId = lastName ? `${firstName}_${lastName}` : `${firstName}_no_lastname`;
+              const docId = rawId.replace(/[\/#${}\s]/g, "_");
               await setDoc(doc(db, "CMG-HR-Database", "root", subcollectionName, docId), docData);
               successCount++;
             }

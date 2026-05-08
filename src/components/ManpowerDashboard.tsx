@@ -277,6 +277,17 @@ export const ManpowerDashboard = ({ projectOptions }: { projectOptions: string[]
     { label: "ลา", value: report.leave, color: "bg-amber-500", text: "text-amber-700" },
     { label: "อื่น/ยังไม่ลง", value: report.otherProject + report.notRecorded, color: "bg-slate-500", text: "text-slate-700" },
   ];
+  const chartTotal = Math.max(report.total, 1);
+  const pPresent = (report.present / chartTotal) * 100;
+  const pAbsent = (report.absent / chartTotal) * 100;
+  const pLeave = (report.leave / chartTotal) * 100;
+  const pOther = ((report.otherProject + report.notRecorded) / chartTotal) * 100;
+  const donutBg = `conic-gradient(
+    #6ee7b7 0% ${pPresent}%,
+    #fda4af ${pPresent}% ${pPresent + pAbsent}%,
+    #fcd34d ${pPresent + pAbsent}% ${pPresent + pAbsent + pLeave}%,
+    #cbd5e1 ${pPresent + pAbsent + pLeave}% 100%
+  )`;
 
   if (loading) {
     return (
@@ -288,7 +299,7 @@ export const ManpowerDashboard = ({ projectOptions }: { projectOptions: string[]
 
   if (!hasAssignedProjects) {
     return (
-      <div className="bg-white rounded border border-orange-200 p-8 text-center">
+      <div className="bg-white rounded-xl border border-orange-200 p-8 text-center">
         <AlertCircle size={40} className="mx-auto mb-3 text-orange-500" />
         <h3 className="text-base font-bold text-gray-800 mb-1">คุณยังไม่ได้ถูกกำหนดโครงการ</h3>
         <p className="text-sm text-gray-600">กรุณาติดต่อ MasterAdmin เพื่อกำหนดโครงการให้กับคุณ</p>
@@ -297,17 +308,17 @@ export const ManpowerDashboard = ({ projectOptions }: { projectOptions: string[]
   }
 
   return (
-    <div className="bg-slate-100 border border-slate-300 rounded-md shadow-sm overflow-hidden text-sm">
-      <div className="bg-white border-b border-slate-300 px-3 py-2">
+    <div className="bg-gradient-to-br from-rose-50 via-orange-50 to-sky-50 border border-rose-100 rounded-xl shadow-sm overflow-hidden text-sm">
+      <div className="bg-white/90 border-b border-rose-100 px-3 py-2">
         <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-2">
           <div className="min-w-0">
-            <div className="text-[10px] font-black text-slate-500 uppercase tracking-wide">Daily Manpower</div>
+            <div className="text-[10px] font-black text-rose-500 uppercase tracking-wide">Daily Manpower</div>
             <h1 className="text-lg md:text-xl font-black text-slate-900 truncate">{selectedProjectLabel}</h1>
             <div className="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-slate-600">
-              <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-slate-100 border border-slate-300 rounded">
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-rose-50 border border-rose-200 rounded">
                 <Briefcase size={12} /> {selectedProjectCode}
               </span>
-              <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-slate-100 border border-slate-300 rounded">
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-sky-50 border border-sky-200 rounded">
                 <Calendar size={12} /> {formattedDate}
               </span>
             </div>
@@ -318,30 +329,30 @@ export const ManpowerDashboard = ({ projectOptions }: { projectOptions: string[]
               type="date"
               value={selectedDate}
               onChange={(e) => setSelectedDate(e.target.value)}
-              className="h-8 px-2 border border-slate-300 rounded bg-white text-xs focus:ring-2 focus:ring-blue-500 outline-none"
+              className="h-8 px-2 border border-rose-200 rounded bg-white text-xs focus:ring-2 focus:ring-rose-300 outline-none"
             />
             <select
               value={selectedProject || (canSeeAllProjects ? "all" : filteredProjectOptions[0] || "")}
               onChange={(e) => setSelectedProject(e.target.value)}
-              className="h-8 min-w-[220px] px-2 border border-slate-300 rounded bg-white text-xs focus:ring-2 focus:ring-blue-500 outline-none"
+              className="h-8 min-w-[220px] px-2 border border-sky-200 rounded bg-white text-xs focus:ring-2 focus:ring-sky-300 outline-none"
             >
               {canSeeAllProjects && <option value="all">ทุกโครงการ</option>}
               {filteredProjectOptions.map((p) => (
                 <option key={p} value={p}>{p}</option>
               ))}
             </select>
-            <div className="inline-flex h-8 border border-slate-300 rounded overflow-hidden bg-white">
+            <div className="inline-flex h-8 border border-orange-200 rounded overflow-hidden bg-white">
               <button
                 type="button"
                 onClick={() => setViewMode("table")}
-                className={`px-2.5 inline-flex items-center gap-1 text-xs font-bold ${viewMode === "table" ? "bg-slate-800 text-white" : "text-slate-600 hover:bg-slate-100"}`}
+                className={`px-2.5 inline-flex items-center gap-1 text-xs font-bold ${viewMode === "table" ? "bg-rose-400 text-white" : "text-slate-600 hover:bg-rose-50"}`}
               >
                 <Table2 size={13} /> ตาราง
               </button>
               <button
                 type="button"
                 onClick={() => setViewMode("chart")}
-                className={`px-2.5 inline-flex items-center gap-1 text-xs font-bold border-l border-slate-300 ${viewMode === "chart" ? "bg-slate-800 text-white" : "text-slate-600 hover:bg-slate-100"}`}
+                className={`px-2.5 inline-flex items-center gap-1 text-xs font-bold border-l border-orange-200 ${viewMode === "chart" ? "bg-sky-400 text-white" : "text-slate-600 hover:bg-sky-50"}`}
               >
                 <BarChart3 size={13} /> กราฟ
               </button>
@@ -350,7 +361,7 @@ export const ManpowerDashboard = ({ projectOptions }: { projectOptions: string[]
         </div>
       </div>
 
-      <div className="grid grid-cols-3 md:grid-cols-6 border-b border-slate-300 bg-white">
+      <div className="grid grid-cols-3 md:grid-cols-6 border-b border-rose-100 bg-white/85">
         {[
           { label: "แรงงาน", value: report.total, icon: Users, color: "text-slate-900" },
           { label: "มา", value: report.present, icon: CheckCircle, color: "text-emerald-700" },
@@ -361,13 +372,13 @@ export const ManpowerDashboard = ({ projectOptions }: { projectOptions: string[]
         ].map((item) => {
           const Icon = item.icon;
           return (
-            <div key={item.label} className="px-3 py-2 border-r border-b md:border-b-0 border-slate-200 last:border-r-0 min-w-0">
+            <div key={item.label} className="px-3 py-2 border-r border-b md:border-b-0 border-rose-100 last:border-r-0 min-w-0">
               <div className="flex items-center justify-between gap-2">
                 <div className="min-w-0">
                   <div className="text-[10px] font-black text-slate-500 uppercase truncate">{item.label}</div>
                   <div className={`text-xl font-black ${item.color} truncate`}>{item.value}</div>
                 </div>
-                <Icon size={17} className="text-slate-400 shrink-0" />
+                <Icon size={17} className="text-rose-300 shrink-0" />
               </div>
             </div>
           );
@@ -376,8 +387,8 @@ export const ManpowerDashboard = ({ projectOptions }: { projectOptions: string[]
 
       <div className="p-3 space-y-3">
         <div className="flex flex-wrap gap-3 items-start">
-          <section className="bg-white border border-slate-300 rounded overflow-hidden min-w-0 w-fit max-w-full">
-            <div className="bg-slate-800 text-white px-2.5 py-1.5 font-black text-xs flex items-center justify-between gap-2">
+          <section className="bg-white border border-rose-100 rounded-xl overflow-hidden min-w-0 w-fit max-w-full shadow-sm">
+            <div className="bg-gradient-to-r from-rose-300 to-orange-300 text-slate-800 px-2.5 py-1.5 font-black text-xs flex items-center justify-between gap-2">
               <span className="inline-flex items-center gap-1.5"><BarChart3 size={14} /> MANPOWER REPORT</span>
               <span>{report.presentPercent}%</span>
             </div>
@@ -386,40 +397,40 @@ export const ManpowerDashboard = ({ projectOptions }: { projectOptions: string[]
               <div className="overflow-x-auto">
                 <table className="w-max max-w-full text-xs leading-tight border-collapse table-auto">
                   <thead>
-                    <tr className="bg-slate-200 text-slate-800">
-                      <th className="border border-slate-300 px-2 py-1 text-left whitespace-nowrap w-1">ตำแหน่ง</th>
-                      <th className="border border-slate-300 px-2 py-1 text-center whitespace-nowrap w-1">ทั้งหมด</th>
-                      <th className="border border-slate-300 px-2 py-1 text-center whitespace-nowrap w-1">มา</th>
-                      <th className="border border-slate-300 px-2 py-1 text-center whitespace-nowrap w-1">ไม่มา</th>
-                      <th className="border border-slate-300 px-2 py-1 text-center whitespace-nowrap w-1">ลา</th>
-                      <th className="border border-slate-300 px-2 py-1 text-center whitespace-nowrap w-1">อื่น</th>
-                      <th className="border border-slate-300 px-2 py-1 text-right whitespace-nowrap w-1">ค่าแรง</th>
+                    <tr className="bg-rose-100 text-slate-800">
+                      <th className="border border-rose-200 px-2 py-1 text-left whitespace-nowrap w-1">ตำแหน่ง</th>
+                      <th className="border border-rose-200 px-2 py-1 text-center whitespace-nowrap w-1">ทั้งหมด</th>
+                      <th className="border border-rose-200 px-2 py-1 text-center whitespace-nowrap w-1">มา</th>
+                      <th className="border border-rose-200 px-2 py-1 text-center whitespace-nowrap w-1">ไม่มา</th>
+                      <th className="border border-rose-200 px-2 py-1 text-center whitespace-nowrap w-1">ลา</th>
+                      <th className="border border-rose-200 px-2 py-1 text-center whitespace-nowrap w-1">อื่น</th>
+                      <th className="border border-rose-200 px-2 py-1 text-right whitespace-nowrap w-1">ค่าแรง</th>
                     </tr>
                   </thead>
                   <tbody>
                     {report.positionRows.length === 0 ? (
-                      <tr><td colSpan={7} className="border border-slate-300 px-2 py-3 text-center text-slate-500">ไม่มีข้อมูล</td></tr>
+                      <tr><td colSpan={7} className="border border-rose-200 px-2 py-3 text-center text-slate-500">ไม่มีข้อมูล</td></tr>
                     ) : report.positionRows.map((row) => (
-                      <tr key={row.key} className="odd:bg-white even:bg-slate-50 h-6">
-                        <td className="border border-slate-300 px-2 py-1 font-semibold text-slate-800 whitespace-nowrap max-w-[260px] truncate">{row.label}</td>
-                        <td className="border border-slate-300 px-2 py-1 text-center font-bold whitespace-nowrap w-1">{row.total}</td>
-                        <td className="border border-slate-300 px-2 py-1 text-center text-emerald-700 font-bold whitespace-nowrap w-1">{row.present}</td>
-                        <td className="border border-slate-300 px-2 py-1 text-center text-rose-700 whitespace-nowrap w-1">{row.absent}</td>
-                        <td className="border border-slate-300 px-2 py-1 text-center text-amber-700 whitespace-nowrap w-1">{row.leave}</td>
-                        <td className="border border-slate-300 px-2 py-1 text-center text-slate-600 whitespace-nowrap w-1">{row.otherProject + row.notRecorded}</td>
-                        <td className="border border-slate-300 px-2 py-1 text-right font-bold text-emerald-800 whitespace-nowrap w-1">{row.laborCost.toLocaleString("th-TH")}</td>
+                      <tr key={row.key} className="odd:bg-white even:bg-rose-50/40 h-6">
+                        <td className="border border-rose-200 px-2 py-1 font-semibold text-slate-800 whitespace-nowrap max-w-[260px] truncate">{row.label}</td>
+                        <td className="border border-rose-200 px-2 py-1 text-center font-bold whitespace-nowrap w-1">{row.total}</td>
+                        <td className="border border-rose-200 px-2 py-1 text-center text-emerald-700 font-bold whitespace-nowrap w-1">{row.present}</td>
+                        <td className="border border-rose-200 px-2 py-1 text-center text-rose-700 whitespace-nowrap w-1">{row.absent}</td>
+                        <td className="border border-rose-200 px-2 py-1 text-center text-amber-700 whitespace-nowrap w-1">{row.leave}</td>
+                        <td className="border border-rose-200 px-2 py-1 text-center text-slate-600 whitespace-nowrap w-1">{row.otherProject + row.notRecorded}</td>
+                        <td className="border border-rose-200 px-2 py-1 text-right font-bold text-emerald-800 whitespace-nowrap w-1">{row.laborCost.toLocaleString("th-TH")}</td>
                       </tr>
                     ))}
                   </tbody>
                   <tfoot>
-                    <tr className="bg-slate-900 text-white font-black">
-                      <td className="border border-slate-700 px-2 py-1 whitespace-nowrap">TOTAL</td>
-                      <td className="border border-slate-700 px-2 py-1 text-center whitespace-nowrap w-1">{report.total}</td>
-                      <td className="border border-slate-700 px-2 py-1 text-center whitespace-nowrap w-1">{report.present}</td>
-                      <td className="border border-slate-700 px-2 py-1 text-center whitespace-nowrap w-1">{report.absent}</td>
-                      <td className="border border-slate-700 px-2 py-1 text-center whitespace-nowrap w-1">{report.leave}</td>
-                      <td className="border border-slate-700 px-2 py-1 text-center whitespace-nowrap w-1">{report.otherProject + report.notRecorded}</td>
-                      <td className="border border-slate-700 px-2 py-1 text-right whitespace-nowrap w-1">{formattedLaborCost}</td>
+                    <tr className="bg-slate-700 text-white font-black">
+                      <td className="border border-slate-600 px-2 py-1 whitespace-nowrap">TOTAL</td>
+                      <td className="border border-slate-600 px-2 py-1 text-center whitespace-nowrap w-1">{report.total}</td>
+                      <td className="border border-slate-600 px-2 py-1 text-center whitespace-nowrap w-1">{report.present}</td>
+                      <td className="border border-slate-600 px-2 py-1 text-center whitespace-nowrap w-1">{report.absent}</td>
+                      <td className="border border-slate-600 px-2 py-1 text-center whitespace-nowrap w-1">{report.leave}</td>
+                      <td className="border border-slate-600 px-2 py-1 text-center whitespace-nowrap w-1">{report.otherProject + report.notRecorded}</td>
+                      <td className="border border-slate-600 px-2 py-1 text-right whitespace-nowrap w-1">{formattedLaborCost}</td>
                     </tr>
                   </tfoot>
                 </table>
@@ -431,9 +442,9 @@ export const ManpowerDashboard = ({ projectOptions }: { projectOptions: string[]
                 ) : report.positionRows.map((row) => (
                   <div key={row.key} className="grid grid-cols-[minmax(140px,220px)_1fr_auto] gap-2 items-center text-xs">
                     <div className="font-bold text-slate-700 truncate" title={row.label}>{row.label}</div>
-                    <div className="h-4 bg-slate-100 border border-slate-300 relative overflow-hidden rounded-sm">
-                      <div className="h-full bg-slate-300" style={{ width: `${Math.max((row.total / maxPositionTotal) * 100, 3)}%` }} />
-                      <div className="absolute inset-y-0 left-0 bg-emerald-500" style={{ width: `${Math.max((row.present / maxPositionTotal) * 100, row.present > 0 ? 3 : 0)}%` }} />
+                    <div className="h-4 bg-orange-50 border border-orange-100 relative overflow-hidden rounded-sm">
+                      <div className="h-full bg-sky-200" style={{ width: `${Math.max((row.total / maxPositionTotal) * 100, 3)}%` }} />
+                      <div className="absolute inset-y-0 left-0 bg-emerald-400" style={{ width: `${Math.max((row.present / maxPositionTotal) * 100, row.present > 0 ? 3 : 0)}%` }} />
                     </div>
                     <div className="w-12 text-right font-black text-slate-900">{row.present}/{row.total}</div>
                   </div>
@@ -442,21 +453,21 @@ export const ManpowerDashboard = ({ projectOptions }: { projectOptions: string[]
             )}
           </section>
 
-          <section className="bg-white border border-slate-300 rounded overflow-hidden min-w-0 w-fit max-w-full">
-            <div className="bg-slate-800 text-white px-2.5 py-1.5 font-black text-xs">ABSENT / REMAINING</div>
+          <section className="bg-white border border-sky-100 rounded-xl overflow-hidden min-w-0 w-fit max-w-full shadow-sm">
+            <div className="bg-gradient-to-r from-sky-300 to-cyan-300 text-slate-800 px-2.5 py-1.5 font-black text-xs">ABSENT / REMAINING</div>
             <div className="overflow-x-auto">
               <table className="w-max max-w-full text-xs leading-tight border-collapse table-auto">
-                <thead className="bg-slate-200">
+                <thead className="bg-sky-100">
                   <tr>
-                    <th className="border border-slate-300 px-2 py-1 text-left whitespace-nowrap w-1">รหัส</th>
-                    <th className="border border-slate-300 px-2 py-1 text-left whitespace-nowrap w-1">ชื่อ</th>
-                    <th className="border border-slate-300 px-2 py-1 text-left whitespace-nowrap w-1">ตำแหน่ง</th>
-                    <th className="border border-slate-300 px-2 py-1 text-left whitespace-nowrap w-1">สถานะ</th>
+                    <th className="border border-sky-200 px-2 py-1 text-left whitespace-nowrap w-1">รหัส</th>
+                    <th className="border border-sky-200 px-2 py-1 text-left whitespace-nowrap w-1">ชื่อ</th>
+                    <th className="border border-sky-200 px-2 py-1 text-left whitespace-nowrap w-1">ตำแหน่ง</th>
+                    <th className="border border-sky-200 px-2 py-1 text-left whitespace-nowrap w-1">สถานะ</th>
                   </tr>
                 </thead>
                 <tbody>
                   {report.absentList.length === 0 && report.otherProjectList.length === 0 ? (
-                    <tr><td colSpan={4} className="border border-slate-300 px-2 py-3 text-center text-slate-500">ไม่มีรายการค้าง/ขาด/ลา</td></tr>
+                    <tr><td colSpan={4} className="border border-sky-200 px-2 py-3 text-center text-slate-500">ไม่มีรายการค้าง/ขาด/ลา</td></tr>
                   ) : [...report.absentList, ...report.otherProjectList].map((emp) => {
                     const entry = attendance[emp.id];
                     const name = `${emp["ชื่อตัว"] || ""} ${emp["ชื่อสกุล"] || ""}`.trim() || emp.name || "-";
@@ -464,11 +475,11 @@ export const ManpowerDashboard = ({ projectOptions }: { projectOptions: string[]
                       ? `อยู่ ${formatProjectNo(entry.project)}`
                       : entry?.status || "ยังไม่ลง";
                     return (
-                      <tr key={emp.id} className="odd:bg-white even:bg-slate-50 h-6">
-                        <td className="border border-slate-300 px-2 py-1 whitespace-nowrap">{emp["รหัสพนักงาน"] || emp.id}</td>
-                        <td className="border border-slate-300 px-2 py-1 font-semibold whitespace-nowrap max-w-[260px] truncate">{name}</td>
-                        <td className="border border-slate-300 px-2 py-1 whitespace-nowrap max-w-[220px] truncate" title={emp["ตำแหน่ง"] || "-"}>{emp["ตำแหน่ง"] || "-"}</td>
-                        <td className="border border-slate-300 px-2 py-1 font-bold whitespace-nowrap">{status}</td>
+                      <tr key={emp.id} className="odd:bg-white even:bg-sky-50/40 h-6">
+                        <td className="border border-sky-200 px-2 py-1 whitespace-nowrap">{emp["รหัสพนักงาน"] || emp.id}</td>
+                        <td className="border border-sky-200 px-2 py-1 font-semibold whitespace-nowrap max-w-[260px] truncate">{name}</td>
+                        <td className="border border-sky-200 px-2 py-1 whitespace-nowrap max-w-[220px] truncate" title={emp["ตำแหน่ง"] || "-"}>{emp["ตำแหน่ง"] || "-"}</td>
+                        <td className="border border-sky-200 px-2 py-1 font-bold whitespace-nowrap">{status}</td>
                       </tr>
                     );
                   })}
@@ -476,32 +487,43 @@ export const ManpowerDashboard = ({ projectOptions }: { projectOptions: string[]
               </table>
             </div>
           </section>
-        </div>
 
-        <div className="grid grid-cols-1 2xl:grid-cols-[360px_minmax(720px,1fr)] gap-3 items-start">
-          <section className="bg-white border border-slate-300 rounded overflow-hidden min-w-0">
-            <div className="bg-slate-800 text-white px-2.5 py-1.5 font-black text-xs">STATUS</div>
+          <section className="bg-white border border-amber-100 rounded-xl overflow-hidden min-w-0 shadow-sm">
+            <div className="bg-gradient-to-r from-amber-200 to-orange-200 text-slate-800 px-2.5 py-1.5 font-black text-xs">STATUS</div>
             <table className="w-max max-w-full text-xs leading-tight border-collapse table-auto">
               <tbody>
-                <tr><td className="border border-slate-300 px-2 py-1 font-bold bg-slate-100 whitespace-nowrap w-1">Project</td><td className="border border-slate-300 px-2 py-1 whitespace-nowrap">{selectedProjectCode}</td></tr>
-                <tr><td className="border border-slate-300 px-2 py-1 font-bold bg-slate-100 whitespace-nowrap w-1">Manpower</td><td className="border border-slate-300 px-2 py-1 font-black whitespace-nowrap">{report.total}</td></tr>
-                <tr><td className="border border-slate-300 px-2 py-1 font-bold bg-slate-100 whitespace-nowrap w-1">Labor Cost</td><td className="border border-slate-300 px-2 py-1 font-black text-emerald-800 whitespace-nowrap">{formattedLaborCost} บาท</td></tr>
-                <tr><td className="border border-slate-300 px-2 py-1 font-bold bg-slate-100 whitespace-nowrap w-1">Not Recorded</td><td className="border border-slate-300 px-2 py-1 whitespace-nowrap">{report.notRecorded}</td></tr>
+                <tr><td className="border border-amber-200 px-2 py-1 font-bold bg-amber-50 whitespace-nowrap w-1">Project</td><td className="border border-amber-200 px-2 py-1 whitespace-nowrap">{selectedProjectCode}</td></tr>
+                <tr><td className="border border-amber-200 px-2 py-1 font-bold bg-amber-50 whitespace-nowrap w-1">Manpower</td><td className="border border-amber-200 px-2 py-1 font-black whitespace-nowrap">{report.total}</td></tr>
+                <tr><td className="border border-amber-200 px-2 py-1 font-bold bg-amber-50 whitespace-nowrap w-1">Labor Cost</td><td className="border border-amber-200 px-2 py-1 font-black text-emerald-800 whitespace-nowrap">{formattedLaborCost} บาท</td></tr>
+                <tr><td className="border border-amber-200 px-2 py-1 font-bold bg-amber-50 whitespace-nowrap w-1">Not Recorded</td><td className="border border-amber-200 px-2 py-1 whitespace-nowrap">{report.notRecorded}</td></tr>
               </tbody>
             </table>
           </section>
+        </div>
 
-          <section className="bg-white border border-slate-300 rounded overflow-hidden min-w-0">
-            <div className="bg-slate-800 text-white px-2.5 py-1.5 font-black text-xs">SUMMARY GRAPH</div>
+        <div className="grid grid-cols-1 gap-3 items-start">
+          <section className="bg-white border border-emerald-100 rounded-xl overflow-hidden min-w-0 shadow-sm">
+            <div className="bg-gradient-to-r from-emerald-200 to-sky-200 text-slate-800 px-2.5 py-1.5 font-black text-xs">SUMMARY GRAPH</div>
             <div className="p-3 grid grid-cols-1 xl:grid-cols-3 gap-3">
               <div className="grid grid-cols-[112px_1fr] gap-3 items-center">
-                <div className="aspect-square rounded-full border-[14px] border-emerald-500 flex items-center justify-center bg-white" style={{ borderRightColor: report.absent > 0 ? "#f43f5e" : "#10b981", borderBottomColor: report.leave + report.notRecorded > 0 ? "#64748b" : "#10b981" }}>
-                  <div className="text-center">
-                    <div className="text-xl font-black text-slate-900">{report.presentPercent}%</div>
-                    <div className="text-[10px] font-bold text-slate-500">PRESENT</div>
+                <div
+                  className="aspect-square rounded-full p-3 flex items-center justify-center"
+                  style={{ background: donutBg }}
+                >
+                  <div className="w-full h-full rounded-full bg-white flex items-center justify-center border border-emerald-100">
+                    <div className="text-center">
+                      <div className="text-xl font-black text-slate-900">{report.presentPercent}%</div>
+                      <div className="text-[10px] font-bold text-slate-500">PRESENT</div>
+                    </div>
                   </div>
                 </div>
                 <div className="space-y-2">
+                  <div className="h-3 rounded-full overflow-hidden bg-slate-100 border border-slate-200 flex">
+                    <div className="h-full bg-emerald-300" style={{ width: `${pPresent}%` }} />
+                    <div className="h-full bg-rose-300" style={{ width: `${pAbsent}%` }} />
+                    <div className="h-full bg-amber-300" style={{ width: `${pLeave}%` }} />
+                    <div className="h-full bg-slate-300" style={{ width: `${pOther}%` }} />
+                  </div>
                   {statusChart.map((item) => (
                     <div key={item.label}>
                       <div className="flex justify-between text-xs font-bold mb-0.5">
@@ -516,8 +538,8 @@ export const ManpowerDashboard = ({ projectOptions }: { projectOptions: string[]
                 </div>
               </div>
 
-              <div className="border border-slate-300 rounded overflow-hidden">
-                <div className="bg-slate-100 px-2 py-1 text-[11px] font-black text-slate-600">กลุ่มงาน</div>
+              <div className="border border-sky-100 rounded overflow-hidden">
+                <div className="bg-sky-50 px-2 py-1 text-[11px] font-black text-slate-600">กลุ่มงาน</div>
                 <div className="p-3 space-y-1.5">
                   {report.groupRows.map((row) => (
                     <div key={row.key}>
@@ -525,16 +547,16 @@ export const ManpowerDashboard = ({ projectOptions }: { projectOptions: string[]
                         <span className="truncate pr-2">{row.label}</span>
                         <span>{row.present}/{row.total}</span>
                       </div>
-                      <div className="h-4 bg-slate-100 border border-slate-200 relative overflow-hidden">
-                        <div className="h-full bg-blue-500" style={{ width: `${Math.max((row.total / maxGroupTotal) * 100, 4)}%` }} />
+                      <div className="h-4 bg-sky-50 border border-sky-100 relative overflow-hidden">
+                        <div className="h-full bg-sky-300" style={{ width: `${Math.max((row.total / maxGroupTotal) * 100, 4)}%` }} />
                       </div>
                     </div>
                   ))}
                 </div>
               </div>
 
-              <div className="border border-slate-300 rounded overflow-hidden">
-                <div className="bg-slate-100 px-2 py-1 text-[11px] font-black text-slate-600">Top ตำแหน่ง</div>
+              <div className="border border-rose-100 rounded overflow-hidden">
+                <div className="bg-rose-50 px-2 py-1 text-[11px] font-black text-slate-600">Top ตำแหน่ง</div>
                 <div className="p-3 space-y-1.5">
                   {topPositionRows.map((row) => (
                     <div key={row.key}>
@@ -542,9 +564,9 @@ export const ManpowerDashboard = ({ projectOptions }: { projectOptions: string[]
                         <span className="truncate pr-2" title={row.label}>{row.label}</span>
                         <span>{row.present}/{row.total}</span>
                       </div>
-                      <div className="h-4 bg-slate-100 border border-slate-200 relative overflow-hidden">
-                        <div className="h-full bg-slate-300" style={{ width: `${Math.max((row.total / maxPositionTotal) * 100, 4)}%` }} />
-                        <div className="absolute inset-y-0 left-0 bg-emerald-500" style={{ width: `${Math.max((row.present / maxPositionTotal) * 100, row.present > 0 ? 4 : 0)}%` }} />
+                      <div className="h-4 bg-rose-50 border border-rose-100 relative overflow-hidden">
+                        <div className="h-full bg-rose-200" style={{ width: `${Math.max((row.total / maxPositionTotal) * 100, 4)}%` }} />
+                        <div className="absolute inset-y-0 left-0 bg-emerald-400" style={{ width: `${Math.max((row.present / maxPositionTotal) * 100, row.present > 0 ? 4 : 0)}%` }} />
                       </div>
                     </div>
                   ))}
