@@ -51,7 +51,8 @@ export const UserManagement = ({
       
       await updateDoc(doc(db, "CMG-HR-Database", "root", "users", user.uid), {
         role: user.role,
-        assignedProjects: user.assignedProjects
+        assignedProjects: user.assignedProjects,
+        status: user.status
       });
       
       // Log activity - track changes
@@ -83,7 +84,17 @@ export const UserManagement = ({
         projectChanges.push(`ลบโครงการ: ${removedProjects.join(', ')}`);
       }
       
-      const changes = [...roleChanges, ...projectChanges];
+      const statusChanges = [];
+      const originalStatus = originalUser?.status;
+      const newStatus = user.status;
+      
+      if (originalStatus !== newStatus) {
+        const statusLabel = newStatus === 'approved' ? 'อนุมัติ' : newStatus === 'rejected' ? 'ปฏิเสธ' : 'รออนุมัติ';
+        const originalStatusLabel = originalStatus === 'approved' ? 'อนุมัติ' : originalStatus === 'rejected' ? 'ปฏิเสธ' : 'รออนุมัติ';
+        statusChanges.push(`เปลี่ยนสถานะ: ${originalStatusLabel} → ${statusLabel}`);
+      }
+      
+      const changes = [...roleChanges, ...projectChanges, ...statusChanges];
       
       if (changes.length > 0) {
         await addDoc(collection(db, "CMG-HR-Database", "root", "activity_logs"), {
@@ -204,6 +215,29 @@ export const UserManagement = ({
               <button onClick={() => setEditingUser(null)} className="text-gray-400 hover:text-red-500"><X size={20}/></button>
             </div>
             <div className="p-6 space-y-6">
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-2">สถานะผู้ใช้งาน</label>
+                <div className="flex gap-3">
+                  {[
+                    { value: 'approved', label: 'อนุมัติ', activeClass: 'bg-green-50 border-green-300 text-green-700' },
+                    { value: 'rejected', label: 'ปฏิเสธ', activeClass: 'bg-red-50 border-red-300 text-red-700' },
+                    { value: 'pending', label: 'รออนุมัติ', activeClass: 'bg-orange-50 border-orange-300 text-orange-700' }
+                  ].map(opt => (
+                    <label key={opt.value} className={`flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-lg border cursor-pointer transition-colors ${editingUser.status === opt.value ? opt.activeClass : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-50'}`}>
+                      <input
+                        type="radio"
+                        name="userStatus"
+                        value={opt.value}
+                        checked={editingUser.status === opt.value}
+                        onChange={() => setEditingUser({ ...editingUser, status: opt.value as 'approved' | 'rejected' | 'pending' })}
+                        className="sr-only"
+                      />
+                      <span className="text-sm font-medium">{opt.label}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+
               <div>
                 <label className="block text-sm font-semibold text-gray-700 mb-2">สิทธิ์การใช้งาน (Roles)</label>
                 <div className="relative z-[10010] bg-gray-50 p-4 rounded-lg border">
