@@ -339,6 +339,7 @@ import { AttendancePage } from './components/AttendancePage';
 import { ManpowerDashboard } from './components/ManpowerDashboard';
 import { ActivityLogPage } from './components/ActivityLogPage';
 import { ColumnMappingModal } from './components/ColumnMappingModal';
+import { ImportPreviewModal } from './components/ImportPreviewModal';
 
 const Sidebar = ({ activeModule, setActiveModule, dbConnected, sidebarOpen, onToggleSidebar }: {
   activeModule: string; setActiveModule: (id: string) => void; dbConnected: boolean;
@@ -871,6 +872,11 @@ function MasterDatabaseApp() {
   const [csvHeaders, setCsvHeaders] = useState<string[]>([]);
   const [csvRows, setCsvRows] = useState<string[][]>([]);
   const [pendingFile, setPendingFile] = useState<File | null>(null);
+  
+  // Import Preview state
+  const [isImportPreviewOpen, setIsImportPreviewOpen] = useState(false);
+  const [importPreviewRows, setImportPreviewRows] = useState<Record<string, string>[]>([]);
+  const [importColumnMapping, setImportColumnMapping] = useState<Record<string, string>>({});
   
   const selectAllCheckboxRef = useRef<HTMLInputElement>(null);
   const tableScrollRef = useRef<HTMLDivElement>(null);
@@ -1849,9 +1855,39 @@ function MasterDatabaseApp() {
     reader.readAsArrayBuffer(file);
   };
 
-  const handleConfirmMapping = async (columnMapping: Record<string, string>) => {
+  const handleConfirmMapping = async (columnMapping: Record<string, string>, selectedIndices?: number[]) => {
+    // Preview mode: ยังไม่มี row ที่เลือก → แสดง preview ก่อน
+    if (!selectedIndices) {
+      const reverseMapping: Record<string, string> = {};
+      Object.entries(columnMapping).forEach(([fieldId, csvHeader]) => {
+        if (csvHeader) reverseMapping[csvHeader] = fieldId;
+      });
+      
+      const dataStartIndex = Math.max(0, skipImportRows || 0);
+      const rows: Record<string, string>[] = [];
+      
+      for (let i = dataStartIndex; i < csvRows.length; i++) {
+        const values = csvRows[i];
+        const rowData: Record<string, string> = {};
+        csvHeaders.forEach((csvHeader, index) => {
+          const fieldId = reverseMapping[csvHeader];
+          if (fieldId) {
+            rowData[fieldId] = (values[index] ?? "").trim();
+          }
+        });
+        rows.push(rowData);
+      }
+      
+      setImportColumnMapping(columnMapping);
+      setImportPreviewRows(rows);
+      setIsImportPreviewOpen(true);
+      setIsColumnMappingOpen(false);
+      return;
+    }
+    
     setDataLoading(true);
     setIsColumnMappingOpen(false);
+    setIsImportPreviewOpen(false);
     
     try {
       // Debug: Show Firebase project info
@@ -1887,6 +1923,7 @@ function MasterDatabaseApp() {
       const primaryKeyField = getPrimaryKeyField() || currentSchema[0]?.id || "รหัสพนักงาน";
       
       let successCount = 0;
+      let updateCount = 0;
       let skipCount = 0;
       let errorCount = 0;
       let skippedIds: any[] = [];
@@ -1900,10 +1937,11 @@ function MasterDatabaseApp() {
       }
 
       const dataStartIndex = Math.max(0, skipImportRows || 0);
+      const indicesToProcess = selectedIndices.map(idx => idx + dataStartIndex);
       
-      console.log(`🚀 Starting import from row ${dataStartIndex}...`);
+      console.log(`🚀 Starting import of ${indicesToProcess.length} selected rows...`);
       
-      for (let i = dataStartIndex; i < csvRows.length; i++) {
+      for (const i of indicesToProcess) {
         try {
           const values = csvRows[i];
           const docData: Record<string, unknown> = {};
@@ -2026,9 +2064,43 @@ function MasterDatabaseApp() {
               const alreadyExists = !checkSnapshot.empty || alreadyImported;
               
               if (alreadyExists) {
-                skipCount++;
-                skippedIds.push(employeeId);
-                console.log(`❌ Row ${i}: Employee ID ${employeeId} already exists in Firebase`);
+                // UPDATE existing record instead of skipping
+                let existingId: string | null = null;
+                if (!checkSnapshot.empty) {
+                  existingId = checkSnapshot.docs[0].id;
+                } else {
+                  const existingIndex = importedData.findIndex(
+                    (item) => String(item["รหัสพนักงาน"] || "").trim() === employeeId
+                  );
+                  if (existingIndex >= 0) {
+                    existingId = importedData[existingIndex].id;
+                  }
+                }
+
+                if (existingId) {
+                  try {
+                    const docRef = doc(db, "CMG-HR-Database", "root", subcollectionName, existingId);
+                    await setDoc(docRef, docData, { merge: true });
+                    const existingIndex = importedData.findIndex(
+                      (item) => String(item["รหัสพนักงาน"] || "").trim() === employeeId
+                    );
+                    if (existingIndex >= 0) {
+                      importedData[existingIndex] = { id: existingId, ...docData } as DataRecord;
+                    } else {
+                      importedData.push({ id: existingId, ...docData } as DataRecord);
+                    }
+                    updateCount++;
+                    console.log(`🔄 Row ${i}: Employee ${employeeId} updated`);
+                  } catch (writeError) {
+                    errorCount++;
+                    errorMessages.push(`Row ${i}: ${(writeError as Error).message}`);
+                    console.error(`❌ Row ${i}: Update error:`, writeError);
+                  }
+                } else {
+                  skipCount++;
+                  skippedIds.push(employeeId);
+                  console.log(`❌ Row ${i}: Employee ID ${employeeId} already exists in Firebase`);
+                }
               } else {
                 const docPath = `CMG-HR-Database/root/${subcollectionName}/${docId}`;
                 console.log(`💾 Row ${i}: Writing employee ${employeeId} to ${docPath}`);
@@ -2105,13 +2177,14 @@ function MasterDatabaseApp() {
       }
 
       console.log(`\n📊 Import Summary:`);
-      console.log(`✅ Success: ${successCount}`);
+      console.log(`✅ New: ${successCount}`);
+      console.log(`🔄 Updated: ${updateCount}`);
       console.log(`⏭️ Skipped: ${skipCount}`);
       console.log(`❌ Errors: ${errorCount}`);
       
       await addLog(
         "Import CSV",
-        `Imported ${successCount}, Skipped ${skipCount}, Errors ${errorCount}`
+        `New ${successCount}, Updated ${updateCount}, Skipped ${skipCount}, Errors ${errorCount}`
       );
       
       // Always refresh data after import to show new records
@@ -2124,7 +2197,7 @@ function MasterDatabaseApp() {
       visibleAfterRefreshCount = importedData.filter((item) => refreshedIds.has(item.id)).length;
       console.log("✅ Data refreshed!");
       
-      let msg = `นำเข้าสำเร็จ: ${successCount} รายการ\nข้าม (มีอยู่แล้ว): ${skipCount} รายการ`;
+      let msg = `เพิ่มใหม่: ${successCount} รายการ\nอัปเดต: ${updateCount} รายการ\nข้าม (มีอยู่แล้ว): ${skipCount} รายการ`;
       if (errorCount > 0) {
         msg += `\nข้อผิดพลาด: ${errorCount} รายการ`;
       }
@@ -3148,6 +3221,13 @@ function MasterDatabaseApp() {
         }}
         onConfirm={handleConfirmMapping}
         csvHeaders={csvHeaders}
+        schemaFields={currentSchema}
+      />
+      <ImportPreviewModal
+        isOpen={isImportPreviewOpen}
+        onClose={() => setIsImportPreviewOpen(false)}
+        onConfirm={(selected) => handleConfirmMapping(importColumnMapping, selected)}
+        rows={importPreviewRows}
         schemaFields={currentSchema}
       />
     </div>

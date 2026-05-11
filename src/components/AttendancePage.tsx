@@ -19,6 +19,8 @@ import {
   Check,
   GripVertical,
   AlertCircle,
+  ArrowUp,
+  ArrowDown,
 } from "lucide-react";
 import { useAuth } from "../auth/AuthContext";
 
@@ -102,6 +104,23 @@ export const AttendancePage = ({ projectOptions }: { projectOptions: string[] })
   const [isColumnMenuOpen, setIsColumnMenuOpen] = useState(false);
   const [draggedIdx, setDraggedIdx] = useState<number | null>(null);
   const [columns, setColumns] = useState<ColumnConfig[]>(DEFAULT_COLUMNS);
+
+  // ── Sort state ────────────────────────────────────────────────────────────
+  type SortKey = 'รหัสพนักงาน' | 'name' | 'ตำแหน่ง' | 'ชื่อชุด';
+  interface SortState {
+    key: SortKey;
+    direction: 'asc' | 'desc';
+  }
+  const [sortState, setSortState] = useState<SortState | null>(null);
+
+  const handleSort = (key: SortKey) => {
+    setSortState((prev) => {
+      if (prev?.key === key) {
+        return { key, direction: prev.direction === 'asc' ? 'desc' : 'asc' };
+      }
+      return { key, direction: 'asc' };
+    });
+  };
 
   // ── กรอง projectOptions ตาม assignedProjects ของ user
   // MasterAdmin, MD, GM, PD, HRM, HR เห็นทุกโครงการ
@@ -261,19 +280,43 @@ export const AttendancePage = ({ projectOptions }: { projectOptions: string[] })
     });
     
     // Sort พนักงานภายในแต่ละกลุ่ม
-    // ถ้าเป็น Supply Contract ให้ sort ตาม ชื่อชุด
     Object.keys(groups).forEach((groupKey) => {
-      if (groupKey === "Supply Contract") {
-        groups[groupKey].sort((a, b) => {
+      const hasSetColumn = groupKey === "Supply Contract" || groupKey === "Worker" || groupKey === "Subcontract";
+
+      groups[groupKey].sort((a, b) => {
+        if (sortState) {
+          let cmp = 0;
+          switch (sortState.key) {
+            case 'รหัสพนักงาน':
+              cmp = (a.รหัสพนักงาน || "").localeCompare(b.รหัสพนักงาน || "", 'th', { numeric: true });
+              break;
+            case 'name':
+              cmp = (`${a.ชื่อตัว || ""} ${a.ชื่อสกุล || ""}`).localeCompare(`${b.ชื่อตัว || ""} ${b.ชื่อสกุล || ""}`, 'th');
+              break;
+            case 'ตำแหน่ง':
+              cmp = (a.ตำแหน่ง || "").localeCompare(b.ตำแหน่ง || "", 'th');
+              break;
+            case 'ชื่อชุด':
+              cmp = (a.ชื่อชุด || "ไม่ระบุชุด").localeCompare(b.ชื่อชุด || "ไม่ระบุชุด", 'th');
+              break;
+            default:
+              cmp = 0;
+          }
+          return sortState.direction === 'asc' ? cmp : -cmp;
+        }
+
+        // Default sort: ถ้ากลุ่มมีชื่อชุด sort ตามชื่อชุด แล้วตามชื่อ
+        if (hasSetColumn) {
           const setA = a.ชื่อชุด || "ไม่ระบุชุด";
           const setB = b.ชื่อชุด || "ไม่ระบุชุด";
-          return setA.localeCompare(setB, 'th');
-        });
-      }
+          if (setA !== setB) return setA.localeCompare(setB, 'th');
+        }
+        return (`${a.ชื่อตัว || ""} ${a.ชื่อสกุล || ""}`).localeCompare(`${b.ชื่อตัว || ""} ${b.ชื่อสกุล || ""}`, 'th');
+      });
     });
-    
+
     return groups;
-  }, [filteredEmployees]);
+  }, [filteredEmployees, sortState]);
 
   // ── รายการวันในเดือน ──────────────────────────────────────────────────────
   const daysInMonth = useMemo(() => {
@@ -319,10 +362,13 @@ export const AttendancePage = ({ projectOptions }: { projectOptions: string[] })
   // ── บันทึกการลงเวลา ───────────────────────────────────────────────────────
   const handleAttendanceClick = useCallback(async (
     employeeId: string,
-    dateStr: string
+    dateStr: string,
+    isOtherProject: boolean = false
   ) => {
     // ใช้ functional update เพื่อดึง state ล่าสุด
     setAttendanceData((prevData) => {
+      if (isOtherProject) return prevData;
+
       const currentEntry = prevData[dateStr]?.[employeeId];
       
       // ตรวจสอบว่าเป็นวันในอนาคตหรือไม่
@@ -466,22 +512,33 @@ export const AttendancePage = ({ projectOptions }: { projectOptions: string[] })
     
     filteredEmployees.forEach(emp => {
       const currentEntry = currentDayRecords[emp.id];
-      if (!isLocked(currentEntry)) {
-        if (newStatus === "") {
-          delete updatedRecords[emp.id];
-        } else {
-          const newEntry: AttendanceEntry = {
-            status: newStatus,
-            recordedAt: now
-          };
-          
-          // เพิ่ม project field เฉพาะเมื่อเป็น "มา" และกรองโครงการอยู่
-          if (newStatus === "มา" && selectedProject !== "all") {
-            newEntry.project = selectedProject;
-          }
-          
-          updatedRecords[emp.id] = newEntry;
+      if (isLocked(currentEntry)) return;
+
+      // ข้ามพนักงานที่ลงเวลา "มา" ในโครงการอื่นแล้ว
+      if (selectedProject !== "all") {
+        const empProjects = emp.สถานะโครงการ;
+        const projectList = Array.isArray(empProjects) ? empProjects : empProjects ? [empProjects] : [];
+        const isMultiProject = projectList.length > 1;
+        const attendedProject = currentEntry?.project;
+        if (isMultiProject && attendedProject && attendedProject !== selectedProject && currentEntry?.status === "มา") {
+          return;
         }
+      }
+
+      if (newStatus === "") {
+        delete updatedRecords[emp.id];
+      } else {
+        const newEntry: AttendanceEntry = {
+          status: newStatus,
+          recordedAt: now
+        };
+        
+        // เพิ่ม project field เฉพาะเมื่อเป็น "มา" และกรองโครงการอยู่
+        if (newStatus === "มา" && selectedProject !== "all") {
+          newEntry.project = selectedProject;
+        }
+        
+        updatedRecords[emp.id] = newEntry;
       }
     });
     
@@ -612,14 +669,14 @@ export const AttendancePage = ({ projectOptions }: { projectOptions: string[] })
     
     // ตรวจสอบว่าลงเวลาในโครงการอื่นหรือไม่
     const attendedProject = entry?.project;
-    const isOtherProject = isMultiProject && 
+    const isOtherProject = !!(isMultiProject && 
                            attendedProject && 
                            selectedProject !== "all" && 
                            attendedProject !== selectedProject &&
-                           displayStatus === "มา";
+                           displayStatus === "มา");
 
-    // สามารถแก้ไขได้ถ้า: ไม่ใช่วันในอนาคต และ ไม่ล็อค และ มีสิทธิ์แก้ไข
-    const canEdit = !isFuture && !locked && canEditAttendance;
+    // สามารถแก้ไขได้ถ้า: ไม่ใช่วันในอนาคต และ ไม่ล็อค และ มีสิทธิ์แก้ไข และ ไม่ได้ลงเวลาที่โครงการอื่น
+    const canEdit = !isFuture && !locked && canEditAttendance && !isOtherProject;
 
     let bg = isWeekend ? "bg-gray-100" : "bg-white hover:bg-gray-50";
     let text = "";
@@ -698,7 +755,7 @@ export const AttendancePage = ({ projectOptions }: { projectOptions: string[] })
         style={{ minWidth: 40, maxWidth: 40, width: 40, padding: "1px 0", fontSize: 10, height: 24 }}
         onDoubleClick={(e) => {
           e.stopPropagation(); // ป้องกัน event bubble ไปที่ scroll container
-          if (canEdit) handleAttendanceClick(employeeId, dateStr);
+          if (canEdit) handleAttendanceClick(employeeId, dateStr, isOtherProject);
         }}
         title={`${dateStr}: ${displayStatus || "ยังไม่ลงเวลา"}${tooltipExtra}\n${canEdit ? "(ดับเบิ้ลคลิกเพื่อเปลี่ยนสถานะ)" : ""}`}
       >
@@ -811,6 +868,7 @@ export const AttendancePage = ({ projectOptions }: { projectOptions: string[] })
         <span className="font-semibold text-blue-900">คำอธิบาย:</span>
         {[
           { bg: "bg-green-100 border-green-300", text: "text-green-700", label: "มา", desc: "= มา" },
+          { bg: "bg-green-100 border-green-300", text: "text-green-700 font-semibold", label: "J01", desc: "= มาที่โครงการอื่น" },
           { bg: "bg-red-100 border-red-300",     text: "text-red-700",   label: "ไม่มา", desc: "= ไม่มา" },
           { bg: "bg-orange-100 border-orange-300",text: "text-orange-700",label: "ลา",   desc: "= ลา" },
           { bg: "bg-red-200 border-red-400",      text: "text-red-900 font-bold", label: "ขาด", desc: "= ขาดงาน 🔒" },
@@ -840,8 +898,8 @@ export const AttendancePage = ({ projectOptions }: { projectOptions: string[] })
         </div>
       ) : (
         Object.entries(groupedEmployees).map(([groupName, groupEmps]) => {
-          // ตรวจสอบว่าเป็นกลุ่ม Supply Contract หรือไม่
-          const isSupplyContractGroup = groupName === "Supply Contract";
+          // กลุ่มที่มีคอลัมน์ ชื่อชุด
+          const hasSetColumn = groupName === "Supply Contract" || groupName === "Worker" || groupName === "Subcontract";
           
           return (
           <div key={groupName} className="bg-white rounded-lg border border-gray-200 overflow-hidden">
@@ -866,26 +924,38 @@ export const AttendancePage = ({ projectOptions }: { projectOptions: string[] })
               <table
                 className="border-collapse"
                 style={{ fontSize: 11, lineHeight: "1.1", tableLayout: "fixed",
-                  width: `${visibleColumns.reduce((s, c) => s + c.widthPx, 0) + (isSupplyContractGroup ? 100 : 0) + daysInMonth.length * 40}px` }}
+                  width: `${visibleColumns.reduce((s, c) => s + c.widthPx, 0) + (hasSetColumn ? 100 : 0) + daysInMonth.length * 40}px` }}
               >
                 <thead>
                   <tr style={{ height: 26 }}>
-                    {visibleColumns.map((col) => (
+                    {visibleColumns.map((col) => {
+                      const isSortable = col.id === 'รหัสพนักงาน' || col.id === 'name' || col.id === 'ตำแหน่ง';
+                      const isActive = sortState?.key === col.id;
+                      return (
+                        <th
+                          key={col.id}
+                          className={`border border-gray-400 bg-orange-500 text-white px-1 py-0.5 sticky z-20 text-left select-none ${isSortable ? 'cursor-pointer hover:bg-orange-600' : ''}`}
+                          style={{ width: col.widthPx, minWidth: col.widthPx, left: col.computedLeft }}
+                          onClick={isSortable ? () => handleSort(col.id as SortKey) : undefined}
+                        >
+                          <span className="inline-flex items-center gap-0.5">
+                            {col.label}
+                            {isActive && (sortState.direction === 'asc' ? <ArrowUp size={10} /> : <ArrowDown size={10} />)}
+                          </span>
+                        </th>
+                      );
+                    })}
+                    {/* เพิ่มคอลัมน์ ชื่อชุด สำหรับกลุ่มที่มีชื่อชุด */}
+                    {hasSetColumn && (
                       <th
-                        key={col.id}
-                        className="border border-gray-400 bg-orange-500 text-white px-1 py-0.5 sticky z-20 text-left"
-                        style={{ width: col.widthPx, minWidth: col.widthPx, left: col.computedLeft }}
-                      >
-                        {col.label}
-                      </th>
-                    ))}
-                    {/* เพิ่มคอลัมน์ ชื่อชุด เฉพาะกลุ่ม Supply Contract */}
-                    {isSupplyContractGroup && (
-                      <th
-                        className="border border-gray-400 bg-orange-500 text-white px-1 py-0.5 sticky z-20 text-left"
+                        className="border border-gray-400 bg-orange-500 text-white px-1 py-0.5 sticky z-20 text-left cursor-pointer hover:bg-orange-600 select-none"
                         style={{ width: 100, minWidth: 100, left: visibleColumns.reduce((sum, c) => sum + c.widthPx, 0) }}
+                        onClick={() => handleSort('ชื่อชุด')}
                       >
-                        ชื่อชุด
+                        <span className="inline-flex items-center gap-0.5">
+                          ชื่อชุด
+                          {sortState?.key === 'ชื่อชุด' && (sortState.direction === 'asc' ? <ArrowUp size={10} /> : <ArrowDown size={10} />)}
+                        </span>
                       </th>
                     )}
                     {daysInMonth.map(({ day, isWeekend, isToday, dateStr }) => (
@@ -947,8 +1017,8 @@ export const AttendancePage = ({ projectOptions }: { projectOptions: string[] })
                           </td>
                         );
                       })}
-                      {/* เพิ่มเซลล์ ชื่อชุด เฉพาะกลุ่ม Supply Contract */}
-                      {isSupplyContractGroup && (
+                      {/* เพิ่มเซลล์ ชื่อชุด สำหรับกลุ่มที่มีชื่อชุด */}
+                      {hasSetColumn && (
                         <td
                           className="border border-gray-200 px-1 py-0 sticky bg-white z-10 overflow-hidden whitespace-nowrap text-ellipsis"
                           style={{ width: 100, minWidth: 100, left: visibleColumns.reduce((sum, c) => sum + c.widthPx, 0) }}
