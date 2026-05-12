@@ -78,7 +78,6 @@ export const ColumnMappingModal: React.FC<ColumnMappingModalProps> = ({
     };
     
     onConfirm(finalMapping);
-    onClose();
   };
 
   if (!isOpen) return null;

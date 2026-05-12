@@ -43,6 +43,20 @@ const formatDateInput = (date: Date): string => {
   return `${year}-${month}-${day}`;
 };
 
+const getPositionPriority = (posLabel: string): number => {
+  const pos = posLabel.toLowerCase().trim();
+  if (pos === "md" || pos.startsWith("md ") || pos === "managing director") return 1;
+  if (pos === "gm" || pos.startsWith("gm ") || pos === "general manager") return 2;
+  if (pos.includes("project") && pos.includes("workshop") && pos.includes("manager")) return 3;
+  if (pos.includes("hr manager") || pos.includes("human resource manager")) return 4;
+  if (pos === "pm" || pos.startsWith("pm ") || pos.includes("project manager")) return 6;
+  if (pos === "cm" || pos.startsWith("cm ") || pos.includes("construction manager")) return 7;
+  if (pos.includes("manager")) return 5;
+  if (pos.includes("engineer")) return 8;
+  if (pos.includes("lead")) return 9;
+  return 99;
+};
+
 interface AttendanceEntry {
   status: string;
   recordedAt: number;
@@ -189,6 +203,7 @@ export const ManpowerDashboard = ({ projectOptions }: { projectOptions: string[]
     const rowsByPosition: Record<string, ReportRow> = {};
     const rowsByGroup: Record<string, ReportRow> = {};
     const absentList: Employee[] = [];
+    const notRecordedList: Employee[] = [];
     const otherProjectList: Employee[] = [];
     let present = 0;
     let absent = 0;
@@ -238,7 +253,7 @@ export const ManpowerDashboard = ({ projectOptions }: { projectOptions: string[]
         targets.forEach((row) => row.leave++);
       } else {
         notRecorded++;
-        absentList.push(emp);
+        notRecordedList.push(emp);
         targets.forEach((row) => row.notRecorded++);
       }
     });
@@ -253,9 +268,15 @@ export const ManpowerDashboard = ({ projectOptions }: { projectOptions: string[]
       notRecorded,
       laborCost,
       presentPercent: total > 0 ? Math.round((present / total) * 100) : 0,
-      positionRows: Object.values(rowsByPosition).sort((a, b) => b.total - a.total || a.label.localeCompare(b.label, "th")),
+      positionRows: Object.values(rowsByPosition).sort((a, b) => {
+        const pA = getPositionPriority(a.label);
+        const pB = getPositionPriority(b.label);
+        if (pA !== pB) return pA - pB;
+        return b.total - a.total || a.label.localeCompare(b.label, "th");
+      }),
       groupRows: Object.values(rowsByGroup).sort((a, b) => b.total - a.total || a.label.localeCompare(b.label, "th")),
       absentList,
+      notRecordedList,
       otherProjectList,
     };
   }, [projectScopedEmployees, attendance, selectedProject, laborByPosition]);
@@ -453,33 +474,66 @@ export const ManpowerDashboard = ({ projectOptions }: { projectOptions: string[]
             )}
           </section>
 
-          <section className="bg-white border border-sky-100 rounded-xl overflow-hidden min-w-0 w-fit max-w-full shadow-sm">
-            <div className="bg-gradient-to-r from-sky-300 to-cyan-300 text-slate-800 px-2.5 py-1.5 font-black text-xs">ABSENT / REMAINING</div>
+          <section className="bg-white border border-rose-100 rounded-xl overflow-hidden min-w-0 w-fit max-w-full shadow-sm">
+            <div className="bg-gradient-to-r from-rose-200 to-rose-300 text-slate-800 px-2.5 py-1.5 font-black text-xs">ABSENT / LEAVE</div>
             <div className="overflow-x-auto">
               <table className="w-max max-w-full text-xs leading-tight border-collapse table-auto">
-                <thead className="bg-sky-100">
+                <thead className="bg-rose-100">
                   <tr>
-                    <th className="border border-sky-200 px-2 py-1 text-left whitespace-nowrap w-1">รหัส</th>
-                    <th className="border border-sky-200 px-2 py-1 text-left whitespace-nowrap w-1">ชื่อ</th>
-                    <th className="border border-sky-200 px-2 py-1 text-left whitespace-nowrap w-1">ตำแหน่ง</th>
-                    <th className="border border-sky-200 px-2 py-1 text-left whitespace-nowrap w-1">สถานะ</th>
+                    <th className="border border-rose-200 px-2 py-1 text-left whitespace-nowrap w-1">รหัส</th>
+                    <th className="border border-rose-200 px-2 py-1 text-left whitespace-nowrap w-1">ชื่อ</th>
+                    <th className="border border-rose-200 px-2 py-1 text-left whitespace-nowrap w-1">ตำแหน่ง</th>
+                    <th className="border border-rose-200 px-2 py-1 text-left whitespace-nowrap w-1">สถานะ</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {report.absentList.length === 0 && report.otherProjectList.length === 0 ? (
-                    <tr><td colSpan={4} className="border border-sky-200 px-2 py-3 text-center text-slate-500">ไม่มีรายการค้าง/ขาด/ลา</td></tr>
-                  ) : [...report.absentList, ...report.otherProjectList].map((emp) => {
+                  {report.absentList.length === 0 ? (
+                    <tr><td colSpan={4} className="border border-rose-200 px-2 py-3 text-center text-slate-500">ไม่มีรายการขาด/ลา</td></tr>
+                  ) : report.absentList.map((emp) => {
+                    const entry = attendance[emp.id];
+                    const name = `${emp["ชื่อตัว"] || ""} ${emp["ชื่อสกุล"] || ""}`.trim() || emp.name || "-";
+                    const status = entry?.status || "-";
+                    return (
+                      <tr key={emp.id} className="odd:bg-white even:bg-rose-50/40 h-6">
+                        <td className="border border-rose-200 px-2 py-1 whitespace-nowrap">{emp["รหัสพนักงาน"] || emp.id}</td>
+                        <td className="border border-rose-200 px-2 py-1 font-semibold whitespace-nowrap max-w-[260px] truncate">{name}</td>
+                        <td className="border border-rose-200 px-2 py-1 whitespace-nowrap max-w-[220px] truncate" title={emp["ตำแหน่ง"] || "-"}>{emp["ตำแหน่ง"] || "-"}</td>
+                        <td className="border border-rose-200 px-2 py-1 font-bold whitespace-nowrap text-rose-700">{status}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </section>
+
+          <section className="bg-white border border-slate-200 rounded-xl overflow-hidden min-w-0 w-fit max-w-full shadow-sm">
+            <div className="bg-gradient-to-r from-slate-200 to-slate-300 text-slate-800 px-2.5 py-1.5 font-black text-xs">NOT RECORDED / OTHER</div>
+            <div className="overflow-x-auto">
+              <table className="w-max max-w-full text-xs leading-tight border-collapse table-auto">
+                <thead className="bg-slate-100">
+                  <tr>
+                    <th className="border border-slate-200 px-2 py-1 text-left whitespace-nowrap w-1">รหัส</th>
+                    <th className="border border-slate-200 px-2 py-1 text-left whitespace-nowrap w-1">ชื่อ</th>
+                    <th className="border border-slate-200 px-2 py-1 text-left whitespace-nowrap w-1">ตำแหน่ง</th>
+                    <th className="border border-slate-200 px-2 py-1 text-left whitespace-nowrap w-1">สถานะ</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {report.notRecordedList.length === 0 && report.otherProjectList.length === 0 ? (
+                    <tr><td colSpan={4} className="border border-slate-200 px-2 py-3 text-center text-slate-500">ไม่มีรายการค้างลงเวลา</td></tr>
+                  ) : [...report.notRecordedList, ...report.otherProjectList].map((emp) => {
                     const entry = attendance[emp.id];
                     const name = `${emp["ชื่อตัว"] || ""} ${emp["ชื่อสกุล"] || ""}`.trim() || emp.name || "-";
                     const status = entry?.status === "มา" && entry.project && selectedProject !== "all" && entry.project !== selectedProject
                       ? `อยู่ ${formatProjectNo(entry.project)}`
                       : entry?.status || "ยังไม่ลง";
                     return (
-                      <tr key={emp.id} className="odd:bg-white even:bg-sky-50/40 h-6">
-                        <td className="border border-sky-200 px-2 py-1 whitespace-nowrap">{emp["รหัสพนักงาน"] || emp.id}</td>
-                        <td className="border border-sky-200 px-2 py-1 font-semibold whitespace-nowrap max-w-[260px] truncate">{name}</td>
-                        <td className="border border-sky-200 px-2 py-1 whitespace-nowrap max-w-[220px] truncate" title={emp["ตำแหน่ง"] || "-"}>{emp["ตำแหน่ง"] || "-"}</td>
-                        <td className="border border-sky-200 px-2 py-1 font-bold whitespace-nowrap">{status}</td>
+                      <tr key={emp.id} className="odd:bg-white even:bg-slate-50/40 h-6">
+                        <td className="border border-slate-200 px-2 py-1 whitespace-nowrap">{emp["รหัสพนักงาน"] || emp.id}</td>
+                        <td className="border border-slate-200 px-2 py-1 font-semibold whitespace-nowrap max-w-[260px] truncate">{name}</td>
+                        <td className="border border-slate-200 px-2 py-1 whitespace-nowrap max-w-[220px] truncate" title={emp["ตำแหน่ง"] || "-"}>{emp["ตำแหน่ง"] || "-"}</td>
+                        <td className="border border-slate-200 px-2 py-1 font-bold whitespace-nowrap text-slate-600">{status}</td>
                       </tr>
                     );
                   })}
