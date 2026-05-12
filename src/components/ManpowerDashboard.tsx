@@ -43,6 +43,20 @@ const formatDateInput = (date: Date): string => {
   return `${year}-${month}-${day}`;
 };
 
+const getPositionPriority = (posLabel: string): number => {
+  const pos = posLabel.toLowerCase().trim();
+  if (pos === "md" || pos.startsWith("md ") || pos === "managing director") return 1;
+  if (pos === "gm" || pos.startsWith("gm ") || pos === "general manager") return 2;
+  if (pos.includes("project") && pos.includes("workshop") && pos.includes("manager")) return 3;
+  if (pos.includes("hr manager") || pos.includes("human resource manager")) return 4;
+  if (pos === "pm" || pos.startsWith("pm ") || pos.includes("project manager")) return 6;
+  if (pos === "cm" || pos.startsWith("cm ") || pos.includes("construction manager")) return 7;
+  if (pos.includes("manager")) return 5;
+  if (pos.includes("engineer")) return 8;
+  if (pos.includes("lead")) return 9;
+  return 99;
+};
+
 interface AttendanceEntry {
   status: string;
   recordedAt: number;
@@ -253,7 +267,12 @@ export const ManpowerDashboard = ({ projectOptions }: { projectOptions: string[]
       notRecorded,
       laborCost,
       presentPercent: total > 0 ? Math.round((present / total) * 100) : 0,
-      positionRows: Object.values(rowsByPosition).sort((a, b) => b.total - a.total || a.label.localeCompare(b.label, "th")),
+      positionRows: Object.values(rowsByPosition).sort((a, b) => {
+        const pA = getPositionPriority(a.label);
+        const pB = getPositionPriority(b.label);
+        if (pA !== pB) return pA - pB;
+        return b.total - a.total || a.label.localeCompare(b.label, "th");
+      }),
       groupRows: Object.values(rowsByGroup).sort((a, b) => b.total - a.total || a.label.localeCompare(b.label, "th")),
       absentList,
       otherProjectList,
