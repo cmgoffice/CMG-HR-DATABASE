@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
 import type { User } from "firebase/auth";
-import type { CollectionReference, Query } from "firebase/firestore";
+import type { CollectionReference, DocumentData, Query } from "firebase/firestore";
 
 // --- TYPE DEFINITIONS ---
 interface SchemaField {
@@ -35,6 +35,10 @@ interface ModuleConfig {
   filterValue?: string | string[];
   schemaSource?: string; // อ้างอิง moduleId อื่นเพื่อใช้ schema ร่วมกัน
 }
+
+type SortConfig = { key: string; direction: 'asc' | 'desc' | null };
+
+const DEFAULT_SORT_CONFIG: SortConfig = { key: "รหัสพนักงาน", direction: 'asc' };
 
 // ฟังก์ชันสำหรับตัด Project No. ให้เหลือ 5 ตัวท้าย
 // เช่น PRJ-2026-J-001 → J-001
@@ -79,7 +83,6 @@ import {
   Filter,
   FileText,
   Activity,
-  ArrowLeft,
   MoreHorizontal,
   CheckCircle,
   Loader2,
@@ -121,10 +124,6 @@ import {
   deleteField,
   arrayRemove,
   arrayUnion,
-  limit,
-  startAfter,
-  QueryDocumentSnapshot,
-  DocumentData,
 } from "firebase/firestore";
 
 // --- FIREBASE CONFIGURATION (ใช้ project cmg-hr-database ให้ตรงกับ Rules ใน Console) ---
@@ -792,19 +791,7 @@ function MasterDatabaseApp() {
   const [currentData, setCurrentData] = useState<DataRecord[]>([]);
   const [logs, setLogs] = useState<LogRecord[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
-  const [fullModuleData, setFullModuleData] = useState<DataRecord[] | null>(null);
-  const [isSearchingAll, setIsSearchingAll] = useState(false);
-  const [sortConfig, setSortConfig] = useState<{ key: string; direction: 'asc' | 'desc' | null }>({ key: '', direction: null });
-
-  // --- PAGINATION STATE ---
-  const PAGE_SIZE = 50;
-  const PAGINATED_MODULES = new Set(["emp_indirect", "emp_direct_leader", "emp_direct_supply", "emp_direct_sub"]);
-  const [currentPage, setCurrentPage] = useState(1);
-  // เก็บ cursor (document snapshot) ของแต่ละหน้า: index 0 = หน้า 1, index 1 = หน้า 2, ...
-  // pageCursors[n] = startAfter cursor สำหรับหน้า n+1
-  const [pageCursors, setPageCursors] = useState<(QueryDocumentSnapshot<DocumentData> | null)[]>([null]);
-  const [hasNextPage, setHasNextPage] = useState(false);
-  const [totalLoaded, setTotalLoaded] = useState(0); // จำนวนที่โหลดมาแล้วสะสม (แสดง UI)
+  const [sortConfig, setSortConfig] = useState<SortConfig>(DEFAULT_SORT_CONFIG);
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [isSchemaModalOpen, setIsSchemaModalOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<DataRecord | null>(null);
@@ -1058,49 +1045,6 @@ function MasterDatabaseApp() {
   // อ่าน Firebase เฉพาะตอนกดเข้าเมนู (lazy load) เพื่อลดโควต้า Read
   const fetchModuleRef = useRef<string | null>(null);
 
-  // ฟังก์ชันโหลดข้อมูลพนักงานแบบแบ่งหน้า (cursor-based pagination)
-  const fetchEmployeePage = async (
-    moduleId: string,
-    cursor: QueryDocumentSnapshot<DocumentData> | null,
-    pageNum: number
-  ) => {
-    const config = getModuleInfo(moduleId);
-    const subcollectionName = config.subcollection || moduleId;
-    let baseQuery: CollectionReference<DocumentData> | Query<DocumentData> = collection(
-      db, "CMG-HR-Database", "root", subcollectionName
-    );
-    if (config.filterField && config.filterValue) {
-      if (Array.isArray(config.filterValue)) {
-        baseQuery = query(baseQuery as CollectionReference<DocumentData>, where(config.filterField, "in", config.filterValue));
-      } else {
-        baseQuery = query(baseQuery as CollectionReference<DocumentData>, where(config.filterField, "==", config.filterValue));
-      }
-    }
-    // Fetch PAGE_SIZE+1 เพื่อตรวจว่ามีหน้าถัดไปหรือไม่
-    let pagedQuery = cursor
-      ? query(baseQuery as Query<DocumentData>, limit(PAGE_SIZE + 1), startAfter(cursor))
-      : query(baseQuery as Query<DocumentData>, limit(PAGE_SIZE + 1));
-
-    const snapshot = await getDocs(pagedQuery);
-    const allDocs = snapshot.docs.filter((d) => d.id !== "_schema_metadata");
-    const hasMore = allDocs.length > PAGE_SIZE;
-    const pageDocs = hasMore ? allDocs.slice(0, PAGE_SIZE) : allDocs;
-    const items = pageDocs.map((d) => ({ id: d.id, ...d.data() } as DataRecord));
-
-    // อัปเดต cursor สำหรับหน้าถัดไป
-    setPageCursors((prev) => {
-      const updated = [...prev];
-      if (pageDocs.length > 0) {
-        updated[pageNum] = pageDocs[pageDocs.length - 1] as QueryDocumentSnapshot<DocumentData>;
-      }
-      return updated;
-    });
-    setHasNextPage(hasMore);
-    setCurrentPage(pageNum);
-    setCurrentData(items);
-    setTotalLoaded((pageNum - 1) * PAGE_SIZE + items.length);
-  };
-
   useEffect(() => {
     const moduleId = activeModule;
     // ถ้ายังไม่ได้เลือกเมนู ไม่โหลดข้อมูล
@@ -1108,11 +1052,6 @@ function MasterDatabaseApp() {
 
     fetchModuleRef.current = moduleId;
     setDataLoading(true);
-    // Reset pagination เมื่อเปลี่ยนเมนู
-    setCurrentPage(1);
-    setPageCursors([null]);
-    setHasNextPage(false);
-    setTotalLoaded(0);
 
     const config = getModuleInfo(moduleId);
     const subcollectionName = config.subcollection || moduleId;
@@ -1176,33 +1115,28 @@ function MasterDatabaseApp() {
           setSchemas((prev) => ({ ...prev, [moduleId]: defaultSchema }));
         }
 
-        if (PAGINATED_MODULES.has(moduleId)) {
-          // โหลดแบบแบ่งหน้า หน้าละ 50 รายการ
-          await fetchEmployeePage(moduleId, null, 1);
-        } else {
-          // โหลดข้อมูลทั้งหมดสำหรับ module อื่น (เดิม)
-          let dataQuery: CollectionReference<DocumentData> | Query<DocumentData> = collection(
-            db, "CMG-HR-Database", "root", subcollectionName
-          );
-          if (config.filterField && config.filterValue) {
-            if (Array.isArray(config.filterValue)) {
-              dataQuery = query(dataQuery as CollectionReference<DocumentData>, where(config.filterField, "in", config.filterValue));
-            } else {
-              dataQuery = query(dataQuery as CollectionReference<DocumentData>, where(config.filterField, "==", config.filterValue));
-            }
-          }
-          const snapshot = await getDocs(dataQuery);
-          if (fetchModuleRef.current !== moduleId) return;
-          const items = snapshot.docs
-            .map((d) => ({ id: d.id, ...d.data() } as DataRecord))
-            .filter((item) => item.id !== "_schema_metadata");
-          if (subcollectionName === "activity_logs") {
-            const logItems = items as unknown as LogRecord[];
-            logItems.sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0));
-            setLogs(logItems);
+        // โหลดข้อมูลทั้งหมดในครั้งเดียวสำหรับทุกเมนู รวมถึง Employee และ Position Labor
+        let dataQuery: CollectionReference<DocumentData> | Query<DocumentData> = collection(
+          db, "CMG-HR-Database", "root", subcollectionName
+        );
+        if (config.filterField && config.filterValue) {
+          if (Array.isArray(config.filterValue)) {
+            dataQuery = query(dataQuery as CollectionReference<DocumentData>, where(config.filterField, "in", config.filterValue));
           } else {
-            setCurrentData(items);
+            dataQuery = query(dataQuery as CollectionReference<DocumentData>, where(config.filterField, "==", config.filterValue));
           }
+        }
+        const snapshot = await getDocs(dataQuery);
+        if (fetchModuleRef.current !== moduleId) return;
+        const items = snapshot.docs
+          .map((d) => ({ id: d.id, ...d.data() } as DataRecord))
+          .filter((item) => item.id !== "_schema_metadata");
+        if (subcollectionName === "activity_logs") {
+          const logItems = items as unknown as LogRecord[];
+          logItems.sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0));
+          setLogs(logItems);
+        } else {
+          setCurrentData(items);
         }
       } catch (error) {
         if (fetchModuleRef.current === moduleId) {
@@ -1219,26 +1153,9 @@ function MasterDatabaseApp() {
 
   useEffect(() => {
     setSelectedIds(new Set());
-    setSortConfig({ key: '', direction: null }); // Reset sort when changing module
+    setSortConfig(DEFAULT_SORT_CONFIG); // Reset sort by employee ID when changing module
     setSearchQuery(""); // Reset search when changing module
-    setFullModuleData(null);
-    setIsSearchingAll(false);
   }, [activeModule]);
-
-  // Handle full data fetching when searching in paginated modules
-  useEffect(() => {
-    const isPaginated = ["emp_indirect", "emp_direct_leader", "emp_direct_supply", "emp_direct_sub"].includes(activeModule);
-    if (searchQuery && isPaginated && fullModuleData === null && !isSearchingAll) {
-      setIsSearchingAll(true);
-      fetchModuleData(activeModule, true).then((data) => {
-        setFullModuleData(data);
-        setIsSearchingAll(false);
-      }).catch((err) => {
-        console.error("Error fetching full data for search:", err);
-        setIsSearchingAll(false);
-      });
-    }
-  }, [searchQuery, activeModule, fullModuleData, isSearchingAll]);
 
   useEffect(() => {
     if (dataLoading) return;
@@ -1315,15 +1232,6 @@ function MasterDatabaseApp() {
     const config = getModuleInfo(activeModule);
     const subcollectionName = config.subcollection || activeModule;
     try {
-      if (PAGINATED_MODULES.has(activeModule)) {
-        // สำหรับ paginated modules: โหลดหน้าแรกใหม่ (reset pagination)
-        setCurrentPage(1);
-        setPageCursors([null]);
-        setHasNextPage(false);
-        setTotalLoaded(0);
-        await fetchEmployeePage(activeModule, null, 1);
-        return currentData;
-      }
       const items = await fetchModuleData(activeModule);
       setCurrentData(items);
       if (subcollectionName === "activity_logs") {
@@ -2364,7 +2272,7 @@ function MasterDatabaseApp() {
   };
 
   const filteredData = useMemo(() => {
-    let data = (searchQuery && PAGINATED_MODULES.has(activeModule) && fullModuleData) ? fullModuleData : currentData;
+    let data = currentData;
     
     // Filter by search query
     if (searchQuery) {
@@ -2406,7 +2314,7 @@ function MasterDatabaseApp() {
     }
     
     return data;
-  }, [currentData, searchQuery, sortConfig, fullModuleData, activeModule]);
+  }, [currentData, searchQuery, sortConfig]);
 
   useEffect(() => {
     const el = selectAllCheckboxRef.current;
@@ -2565,17 +2473,10 @@ function MasterDatabaseApp() {
               <div className="w-px h-5 bg-gray-200 shrink-0" />
 
               <div className="relative flex-1 min-w-[200px]">
-                {isSearchingAll ? (
-                  <Loader2
-                    className="absolute left-3 top-1/2 -translate-y-1/2 text-blue-500 animate-spin"
-                    size={18}
-                  />
-                ) : (
-                  <Search
-                    className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"
-                    size={18}
-                  />
-                )}
+                <Search
+                  className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"
+                  size={18}
+                />
                 <input
                   type="text"
                   placeholder="ค้นหา..."
@@ -2934,7 +2835,7 @@ function MasterDatabaseApp() {
                         />
                       </td>
                       <td className="px-3 py-0.5 text-center text-gray-500 font-medium bg-gray-50/50 border-r border-gray-100 sticky left-0 z-10 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.05)]">
-                        {PAGINATED_MODULES.has(activeModule) ? (currentPage - 1) * PAGE_SIZE + idx + 1 : idx + 1}
+                        {idx + 1}
                       </td>
                       {/* จัดการ — ย้ายมาอยู่คอลัมน์แรก */}
                       <td className="px-3 py-0.5 border-r border-gray-100">
@@ -3055,51 +2956,6 @@ function MasterDatabaseApp() {
               onScroll={syncTableScrollFromRail}
             >
             <div style={{ width: tableScrollWidth, height: 1, minWidth: "100%" }} />
-            </div>
-          )}
-          {/* Pagination Controls — แสดงเฉพาะ Employee modules */}
-          {PAGINATED_MODULES.has(activeModule) && !dataLoading && (
-            <div className="flex items-center justify-between px-4 py-2 border-t border-gray-200 bg-gray-50 rounded-b-xl shrink-0">
-              <span className="text-xs text-gray-500">
-                หน้า <span className="font-semibold text-gray-700">{currentPage}</span>
-                {" — "}รายการที่{" "}
-                <span className="font-semibold text-gray-700">
-                  {currentData.length === 0 ? "0" : `${(currentPage - 1) * PAGE_SIZE + 1}–${(currentPage - 1) * PAGE_SIZE + currentData.length}`}
-                </span>
-                {hasNextPage && (
-                  <span className="text-gray-400 ml-1">(มีข้อมูลหน้าถัดไป)</span>
-                )}
-              </span>
-              <div className="flex items-center gap-2">
-                <button
-                  disabled={currentPage === 1}
-                  onClick={async () => {
-                    if (currentPage <= 1) return;
-                    setDataLoading(true);
-                    const prevPageNum = currentPage - 1;
-                    const prevCursor = prevPageNum === 1 ? null : pageCursors[prevPageNum - 1];
-                    await fetchEmployeePage(activeModule, prevCursor, prevPageNum);
-                    setDataLoading(false);
-                  }}
-                  className="flex items-center gap-1 px-3 py-1.5 text-xs font-medium rounded-lg border border-gray-200 bg-white text-gray-600 hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-                >
-                  <ArrowLeft size={14} /> ก่อนหน้า
-                </button>
-                <button
-                  disabled={!hasNextPage}
-                  onClick={async () => {
-                    if (!hasNextPage) return;
-                    setDataLoading(true);
-                    const nextPageNum = currentPage + 1;
-                    const nextCursor = pageCursors[currentPage]; // cursor ของหน้าปัจจุบัน = startAfter ของหน้าถัดไป
-                    await fetchEmployeePage(activeModule, nextCursor ?? null, nextPageNum);
-                    setDataLoading(false);
-                  }}
-                  className="flex items-center gap-1 px-3 py-1.5 text-xs font-medium rounded-lg border border-gray-200 bg-white text-gray-600 hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-                >
-                  ถัดไป <ChevronRight size={14} />
-                </button>
-              </div>
             </div>
           )}
         </div>
