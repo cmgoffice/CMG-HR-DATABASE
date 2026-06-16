@@ -339,6 +339,7 @@ import { PendingApprovalPage } from './auth/PendingApprovalPage';
 import { ProtectedRoute } from './auth/ProtectedRoute';
 import { UserManagement } from './components/UserManagement';
 import { AttendancePage } from './components/AttendancePage';
+import { OvertimePage } from './components/OvertimePage';
 import { ManpowerDashboard } from './components/ManpowerDashboard';
 import { ActivityLogPage } from './components/ActivityLogPage';
 import { ColumnMappingModal } from './components/ColumnMappingModal';
@@ -392,9 +393,10 @@ const Sidebar = ({ activeModule, setActiveModule, dbConnected, sidebarOpen, onTo
       icon: Clock,
       sub: [
         { id: "manpower_dashboard", label: "Dashboard" },
-        // Staff ไม่เห็นเมนู "ลงเวลาการมาทำงาน"
+        // Staff ไม่เห็นเมนู "ลงเวลาการมาทำงาน" และ "ลง Overtime"
         ...(hasRole(['MasterAdmin', 'MD', 'GM', 'PD', 'HRM', 'HR', 'Admin Site']) ? [
-          { id: "attendance", label: "ลงเวลาการมาทำงาน" }
+          { id: "attendance", label: "ลงเวลาการมาทำงาน" },
+          { id: "overtime", label: "ลง Overtime" }
         ] : []),
       ],
     },
@@ -2461,14 +2463,16 @@ function MasterDatabaseApp() {
               ? 'จัดการสิทธิ์ผู้ใช้งาน' 
               : activeModule === 'attendance' 
                 ? 'ลงเวลาการมาทำงาน' 
-                : activeModule === 'manpower_dashboard'
-                  ? 'Manpower Dashboard'
-                  : activeModule === 'activity_logs'
-                    ? 'บันทึกกิจกรรมระบบ (Activity Logs)'
-                    : config.label}
+                : activeModule === 'overtime'
+                  ? 'ลง Overtime'
+                  : activeModule === 'manpower_dashboard'
+                    ? 'Manpower Dashboard'
+                    : activeModule === 'activity_logs'
+                      ? 'บันทึกกิจกรรมระบบ (Activity Logs)'
+                      : config.label}
           </h1>
           
-          {activeModule !== 'attendance' && activeModule !== 'manpower_dashboard' && activeModule !== 'activity_logs' && (
+          {activeModule !== 'attendance' && activeModule !== 'overtime' && activeModule !== 'manpower_dashboard' && activeModule !== 'activity_logs' && (
             <>
               <div className="w-px h-5 bg-gray-200 shrink-0" />
 
@@ -2666,6 +2670,10 @@ function MasterDatabaseApp() {
             ) : activeModule === 'attendance' ? (
               <div className="p-6">
                 <AttendancePage projectOptions={projectStatusOptions} />
+              </div>
+            ) : activeModule === 'overtime' ? (
+              <div className="p-6">
+                <OvertimePage projectOptions={projectStatusOptions} />
               </div>
             ) : activeModule === 'users_data' ? (
               <UserManagement projectOptions={projectStatusOptions} />

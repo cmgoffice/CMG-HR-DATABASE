@@ -23,3 +23,13 @@
 .scrollbar-rail-horizontal::-webkit-scrollbar-track {
   background: #e2e8f0;
 }
+
+/* Hide spin buttons in number inputs */
+input[type=number]::-webkit-inner-spin-button,
+input[type=number]::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+input[type=number] {
+  -moz-appearance: textfield;
+}

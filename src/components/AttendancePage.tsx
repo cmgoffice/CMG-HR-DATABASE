@@ -363,7 +363,8 @@ export const AttendancePage = ({ projectOptions }: { projectOptions: string[] })
   const handleAttendanceClick = useCallback(async (
     employeeId: string,
     dateStr: string,
-    isOtherProject: boolean = false
+    isOtherProject: boolean = false,
+    forceStatus?: string
   ) => {
     // ใช้ functional update เพื่อดึง state ล่าสุด
     setAttendanceData((prevData) => {
@@ -392,10 +393,15 @@ export const AttendancePage = ({ projectOptions }: { projectOptions: string[] })
 
       const cur = currentEntry?.status || "";
       let newStatus: string;
-      if (!cur) newStatus = "มา";
-      else if (cur === "มา") newStatus = "ไม่มา";
-      else if (cur === "ไม่มา") newStatus = "ลา";
-      else newStatus = ""; // ลา → ล้างออก
+      if (forceStatus !== undefined) {
+        newStatus = forceStatus;
+        if (cur === forceStatus) return prevData; // No change needed
+      } else {
+        if (!cur) newStatus = "มา";
+        else if (cur === "มา") newStatus = "ไม่มา";
+        else if (cur === "ไม่มา") newStatus = "ลา";
+        else newStatus = ""; // ลา → ล้างออก
+      }
 
       const now = Date.now();
       let newEntry: AttendanceEntry | null = null;
@@ -751,13 +757,48 @@ export const AttendancePage = ({ projectOptions }: { projectOptions: string[] })
     return (
       <td
         key={dateStr}
-        className={`border border-gray-200 text-center transition-colors select-none ${bg} ${textCls} ${canEdit ? "cursor-pointer" : "cursor-not-allowed opacity-60"}`}
+        data-date={dateStr}
+        tabIndex={canEdit ? 0 : undefined}
+        className={`border border-gray-200 text-center transition-colors select-none focus:outline-none focus:ring-2 focus:ring-inset focus:ring-blue-500 ${bg} ${textCls} ${canEdit ? "cursor-pointer" : "cursor-not-allowed opacity-60"}`}
         style={{ minWidth: 40, maxWidth: 40, width: 40, padding: "1px 0", fontSize: 10, height: 24 }}
         onDoubleClick={(e) => {
           e.stopPropagation(); // ป้องกัน event bubble ไปที่ scroll container
           if (canEdit) handleAttendanceClick(employeeId, dateStr, isOtherProject);
         }}
-        title={`${dateStr}: ${displayStatus || "ยังไม่ลงเวลา"}${tooltipExtra}\n${canEdit ? "(ดับเบิ้ลคลิกเพื่อเปลี่ยนสถานะ)" : ""}`}
+        onKeyDown={(e) => {
+          if (!canEdit) return;
+          if (e.key === "1") {
+            e.preventDefault();
+            handleAttendanceClick(employeeId, dateStr, isOtherProject, "มา");
+          } else if (e.key === "2") {
+            e.preventDefault();
+            handleAttendanceClick(employeeId, dateStr, isOtherProject, "ไม่มา");
+          } else if (e.key === "3") {
+            e.preventDefault();
+            handleAttendanceClick(employeeId, dateStr, isOtherProject, "ลา");
+          } else if (e.key === "Enter") {
+            e.preventDefault();
+            const cells = Array.from(document.querySelectorAll(`td[data-date="${dateStr}"]`)) as HTMLElement[];
+            const currentIdx = cells.indexOf(e.currentTarget);
+            if (currentIdx !== -1 && currentIdx < cells.length - 1) {
+              cells[currentIdx + 1].focus();
+            }
+          } else if (e.key === "Delete" || e.key === "Backspace") {
+            e.preventDefault();
+            handleAttendanceClick(employeeId, dateStr, isOtherProject, "");
+          } else if (e.key === "ArrowDown") {
+            e.preventDefault();
+            const cells = Array.from(document.querySelectorAll(`td[data-date="${dateStr}"]`)) as HTMLElement[];
+            const currentIdx = cells.indexOf(e.currentTarget);
+            if (currentIdx !== -1 && currentIdx < cells.length - 1) cells[currentIdx + 1].focus();
+          } else if (e.key === "ArrowUp") {
+            e.preventDefault();
+            const cells = Array.from(document.querySelectorAll(`td[data-date="${dateStr}"]`)) as HTMLElement[];
+            const currentIdx = cells.indexOf(e.currentTarget);
+            if (currentIdx !== -1 && currentIdx > 0) cells[currentIdx - 1].focus();
+          }
+        }}
+        title={`${dateStr}: ${displayStatus || "ยังไม่ลงเวลา"}${tooltipExtra}\n${canEdit ? "(ดับเบิ้ลคลิกเพื่อเปลี่ยนสถานะ, หรือกด 1=มา, 2=ไม่มา, 3=ลา)" : ""}`}
       >
         {text}
       </td>
@@ -986,7 +1027,7 @@ export const AttendancePage = ({ projectOptions }: { projectOptions: string[] })
                   {groupEmps.map((emp, idx) => (
                     <tr
                       key={emp.id}
-                      className="hover:bg-blue-50 transition-colors"
+                      className="hover:bg-blue-50 transition-colors group"
                       style={{ height: 24 }}
                     >
                       {visibleColumns.map((col) => {
@@ -1007,10 +1048,12 @@ export const AttendancePage = ({ projectOptions }: { projectOptions: string[] })
                           content = projects.map(formatProjectNo).join(", ");
                         }
 
+                        const isHighlightCol = col.id === "รหัสพนักงาน" || col.id === "name" || col.id === "ตำแหน่ง";
+
                         return (
                           <td
                             key={col.id}
-                            className="border border-gray-200 px-1 py-0 sticky bg-white z-10 overflow-hidden whitespace-nowrap text-ellipsis"
+                            className={`border border-gray-200 px-1 py-0 sticky z-10 overflow-hidden whitespace-nowrap text-ellipsis transition-colors ${isHighlightCol ? "bg-white group-focus-within:bg-yellow-200" : "bg-white"}`}
                             style={{ width: col.widthPx, minWidth: col.widthPx, left: col.computedLeft }}
                           >
                             {content}
