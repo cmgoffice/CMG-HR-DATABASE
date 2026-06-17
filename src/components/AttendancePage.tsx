@@ -104,6 +104,7 @@ export const AttendancePage = ({ projectOptions }: { projectOptions: string[] })
   const [isColumnMenuOpen, setIsColumnMenuOpen] = useState(false);
   const [draggedIdx, setDraggedIdx] = useState<number | null>(null);
   const [columns, setColumns] = useState<ColumnConfig[]>(DEFAULT_COLUMNS);
+  const [dayOffs, setDayOffs] = useState<Record<string, string>>({});
 
   // ── Sort state ────────────────────────────────────────────────────────────
   type SortKey = 'รหัสพนักงาน' | 'name' | 'ตำแหน่ง' | 'ชื่อชุด';
@@ -260,6 +261,19 @@ export const AttendancePage = ({ projectOptions }: { projectOptions: string[] })
       unsubscribes.forEach((unsub) => unsub());
     };
   }, [currentMonth, employees, db]);
+
+  // ── โหลดข้อมูลวันหยุด (Realtime) ────────────────────────────────
+  useEffect(() => {
+    const dayOffsRef = collection(db, "CMG-HR-Database", "root", "day_offs");
+    const unsubscribe = onSnapshot(dayOffsRef, (snapshot) => {
+      const data: Record<string, string> = {};
+      snapshot.docs.forEach(doc => {
+        data[doc.id] = doc.data().name;
+      });
+      setDayOffs(data);
+    });
+    return () => unsubscribe();
+  }, [db]);
 
   // ── กรองพนักงานตามโครงการ ─────────────────────────────────────────────────
   const filteredEmployees = useMemo(() => {
@@ -660,6 +674,7 @@ export const AttendancePage = ({ projectOptions }: { projectOptions: string[] })
     const entry = attendanceData[dateStr]?.[employeeId];
     const displayStatus = getDisplayStatus(entry);
     const locked = isLocked(entry);
+    const dayOffName = dayOffs[dateStr];
 
     // ตรวจสอบว่าเป็นวันในอนาคตหรือไม่
     const today = new Date();
@@ -684,7 +699,7 @@ export const AttendancePage = ({ projectOptions }: { projectOptions: string[] })
     // สามารถแก้ไขได้ถ้า: ไม่ใช่วันในอนาคต และ ไม่ล็อค และ มีสิทธิ์แก้ไข และ ไม่ได้ลงเวลาที่โครงการอื่น
     const canEdit = !isFuture && !locked && canEditAttendance && !isOtherProject;
 
-    let bg = isWeekend ? "bg-gray-100" : "bg-white hover:bg-gray-50";
+    let bg = dayOffName ? "bg-fuchsia-50 hover:bg-fuchsia-100" : (isWeekend ? "bg-gray-100" : "bg-white hover:bg-gray-50");
     let text = "";
     let textCls = "text-gray-300";
 
@@ -746,8 +761,12 @@ export const AttendancePage = ({ projectOptions }: { projectOptions: string[] })
       const hrs = Math.floor(remaining / 3_600_000);
       const mins = Math.floor((remaining % 3_600_000) / 60_000);
       tooltipExtra = ` (แก้ไขได้อีก ${hrs}ชม. ${mins}น.)`;
-    } else if (locked) {
+    } else if (entry?.status && locked) {
       tooltipExtra = " 🔒 ล็อคแล้ว";
+    }
+
+    if (dayOffName) {
+      tooltipExtra = ` 🌴 ${dayOffName}` + tooltipExtra;
     }
 
     if (isToday) {
@@ -798,7 +817,7 @@ export const AttendancePage = ({ projectOptions }: { projectOptions: string[] })
             if (currentIdx !== -1 && currentIdx > 0) cells[currentIdx - 1].focus();
           }
         }}
-        title={`${dateStr}: ${displayStatus || "ยังไม่ลงเวลา"}${tooltipExtra}\n${canEdit ? "(ดับเบิ้ลคลิกเพื่อเปลี่ยนสถานะ, หรือกด 1=มา, 2=ไม่มา, 3=ลา)" : ""}`}
+        title={`${dateStr}${tooltipExtra}`}
       >
         {text}
       </td>
@@ -962,11 +981,12 @@ export const AttendancePage = ({ projectOptions }: { projectOptions: string[] })
               onMouseUp={onMouseUp}
               onMouseLeave={onMouseLeave}
             >
-              <table
-                className="border-collapse"
-                style={{ fontSize: 11, lineHeight: "1.1", tableLayout: "fixed",
-                  width: `${visibleColumns.reduce((s, c) => s + c.widthPx, 0) + (hasSetColumn ? 100 : 0) + daysInMonth.length * 40}px` }}
-              >
+              <div className="min-w-max relative">
+                <table
+                  className="border-collapse"
+                  style={{ fontSize: 11, lineHeight: "1.1", tableLayout: "fixed",
+                    width: `${visibleColumns.reduce((s, c) => s + c.widthPx, 0) + (hasSetColumn ? 100 : 0) + daysInMonth.length * 40}px` }}
+                >
                 <thead>
                   <tr style={{ height: 26 }}>
                     {visibleColumns.map((col) => {
@@ -1078,6 +1098,26 @@ export const AttendancePage = ({ projectOptions }: { projectOptions: string[] })
                   ))}
                 </tbody>
               </table>
+
+                {/* Watermarks overlay */}
+                <div 
+                  className="absolute top-[26px] bottom-0 pointer-events-none flex z-10"
+                  style={{ left: visibleColumns.reduce((sum, c) => sum + c.widthPx, 0) + (hasSetColumn ? 100 : 0) }}
+                >
+                  {daysInMonth.map(({ day, dateStr }) => (
+                    <div key={day} className="w-[40px] shrink-0 h-full flex items-center justify-center overflow-hidden">
+                      {dayOffs[dateStr] && (
+                        <span 
+                          className="text-fuchsia-400 opacity-40 font-bold whitespace-nowrap tracking-[0.2em] text-[20px]" 
+                          style={{ writingMode: 'vertical-rl', transform: 'rotate(180deg)' }}
+                        >
+                          {dayOffs[dateStr]}
+                        </span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
             </div>
           </div>
           );

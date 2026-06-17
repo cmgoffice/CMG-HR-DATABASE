@@ -341,6 +341,7 @@ import { UserManagement } from './components/UserManagement';
 import { AttendancePage } from './components/AttendancePage';
 import { OvertimePage } from './components/OvertimePage';
 import { ManpowerDashboard } from './components/ManpowerDashboard';
+import { DayOffPage } from './components/DayOffPage';
 import { ActivityLogPage } from './components/ActivityLogPage';
 import { ColumnMappingModal } from './components/ColumnMappingModal';
 import { ImportPreviewModal } from './components/ImportPreviewModal';
@@ -396,7 +397,10 @@ const Sidebar = ({ activeModule, setActiveModule, dbConnected, sidebarOpen, onTo
         // Staff ไม่เห็นเมนู "ลงเวลาการมาทำงาน" และ "ลง Overtime"
         ...(hasRole(['MasterAdmin', 'MD', 'GM', 'PD', 'HRM', 'HR', 'Admin Site']) ? [
           { id: "attendance", label: "ลงเวลาการมาทำงาน" },
-          { id: "overtime", label: "ลง Overtime" }
+          { id: "overtime", label: "ลง Overtime" },
+        ] : []),
+        ...(hasRole(['MasterAdmin', 'MD', 'GM', 'PD', 'HRM', 'HR']) ? [
+          { id: "day_off", label: "วันหยุด (Day Off)" }
         ] : []),
       ],
     },
@@ -2675,6 +2679,8 @@ function MasterDatabaseApp() {
               <div className="p-6">
                 <OvertimePage projectOptions={projectStatusOptions} />
               </div>
+            ) : activeModule === 'day_off' ? (
+              <DayOffPage />
             ) : activeModule === 'users_data' ? (
               <UserManagement projectOptions={projectStatusOptions} />
             ) : activeModule === 'activity_logs' ? (
