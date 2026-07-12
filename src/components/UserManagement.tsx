@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { getFirestore, collection, query, getDocs, doc, updateDoc, onSnapshot, addDoc } from 'firebase/firestore';
 import { useAuth, UserRole, ALL_ROLES, UserProfile } from '../auth/AuthContext';
 import { Loader2, Check, X, Edit, Shield, Mail, CheckCircle, AlertCircle } from 'lucide-react';
+import { InfoTooltip } from './InfoTooltip';
 
 export const UserManagement = ({ 
   projectOptions 
@@ -121,6 +122,7 @@ export const UserManagement = ({
     <div className="p-6 h-full overflow-y-auto">
       <h2 className="text-2xl font-bold text-gray-800 mb-6 flex items-center gap-2">
         <Shield className="text-blue-600" /> จัดการสิทธิ์ผู้ใช้งาน
+        <InfoTooltip content="หน้านี้ใช้อนุมัติผู้ใช้ กำหนด role และกำหนดโครงการที่รับผิดชอบ โดยไม่มีสูตรคำนวณเชิงตัวเลข แต่ค่าที่เห็นมาจากข้อมูลผู้ใช้ล่าสุดใน Firestore" />
       </h2>
 
       {loading ? (

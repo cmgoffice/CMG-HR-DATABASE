@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { getFirestore, collection, doc, setDoc, deleteDoc, onSnapshot, query, orderBy } from 'firebase/firestore';
 import { useAuth } from '../auth/AuthContext';
 import { Calendar, Plus, Trash2, Edit, Loader2, Save, X } from 'lucide-react';
+import { InfoTooltip } from './InfoTooltip';
 
 interface DayOff {
   id: string;      // YYYY-MM-DD
@@ -99,6 +100,7 @@ export const DayOffPage = () => {
         <div>
           <h2 className="text-2xl font-bold text-gray-800 flex items-center gap-2">
             <Calendar className="text-fuchsia-500" /> จัดการวันหยุดบริษัท (Day Off)
+            <InfoTooltip content="วันหยุดที่กำหนดในหน้านี้จะถูกอ้างอิงโดยหน้าลงเวลาและหน้า OT เพื่อไม่ให้นับวันดังกล่าวเป็นวันทำงานปกติ" />
           </h2>
           <p className="text-sm text-gray-600">
             ตั้งค่าวัดหยุดเพื่อให้แสดงผลในหน้าลงเวลาและหน้าลงโอที

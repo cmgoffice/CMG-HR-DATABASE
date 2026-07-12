@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { getFirestore, collection, query, orderBy, onSnapshot, limit } from 'firebase/firestore';
 import { useAuth } from '../auth/AuthContext';
 import { Activity, Loader2, Filter, Calendar, User, FileText, Search } from 'lucide-react';
+import { InfoTooltip } from './InfoTooltip';
 
 interface LogRecord {
   id: string;
@@ -107,6 +108,7 @@ export const ActivityLogPage = () => {
       <div className="mb-6">
         <h2 className="text-2xl font-bold text-gray-800 mb-2 flex items-center gap-2">
           <Activity className="text-orange-500" /> บันทึกกิจกรรมระบบ (Activity Logs)
+          <InfoTooltip content="แสดงข้อมูลจาก activity_logs โดยเรียงตาม createdAt ล่าสุด และจำกัด 500 รายการล่าสุด สถิติด้านล่างคำนวณจากรายการที่ผ่านตัวกรองปัจจุบัน" />
         </h2>
         <p className="text-sm text-gray-600">
           ติดตามการเปลี่ยนแปลงข้อมูลทั้งหมดในระบบ - แสดง {filteredLogs.length} จาก {logs.length} รายการ

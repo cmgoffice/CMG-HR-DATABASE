@@ -17,6 +17,26 @@ interface DataRecord {
   [key: string]: unknown;
 }
 
+type ProjectRolePlanBaselineRow = {
+  id: string;
+  position: string;
+  required: number;
+};
+
+type ProjectRolePlanAdjustmentRow = {
+  id: string;
+  position: string;
+  delta: number;
+};
+
+type ProjectRolePlanAdjustment = {
+  id: string;
+  start_date: string;
+  end_date: string;
+  note: string;
+  rows: ProjectRolePlanAdjustmentRow[];
+};
+
 interface LogRecord {
   id: string;
   timestamp: string;
@@ -59,6 +79,89 @@ const formatProjectNo = (projectNo: string): string => {
   return cleanProjectNo;
 };
 
+const createLocalId = (): string => `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
+const parseLegacyRolePlanText = (value: unknown): ProjectRolePlanBaselineRow[] => {
+  if (!value) return [];
+  return String(value)
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const match = line.match(/^(.+?)\s*[:=]\s*(\d+(?:\.\d+)?)$/);
+      if (!match) return null;
+      const position = match[1].trim();
+      const required = Number(match[2]);
+      if (!position || !Number.isFinite(required) || required <= 0) return null;
+      return { id: createLocalId(), position, required: Math.round(required) };
+    })
+    .filter((row): row is ProjectRolePlanBaselineRow => row !== null);
+};
+
+const normalizeProjectRolePlanBaseline = (value: unknown, legacyValue?: unknown): ProjectRolePlanBaselineRow[] => {
+  if (Array.isArray(value)) {
+    const normalized = value
+      .map((row) => {
+        if (!row || typeof row !== "object") return null;
+        const source = row as Record<string, unknown>;
+        const position = String(source.position || "").trim();
+        const required = Number(source.required);
+        return {
+          id: String(source.id || createLocalId()),
+          position,
+          required: Number.isFinite(required) ? Math.round(required) : 0,
+        };
+      })
+      .filter((row): row is ProjectRolePlanBaselineRow => row !== null);
+    return normalized.length > 0 ? normalized : parseLegacyRolePlanText(legacyValue);
+  }
+  return parseLegacyRolePlanText(legacyValue);
+};
+
+const normalizeProjectRolePlanAdjustments = (value: unknown): ProjectRolePlanAdjustment[] => {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((item): ProjectRolePlanAdjustment | null => {
+      if (!item || typeof item !== "object") return null;
+      const source = item as Record<string, unknown>;
+      const rows = Array.isArray(source.rows)
+        ? source.rows
+            .map((row) => {
+              if (!row || typeof row !== "object") return null;
+              const rowSource = row as Record<string, unknown>;
+              const position = String(rowSource.position || "").trim();
+              const delta = Number(rowSource.delta);
+              return {
+                id: String(rowSource.id || createLocalId()),
+                position,
+                delta: Number.isFinite(delta) ? Math.round(delta) : 0,
+              };
+            })
+            .filter((row): row is ProjectRolePlanAdjustmentRow => row !== null)
+        : [];
+
+      return {
+        id: String(source.id || createLocalId()),
+        start_date: String(source.start_date || ""),
+        end_date: String(source.end_date || ""),
+        note: String(source.note || ""),
+        rows,
+      };
+    })
+    .filter((item): item is ProjectRolePlanAdjustment => item !== null);
+};
+
+const sanitizeProjectRolePlanBaseline = (value: unknown, legacyValue?: unknown): ProjectRolePlanBaselineRow[] =>
+  normalizeProjectRolePlanBaseline(value, legacyValue).filter((row) => row.position && row.required > 0);
+
+const sanitizeProjectRolePlanAdjustments = (value: unknown): ProjectRolePlanAdjustment[] =>
+  normalizeProjectRolePlanAdjustments(value)
+    .map((item) => ({
+      ...item,
+      rows: item.rows.filter((row) => row.position && row.delta !== 0),
+    }))
+    .filter((item) => item.start_date && item.end_date && item.rows.length > 0);
+
 import {
   LayoutDashboard,
   Users,
@@ -98,11 +201,13 @@ import {
   PanelLeft,
   PanelLeftClose,
   Clock,
+  Calendar,
   ArrowUpDown,
   ArrowUp,
   ArrowDown,
   RefreshCw,
 } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 
 // --- FIREBASE IMPORTS ---
 import { initializeApp } from "firebase/app";
@@ -150,21 +255,21 @@ const MODULE_CONFIG = {
   emp_indirect: {
     collection: "CMG-HR-Database",
     subcollection: "employee_data",
-    label: "Employee Indirect",
+    label: "Staff Monthly",
     filterField: "employee_type",
     filterValue: ["Indirect"],
   },
   emp_direct_leader: {
     collection: "CMG-HR-Database",
     subcollection: "employee_data",
-    label: "Direct - Team Leader",
+    label: "DC Daily",
     filterField: "employee_type",
     filterValue: ["Direct_TeamLeader", "Direct: Team Leader", "Direct - Team Leader"],
   },
   emp_direct_supply: {
     collection: "CMG-HR-Database",
     subcollection: "employee_data",
-    label: "Direct - Supply DC",
+    label: "Supply manpower",
     filterField: "employee_type",
     filterValue: ["Direct_SupplyDC", "Direct: Supply DC", "Direct - Supply DC"],
     schemaSource: "emp_direct_leader", // ใช้ schema เดียวกับ Team Leader
@@ -172,7 +277,7 @@ const MODULE_CONFIG = {
   emp_direct_sub: {
     collection: "CMG-HR-Database",
     subcollection: "employee_data",
-    label: "Direct - Sub Contractor",
+    label: "Sub contractor",
     filterField: "employee_type",
     filterValue: ["Direct_SubContractor", "Direct: Sub Contractor", "Direct - Sub Contractor"],
     schemaSource: "emp_direct_leader", // ใช้ schema เดียวกับ Team Leader
@@ -268,6 +373,14 @@ const DEFAULT_SCHEMAS = {
     },
     { id: "ชื่อตัว", label: "ชื่อตัว", type: "text", required: true },
     { id: "ชื่อสกุล", label: "ชื่อสกุล", type: "text", required: true },
+    {
+      id: "gender",
+      label: "เพศ",
+      type: "select",
+      options: ["ชาย", "หญิง", "ไม่ระบุ"],
+    },
+    { id: "date_of_birth", label: "วันเกิด", type: "date" },
+    { id: "start_date", label: "วันที่เริ่มงาน", type: "date" },
     { id: "ตำแหน่ง", label: "ตำแหน่ง", type: "select", options: [] },
     { id: "แผนก", label: "แผนก", type: "text" },
     {
@@ -288,6 +401,7 @@ const DEFAULT_SCHEMAS = {
       type: "select",
       options: ["ทำงาน", "พักงาน", "ลาคลอด", "ลาออก", "เลิกจ้าง"],
     },
+    { id: "employment_status_reason", label: "เหตุผลสถานะพนักงาน", type: "text" },
     {
       id: "สถานะกลุ่มงาน",
       label: "สถานะกลุ่มงาน",
@@ -308,6 +422,8 @@ const DEFAULT_SCHEMAS = {
   projects: [
     { id: "project_no", label: "Project No.", type: "text", required: true },
     { id: "project_name", label: "ชื่อโครงการ", type: "text", required: true },
+    { id: "required_manpower", label: "กำลังคนตามแผน (Required Manpower)", type: "number" },
+    { id: "required_role_plan", label: "แผนกำลังคนรายตำแหน่ง (required_role_plan)", type: "textarea" },
     { id: "start_date", label: "วันที่เริ่มสัญญา", type: "date" },
     { id: "end_date", label: "วันที่สิ้นสุดสัญญา", type: "date" },
     { id: "project_manager", label: "Project Manager", type: "text" },
@@ -343,8 +459,46 @@ import { OvertimePage } from './components/OvertimePage';
 import { ManpowerDashboard } from './components/ManpowerDashboard';
 import { DayOffPage } from './components/DayOffPage';
 import { ActivityLogPage } from './components/ActivityLogPage';
+import { RiskMonitoringPage } from './components/RiskMonitoringPage';
+import { InfoTooltip } from './components/InfoTooltip';
 import { ColumnMappingModal } from './components/ColumnMappingModal';
 import { ImportPreviewModal } from './components/ImportPreviewModal';
+
+type SidebarSubItem = {
+  id: string;
+  label: string;
+};
+
+type SidebarLinkItem = {
+  id: string;
+  label: string;
+  icon?: LucideIcon;
+  badge?: number;
+  sub?: undefined;
+  isDivider?: false;
+};
+
+type SidebarGroupItem = {
+  id: string;
+  label: string;
+  icon?: LucideIcon;
+  sub: SidebarSubItem[];
+  badge?: number;
+  isDivider?: false;
+};
+
+type SidebarDividerItem = {
+  id: string;
+  isDivider: true;
+  label?: undefined;
+  icon?: undefined;
+  badge?: undefined;
+  sub?: undefined;
+};
+
+type SidebarMenuItem = SidebarLinkItem | SidebarGroupItem | SidebarDividerItem;
+
+const hasSubMenu = (item: SidebarMenuItem): item is SidebarGroupItem => Array.isArray(item.sub);
 
 const Sidebar = ({ activeModule, setActiveModule, dbConnected, sidebarOpen, onToggleSidebar }: {
   activeModule: string; setActiveModule: (id: string) => void; dbConnected: boolean;
@@ -365,62 +519,189 @@ const Sidebar = ({ activeModule, setActiveModule, dbConnected, sidebarOpen, onTo
     }
   }, [hasRole, db]);
 
-  const menuItems = [
-    // โครงการ - ทุก Role เห็น ยกเว้น Staff และ Admin Site ที่เห็นเฉพาะ Manpower
-    ...(hasRole(['MasterAdmin', 'MD', 'GM', 'PD', 'HRM', 'HR']) ? [
-      { id: "projects", label: "โครงการ", icon: Briefcase },
-      { isDivider: true, id: "div1" },
-    ] : []),
-    // พนักงาน - ทุก Role เห็น ยกเว้น Staff และ Admin Site
-    ...(hasRole(['MasterAdmin', 'MD', 'GM', 'PD', 'HRM', 'HR']) ? [
-      {
-        id: "employees",
-        label: "พนักงาน (Employees)",
-        icon: Users,
-        sub: [
-          { id: "emp_indirect", label: "Employee Indirect" },
-          { id: "emp_direct_leader", label: "Direct: Team Leader" },
-          { id: "emp_direct_supply", label: "Direct: Supply DC" },
-          { id: "emp_direct_sub", label: "Direct: Sub Contractor" },
-          { id: "position_labor", label: "Position Labor" },
-        ],
-      },
-      { isDivider: true, id: "div2" },
-    ] : []),
-    // Manpower - ทุก Role เห็น
+  const managementItems: SidebarMenuItem[] = hasRole(['MasterAdmin', 'MD', 'GM', 'PD', 'HRM', 'HR']) ? [
+    { id: "projects", label: "โครงการ", icon: Briefcase },
     {
-      id: "manpower",
-      label: "Manpower",
-      icon: Clock,
+      id: "employees",
+      label: "พนักงาน (Employees)",
+      icon: Users,
       sub: [
-        { id: "manpower_dashboard", label: "Dashboard" },
-        // Staff ไม่เห็นเมนู "ลงเวลาการมาทำงาน" และ "ลง Overtime"
-        ...(hasRole(['MasterAdmin', 'MD', 'GM', 'PD', 'HRM', 'HR', 'Admin Site']) ? [
-          { id: "attendance", label: "ลงเวลาการมาทำงาน" },
-          { id: "overtime", label: "ลง Overtime" },
-        ] : []),
-        ...(hasRole(['MasterAdmin', 'MD', 'GM', 'PD', 'HRM', 'HR']) ? [
-          { id: "day_off", label: "วันหยุด (Day Off)" }
-        ] : []),
+        { id: "emp_indirect", label: "Staff Monthly" },
+        { id: "emp_direct_leader", label: "DC Daily" },
+        { id: "emp_direct_supply", label: "Supply manpower" },
+        { id: "emp_direct_sub", label: "Sub contractor" },
+        { id: "position_labor", label: "Position Labor" },
       ],
     },
-    { isDivider: true, id: "div3" },
-    // จัดการผู้ใช้ - เฉพาะ MasterAdmin
-    ...(hasRole(['MasterAdmin']) ? [{ id: "users_data", label: "จัดการผู้ใช้ (Admin)", icon: UserCog, badge: pendingCount > 0 ? pendingCount : undefined }] : []),
-    // Activity Logs - เฉพาะ MasterAdmin, MD, GM, HRM
-    ...(hasRole(['MasterAdmin', 'MD', 'GM', 'HRM']) ? [
-      { isDivider: true, id: "div4" },
-      { id: "activity_logs", label: "Activity Logs", icon: Activity }
-    ] : []),
+    ...(hasRole(['MasterAdmin'])
+      ? [{ id: "users_data", label: "จัดการผู้ใช้ (Admin)", icon: UserCog, badge: pendingCount > 0 ? pendingCount : undefined } as SidebarLinkItem]
+      : []),
+  ] : [];
+
+  const dashboardItem: SidebarLinkItem = {
+    id: "manpower_dashboard",
+    label: "Dashboard",
+    icon: LayoutDashboard,
+  };
+
+  const manpowerItems: SidebarMenuItem[] = [
+    ...(hasRole(['MasterAdmin', 'MD', 'GM', 'PD', 'HRM', 'HR', 'Admin Site'])
+      ? [
+          { id: "attendance", label: "ลงเวลาการมาทำงาน", icon: Clock } as SidebarLinkItem,
+          { id: "overtime", label: "ลง Overtime", icon: Clock } as SidebarLinkItem,
+        ]
+      : []),
+    ...(hasRole(['MasterAdmin', 'MD', 'GM', 'PD', 'HRM', 'HR'])
+      ? [{ id: "day_off", label: "วันหยุด (Day Off)", icon: Calendar } as SidebarLinkItem]
+      : []),
   ];
+
+  const reportingItems: SidebarMenuItem[] = hasRole(['MasterAdmin', 'MD', 'GM', 'HRM'])
+    ? [
+        { id: "risk_monitoring", label: "Risk Monitoring", icon: AlertCircle },
+        { id: "activity_logs", label: "Activity Logs", icon: Activity },
+      ]
+    : [];
+
+  const menuItems: SidebarMenuItem[] = [
+    dashboardItem,
+    ...managementItems,
+    ...manpowerItems,
+    ...reportingItems,
+  ];
+
+  const renderMenuItem = (item: SidebarMenuItem) => (
+    <div key={item.id}>
+      {item.isDivider ? (
+        <div className="border-t border-slate-800 my-2 mx-2" />
+      ) : !hasSubMenu(item) ? (
+        <button
+          onClick={() => setActiveModule(item.id)}
+          className={`w-full flex items-center rounded-lg transition-colors ${
+            sidebarOpen ? "gap-3 px-4 py-3" : "justify-center p-3"
+          } ${
+            activeModule === item.id ? "bg-blue-600 text-white shadow-md" : "text-slate-300 hover:bg-slate-800"
+          }`}
+          title={!sidebarOpen ? item.label : undefined}
+        >
+          {item.icon && <item.icon size={20} className="shrink-0" />}
+          {sidebarOpen && <span className="text-sm font-medium truncate">{item.label}</span>}
+          {sidebarOpen && item.badge && <span className="ml-auto bg-red-500 text-white text-xs font-bold px-2 py-0.5 rounded-full">{item.badge}</span>}
+          {!sidebarOpen && item.badge && <span className="absolute top-1 right-1 w-3 h-3 bg-red-500 rounded-full border-2 border-slate-900"></span>}
+        </button>
+      ) : (
+        <div className="space-y-1">
+          <button
+            onClick={() => sidebarOpen ? toggleMenu(item.id) : onToggleSidebar()}
+            className={`w-full flex items-center rounded-lg transition-colors hover:bg-slate-800 ${
+              sidebarOpen ? "justify-between px-4 py-3" : "justify-center p-3"
+            } ${
+              expandedMenus[item.id] ? "text-white bg-slate-800/50" : "text-slate-400"
+            }`}
+            title={!sidebarOpen ? item.label : undefined}
+          >
+            <div className={`flex items-center ${sidebarOpen ? "gap-3" : ""}`}>
+              {item.icon && <item.icon size={20} className="shrink-0" />}
+              {sidebarOpen && <span className="text-sm font-semibold truncate">{item.label}</span>}
+            </div>
+            {sidebarOpen && (expandedMenus[item.id] ? <ChevronDown size={16} /> : <ChevronRight size={16} />)}
+          </button>
+
+          {sidebarOpen && expandedMenus[item.id] && (
+            <div className="pl-12 space-y-1 border-l-2 border-slate-800 ml-6 animate-fade-in-down">
+              {item.sub.map((subItem: SidebarSubItem) => (
+                <button
+                  key={subItem.id}
+                  onClick={() => setActiveModule(subItem.id)}
+                  className={`w-full text-left px-3 py-2 text-sm rounded-md transition-colors ${
+                    activeModule === subItem.id ? "text-blue-400 font-medium bg-slate-800" : "text-slate-500 hover:text-slate-300"
+                  }`}
+                >
+                  {subItem.label}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+
+  const renderSection = (sectionKey: string, title: string, icon: LucideIcon, items: SidebarMenuItem[]) => {
+    if (items.length === 0) return null;
+
+    const SectionIcon = icon;
+
+    return (
+      <div className="mb-2" key={sectionKey}>
+        <button
+          onClick={() => sidebarOpen ? toggleMenu(sectionKey) : onToggleSidebar()}
+          className={`w-full flex items-center rounded-lg transition-colors hover:bg-slate-800 ${
+            sidebarOpen ? "justify-between px-4 py-3" : "justify-center p-3"
+          } ${
+            expandedMenus[sectionKey] ? "text-white bg-slate-800/50" : "text-slate-300"
+          }`}
+          title={!sidebarOpen ? title : undefined}
+        >
+          <div className={`flex items-center ${sidebarOpen ? "gap-3" : ""}`}>
+            <SectionIcon size={20} className="shrink-0" />
+            {sidebarOpen && <span className="text-sm font-semibold truncate">{title}</span>}
+          </div>
+          {sidebarOpen && (expandedMenus[sectionKey] ? <ChevronDown size={16} /> : <ChevronRight size={16} />)}
+        </button>
+
+        {sidebarOpen && expandedMenus[sectionKey] && (
+          <div className="mt-1 pl-4 space-y-1 border-l-2 border-slate-800 ml-6 animate-fade-in-down">
+            {items.map((item) => renderMenuItem(item))}
+          </div>
+        )}
+      </div>
+    );
+  };
 
   useEffect(() => {
     const parentMenu = menuItems.find(
       (item) =>
-        item.sub && item.sub.some((subItem) => subItem.id === activeModule)
+        hasSubMenu(item) && item.sub.some((subItem) => subItem.id === activeModule)
     );
     if (parentMenu) {
       setExpandedMenus((prev) => ({ ...prev, [parentMenu.id]: true }));
+    }
+
+    const activeInManagement = managementItems.some((item) => {
+      if (item.isDivider) return false;
+      if (hasSubMenu(item)) {
+        return item.id === activeModule || item.sub.some((subItem) => subItem.id === activeModule);
+      }
+      return item.id === activeModule;
+    });
+
+    if (activeInManagement) {
+      setExpandedMenus((prev) => ({ ...prev, management_section: true }));
+    }
+
+    const activeInManpower = manpowerItems.some((item) => {
+      if (item.isDivider) return false;
+      if (hasSubMenu(item)) {
+        return item.id === activeModule || item.sub.some((subItem) => subItem.id === activeModule);
+      }
+      return item.id === activeModule;
+    });
+
+    if (activeInManpower) {
+      setExpandedMenus((prev) => ({ ...prev, manpower_section: true }));
+    }
+
+    const activeInReporting = reportingItems.some((item) => {
+      if (item.isDivider) return false;
+      if (hasSubMenu(item)) {
+        return item.id === activeModule || item.sub.some((subItem) => subItem.id === activeModule);
+      }
+      return item.id === activeModule;
+    });
+
+    if (activeInReporting) {
+      setExpandedMenus((prev) => ({ ...prev, reporting_section: true }));
     }
   }, [activeModule]);
 
@@ -476,62 +757,12 @@ const Sidebar = ({ activeModule, setActiveModule, dbConnected, sidebarOpen, onTo
       </div>
 
       <nav className="flex-1 p-2 space-y-1 min-w-0">
-        {menuItems.map((item) => (
-          <div key={item.id}>
-            {item.isDivider ? (
-              <div className="border-t border-slate-800 my-2 mx-2" />
-            ) : !item.sub ? (
-              <button
-                onClick={() => setActiveModule(item.id)}
-                className={`w-full flex items-center rounded-lg transition-colors ${
-                  sidebarOpen ? "gap-3 px-4 py-3" : "justify-center p-3"
-                } ${
-                  activeModule === item.id ? "bg-blue-600 text-white shadow-md" : "text-slate-300 hover:bg-slate-800"
-                }`}
-                title={!sidebarOpen ? item.label : undefined}
-              >
-                {item.icon && <item.icon size={20} className="shrink-0" />}
-                {sidebarOpen && <span className="text-sm font-medium truncate">{item.label}</span>}
-                {sidebarOpen && item.badge && <span className="ml-auto bg-red-500 text-white text-xs font-bold px-2 py-0.5 rounded-full">{item.badge}</span>}
-                {!sidebarOpen && item.badge && <span className="absolute top-1 right-1 w-3 h-3 bg-red-500 rounded-full border-2 border-slate-900"></span>}
-              </button>
-            ) : (
-              <div className="space-y-1">
-                <button
-                  onClick={() => sidebarOpen ? toggleMenu(item.id) : onToggleSidebar()}
-                  className={`w-full flex items-center rounded-lg transition-colors hover:bg-slate-800 ${
-                    sidebarOpen ? "justify-between px-4 py-3" : "justify-center p-3"
-                  } ${
-                    expandedMenus[item.id] ? "text-white bg-slate-800/50" : "text-slate-400"
-                  }`}
-                  title={!sidebarOpen ? item.label : undefined}
-                >
-                  <div className={`flex items-center ${sidebarOpen ? "gap-3" : ""}`}>
-                    {item.icon && <item.icon size={20} className="shrink-0" />}
-                    {sidebarOpen && <span className="text-sm font-semibold truncate">{item.label}</span>}
-                  </div>
-                  {sidebarOpen && (expandedMenus[item.id] ? <ChevronDown size={16} /> : <ChevronRight size={16} />)}
-                </button>
+        {renderMenuItem(dashboardItem)}
+        <div className="border-t border-slate-800 my-2 mx-2" />
 
-                {sidebarOpen && expandedMenus[item.id] && (
-                  <div className="pl-12 space-y-1 border-l-2 border-slate-800 ml-6 animate-fade-in-down">
-                    {item.sub.map((subItem) => (
-                      <button
-                        key={subItem.id}
-                        onClick={() => setActiveModule(subItem.id)}
-                        className={`w-full text-left px-3 py-2 text-sm rounded-md transition-colors ${
-                          activeModule === subItem.id ? "text-blue-400 font-medium bg-slate-800" : "text-slate-500 hover:text-slate-300"
-                        }`}
-                      >
-                        {subItem.label}
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-        ))}
+        {renderSection("management_section", "การจัดการ", Settings, managementItems)}
+        {renderSection("manpower_section", "Manpower", Clock, manpowerItems)}
+        {renderSection("reporting_section", "รายงาน", Activity, reportingItems)}
       </nav>
 
       <div className={`border-t border-slate-800 shrink-0 ${sidebarOpen ? "p-4" : "p-2 flex justify-center"}`}>
@@ -571,6 +802,16 @@ const DynamicInput = ({ field, value, onChange, disabled }: { field: SchemaField
   }`;
 
   switch (field.type) {
+    case "textarea":
+      return (
+        <textarea
+          className={`${baseClass} min-h-[120px] resize-y`}
+          value={value as string}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder={`ระบุ ${field.label}`}
+          disabled={disabled}
+        />
+      );
     case "number":
       return (
         <input
@@ -797,11 +1038,17 @@ function MasterDatabaseApp() {
   const [currentData, setCurrentData] = useState<DataRecord[]>([]);
   const [logs, setLogs] = useState<LogRecord[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
+  const [dcDailyGroupFilter, setDcDailyGroupFilter] = useState<"all" | "staff" | "worker">("all");
+  const [employeeProjectFilter, setEmployeeProjectFilter] = useState("all");
+  const [employeeStatusFilter, setEmployeeStatusFilter] = useState("all");
+  const [employeeWorkGroupFilter, setEmployeeWorkGroupFilter] = useState("all");
+  const [employeePositionFilter, setEmployeePositionFilter] = useState("all");
   const [sortConfig, setSortConfig] = useState<SortConfig>(DEFAULT_SORT_CONFIG);
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [isSchemaModalOpen, setIsSchemaModalOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<DataRecord | null>(null);
   const [formData, setFormData] = useState<Record<string, unknown>>({});
+  const [projectFormTab, setProjectFormTab] = useState<"general" | "plan">("general");
   const [newColumn, setNewColumn] = useState({
     label: "",
     type: "text",
@@ -818,6 +1065,20 @@ function MasterDatabaseApp() {
       if (f.id === "ตำแหน่ง") return { ...f, type: "select", options: positions };
       return f;
     });
+  };
+
+  const isEmployeeModule = activeModule === "employee_data" || activeModule.startsWith("emp_");
+
+  const getEmployeeRowProjects = (row: DataRecord): string[] => {
+    const projectStatus = row["สถานะโครงการ"];
+    if (Array.isArray(projectStatus)) {
+      return projectStatus.map((item) => String(item || "").trim()).filter(Boolean);
+    }
+    if (projectStatus != null && String(projectStatus).trim() !== "") {
+      return [String(projectStatus).trim()];
+    }
+    const fallbackProject = String(row["โครงการ"] || "").trim();
+    return fallbackProject ? [fallbackProject] : [];
   };
 
   const fetchProjectOptions = async () => {
@@ -864,6 +1125,24 @@ function MasterDatabaseApp() {
     } catch (e) {
       console.error("Error fetching position options:", e);
     }
+  };
+
+  const openProjectEditor = (item: DataRecord | null) => {
+    const nextFormData = item
+      ? {
+          ...item,
+          required_role_plan_baseline: normalizeProjectRolePlanBaseline(item["required_role_plan_baseline"], item["required_role_plan"]),
+          required_role_plan_adjustments: normalizeProjectRolePlanAdjustments(item["required_role_plan_adjustments"]),
+        }
+      : {
+          required_role_plan_baseline: [] as ProjectRolePlanBaselineRow[],
+          required_role_plan_adjustments: [] as ProjectRolePlanAdjustment[],
+        };
+
+    setEditingItem(item);
+    setFormData(nextFormData);
+    setProjectFormTab("general");
+    setIsAddModalOpen(true);
   };
 
   useEffect(() => {
@@ -1092,13 +1371,29 @@ function MasterDatabaseApp() {
             options: projectStatusOptions,
           },
         ];
+        const PROJECT_FIELD_DEFS: SchemaField[] = [
+          {
+            id: "required_manpower",
+            label: "กำลังคนตามแผน (Required Manpower)",
+            type: "number",
+          },
+          {
+            id: "required_role_plan",
+            label: "แผนกำลังคนรายตำแหน่ง (required_role_plan)",
+            type: "textarea",
+          },
+        ];
 
         if (schemaSnap.exists()) {
           let loadedFields: SchemaField[] = schemaSnap.data().fields as SchemaField[];
           const existingIds = new Set(loadedFields.map((f) => f.id));
           const missingStatusFields = STATUS_FIELD_DEFS.filter((f) => !existingIds.has(f.id));
-          if (missingStatusFields.length > 0) {
-            loadedFields = [...loadedFields, ...missingStatusFields];
+          const missingProjectFields = schemaModuleId === "projects"
+            ? PROJECT_FIELD_DEFS.filter((f) => !existingIds.has(f.id))
+            : [];
+          const missingFields = [...missingStatusFields, ...missingProjectFields];
+          if (missingFields.length > 0) {
+            loadedFields = [...loadedFields, ...missingFields];
             try {
               await setDoc(
                 doc(db, "CMG-HR-Database", "root", "module_schemas", schemaModuleId),
@@ -1347,6 +1642,31 @@ function MasterDatabaseApp() {
         if (v !== undefined) acc[k] = v;
         return acc;
       }, {});
+
+      if (activeModule === "projects") {
+        const baselineRows = sanitizeProjectRolePlanBaseline(cleanData["required_role_plan_baseline"], cleanData["required_role_plan"]);
+        const adjustmentRows = sanitizeProjectRolePlanAdjustments(cleanData["required_role_plan_adjustments"]);
+
+        cleanData["required_role_plan_baseline"] = baselineRows.map((row) => ({
+          position: row.position,
+          required: row.required,
+        }));
+        cleanData["required_role_plan_adjustments"] = adjustmentRows
+          .map((item) => ({
+            id: item.id,
+            start_date: item.start_date,
+            end_date: item.end_date,
+            note: item.note || "",
+            rows: item.rows.map((row) => ({
+              position: row.position,
+              delta: row.delta,
+            })),
+          }));
+        cleanData["required_role_plan"] = baselineRows
+          .map((row) => `${row.position}: ${row.required}`)
+          .join("\n");
+      }
+
       if (config.filterField && config.filterValue) {
         cleanData[config.filterField] = Array.isArray(config.filterValue) ? config.filterValue[0] : config.filterValue;
       }
@@ -1568,6 +1888,7 @@ function MasterDatabaseApp() {
       setIsAddModalOpen(false);
       setEditingItem(null);
       setFormData({});
+      setProjectFormTab("general");
     } catch (error) {
       showNotification("error", "ผิดพลาด", (error as Error).message);
     }
@@ -2279,6 +2600,29 @@ function MasterDatabaseApp() {
 
   const filteredData = useMemo(() => {
     let data = currentData;
+
+    if (activeModule === "emp_direct_leader" && dcDailyGroupFilter !== "all") {
+      data = data.filter((row) => {
+        const workGroup = String(row["สถานะกลุ่มงาน"] || "").toLowerCase().trim();
+        return dcDailyGroupFilter === "staff" ? workGroup === "staff" : workGroup === "worker";
+      });
+    }
+
+    if (isEmployeeModule && employeeProjectFilter !== "all") {
+      data = data.filter((row) => getEmployeeRowProjects(row).includes(employeeProjectFilter));
+    }
+
+    if (isEmployeeModule && employeeStatusFilter !== "all") {
+      data = data.filter((row) => String(row["สถานะพนักงาน"] || "").trim() === employeeStatusFilter);
+    }
+
+    if (isEmployeeModule && employeeWorkGroupFilter !== "all") {
+      data = data.filter((row) => String(row["สถานะกลุ่มงาน"] || "").trim() === employeeWorkGroupFilter);
+    }
+
+    if (isEmployeeModule && employeePositionFilter !== "all") {
+      data = data.filter((row) => String(row["ตำแหน่ง"] || "").trim() === employeePositionFilter);
+    }
     
     // Filter by search query
     if (searchQuery) {
@@ -2320,7 +2664,92 @@ function MasterDatabaseApp() {
     }
     
     return data;
-  }, [currentData, searchQuery, sortConfig]);
+  }, [activeModule, currentData, dcDailyGroupFilter, employeePositionFilter, employeeProjectFilter, employeeStatusFilter, employeeWorkGroupFilter, isEmployeeModule, searchQuery, sortConfig]);
+
+  const employeeProjectOptions = useMemo(
+    () =>
+      Array.from(new Set(currentData.flatMap((row) => getEmployeeRowProjects(row))))
+        .sort((a, b) => a.localeCompare(b, "th")),
+    [currentData]
+  );
+
+  const employeeStatusOptions = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          currentData
+            .map((row) => String(row["สถานะพนักงาน"] || "").trim())
+            .filter(Boolean)
+        )
+      ).sort((a, b) => a.localeCompare(b, "th")),
+    [currentData]
+  );
+
+  const employeeWorkGroupOptions = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          currentData
+            .map((row) => String(row["สถานะกลุ่มงาน"] || "").trim())
+            .filter(Boolean)
+        )
+      ).sort((a, b) => a.localeCompare(b, "th")),
+    [currentData]
+  );
+
+  const employeePositionOptions = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          currentData
+            .map((row) => String(row["ตำแหน่ง"] || "").trim())
+            .filter(Boolean)
+        )
+      ).sort((a, b) => a.localeCompare(b, "th")),
+    [currentData]
+  );
+
+  const dcDailySummary = useMemo(() => {
+    if (activeModule !== "emp_direct_leader") {
+      return { staff: 0, worker: 0 };
+    }
+    const scopedRows = currentData.filter((row) => {
+      const projectOk = employeeProjectFilter === "all" || getEmployeeRowProjects(row).includes(employeeProjectFilter);
+      const statusOk = employeeStatusFilter === "all" || String(row["สถานะพนักงาน"] || "").trim() === employeeStatusFilter;
+      return projectOk && statusOk;
+    });
+    return scopedRows.reduce(
+      (acc, row) => {
+        const workGroup = String(row["สถานะกลุ่มงาน"] || "").toLowerCase().trim();
+        if (workGroup === "staff") acc.staff += 1;
+        if (workGroup === "worker") acc.worker += 1;
+        return acc;
+      },
+      { staff: 0, worker: 0 }
+    );
+  }, [activeModule, currentData, employeeProjectFilter, employeeStatusFilter]);
+
+  useEffect(() => {
+    if (activeModule !== "emp_direct_leader") {
+      setDcDailyGroupFilter("all");
+    }
+  }, [activeModule]);
+
+  useEffect(() => {
+    setEmployeeProjectFilter("all");
+    setEmployeeStatusFilter("all");
+    setEmployeeWorkGroupFilter("all");
+    setEmployeePositionFilter("all");
+  }, [activeModule]);
+
+  const resetEmployeeFilters = () => {
+    setSearchQuery("");
+    setEmployeeProjectFilter("all");
+    setEmployeeStatusFilter("all");
+    setEmployeeWorkGroupFilter("all");
+    setEmployeePositionFilter("all");
+    setDcDailyGroupFilter("all");
+  };
 
   useEffect(() => {
     const el = selectAllCheckboxRef.current;
@@ -2381,6 +2810,7 @@ function MasterDatabaseApp() {
           <header className="mb-8">
             <h1 className="text-3xl font-bold text-gray-800 flex items-center gap-3">
               <Activity className="text-orange-500" /> บันทึกกิจกรรม
+              <InfoTooltip content="แสดงข้อมูลจาก activity_logs โดยเรียงตาม createdAt ล่าสุด และสรุปจากรายการที่ถูกดึงมาแสดง" />
             </h1>
           </header>
           <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-x-auto overflow-y-hidden">
@@ -2424,6 +2854,25 @@ function MasterDatabaseApp() {
     );
 
   const config = getModuleInfo(activeModule);
+  const moduleTooltipMap: Record<string, React.ReactNode> = {
+    projects: "รายการโครงการหลักของระบบ ใช้เป็น master สำหรับการ assign พนักงานและการวิเคราะห์ใน dashboard",
+    employee_data: "ข้อมูลพนักงานหลัก ใช้เป็นฐานคำนวณโครงสร้างกำลังคน เพศ อายุ อายุงาน และรายการเสี่ยง",
+    emp_indirect: "ข้อมูลพนักงานกลุ่ม Staff Monthly ที่ใช้ทั้งการจัดการ master data และสรุปกำลังคน",
+    emp_direct_leader: "ข้อมูลพนักงานกลุ่ม DC Daily ที่ใช้ทั้งการจัดการ master data และสรุปกำลังคน โดยสามารถกรองย่อยตามสถานะกลุ่มงานเป็น Staff หรือ Worker ได้",
+    emp_direct_supply: "ข้อมูลพนักงานกลุ่ม Supply manpower ที่ใช้ทั้งการจัดการ master data และสรุปกำลังคน",
+    emp_direct_sub: "ข้อมูลพนักงานกลุ่ม Sub contractor ที่ใช้ทั้งการจัดการ master data และสรุปกำลังคน",
+    position_labor: "รายการตำแหน่งแรงงานที่ใช้เป็นข้อมูลอ้างอิงในพนักงานและสรุปตำแหน่งในโครงการ",
+    users_data: "หน้ากำหนดสิทธิ์ผู้ใช้งาน อนุมัติผู้ใช้ และกำหนดโครงการที่เข้าถึง",
+    attendance: "ข้อมูลลงเวลารายวัน ใช้เป็นฐานคำนวณอัตรามา ขาด ลา และความเสี่ยงหลายตัว",
+    overtime: "ข้อมูล OT รายวัน ใช้สรุปชั่วโมง OT รายบุคคล รายโครงการ และภาระงาน",
+    manpower_dashboard: "Dashboard สรุป KPI ฝั่ง HR และโครงการ โดยคำนวณจากช่วงวันที่ที่เลือก",
+    risk_monitoring: "หน้าแสดงเฉพาะความเสี่ยงของพนักงานและโครงการ โดยใช้ risk score เดียวกับ dashboard",
+    activity_logs: "บันทึกกิจกรรมการเปลี่ยนแปลงข้อมูลในระบบ เรียงตามเวลาล่าสุด",
+    day_off: "วันหยุดบริษัทที่ใช้เป็นฐานตัดวันทำงานในหน้าลงเวลาและหน้า OT",
+  };
+  const moduleTooltipContent =
+    moduleTooltipMap[activeModule] ||
+    `หน้าจัดการข้อมูล ${config.label} ใช้สำหรับเพิ่ม แก้ไข ค้นหา และส่งออกข้อมูลในโมดูลนี้`;
 
   const currentModuleHidden = hiddenColumnsMap[activeModule] || [];
   const visibleSchema = currentSchema.filter(
@@ -2461,7 +2910,7 @@ function MasterDatabaseApp() {
         className="flex-1 flex flex-col px-6 pt-4 pb-4 min-w-0 overflow-x-hidden transition-[margin-left] duration-200 ease-in-out h-screen"
         style={{ marginLeft: sidebarOpen ? SIDEBAR_WIDTH : SIDEBAR_COLLAPSED_WIDTH }}
       >
-        <header className="flex items-center gap-3 mb-3 bg-white px-3 py-2 rounded-xl shadow-sm border border-gray-200">
+        <header className="mb-3 flex flex-wrap items-center gap-3 rounded-xl border border-gray-200 bg-white px-3 py-2 shadow-sm">
           <h1 className="text-base font-bold text-gray-800 whitespace-nowrap flex items-center gap-2 shrink-0">
             {activeModule === 'users_data' 
               ? 'จัดการสิทธิ์ผู้ใช้งาน' 
@@ -2471,12 +2920,25 @@ function MasterDatabaseApp() {
                   ? 'ลง Overtime'
                   : activeModule === 'manpower_dashboard'
                     ? 'Manpower Dashboard'
+                    : activeModule === 'risk_monitoring'
+                      ? 'Risk Monitoring'
                     : activeModule === 'activity_logs'
                       ? 'บันทึกกิจกรรมระบบ (Activity Logs)'
                       : config.label}
+            <InfoTooltip content={moduleTooltipContent} iconSize={14} />
           </h1>
+          {activeModule === "emp_direct_leader" && (
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="inline-flex items-center gap-1 rounded-full bg-blue-50 px-2.5 py-1 text-xs font-semibold text-blue-700">
+                Staff <span className="rounded-full bg-white px-1.5 py-0.5 text-[11px] text-blue-900">{dcDailySummary.staff}</span>
+              </span>
+              <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-700">
+                Worker <span className="rounded-full bg-white px-1.5 py-0.5 text-[11px] text-amber-900">{dcDailySummary.worker}</span>
+              </span>
+            </div>
+          )}
           
-          {activeModule !== 'attendance' && activeModule !== 'overtime' && activeModule !== 'manpower_dashboard' && activeModule !== 'activity_logs' && (
+          {activeModule !== 'attendance' && activeModule !== 'overtime' && activeModule !== 'manpower_dashboard' && activeModule !== 'risk_monitoring' && activeModule !== 'activity_logs' && (
             <>
               <div className="w-px h-5 bg-gray-200 shrink-0" />
 
@@ -2493,6 +2955,95 @@ function MasterDatabaseApp() {
                   onChange={(e) => setSearchQuery(e.target.value)}
                 />
               </div>
+              {isEmployeeModule && (
+                <>
+                  <div className="flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-1.5 text-xs text-emerald-900">
+                    <span className="font-semibold whitespace-nowrap">โครงการ</span>
+                    <select
+                      value={employeeProjectFilter}
+                      onChange={(e) => setEmployeeProjectFilter(e.target.value)}
+                      className="rounded border border-emerald-200 bg-white px-2 py-1 text-xs text-slate-700 outline-none focus:ring-2 focus:ring-emerald-100"
+                    >
+                      <option value="all">ทั้งหมด</option>
+                      {employeeProjectOptions.map((project) => (
+                        <option key={project} value={project}>
+                          {project}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="flex items-center gap-2 rounded-lg border border-rose-200 bg-rose-50 px-2.5 py-1.5 text-xs text-rose-900">
+                    <span className="font-semibold whitespace-nowrap">สถานะพนักงาน</span>
+                    <select
+                      value={employeeStatusFilter}
+                      onChange={(e) => setEmployeeStatusFilter(e.target.value)}
+                      className="rounded border border-rose-200 bg-white px-2 py-1 text-xs text-slate-700 outline-none focus:ring-2 focus:ring-rose-100"
+                    >
+                      <option value="all">ทั้งหมด</option>
+                      {employeeStatusOptions.map((status) => (
+                        <option key={status} value={status}>
+                          {status}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="flex items-center gap-2 rounded-lg border border-violet-200 bg-violet-50 px-2.5 py-1.5 text-xs text-violet-900">
+                    <span className="font-semibold whitespace-nowrap">ตำแหน่ง</span>
+                    <select
+                      value={employeePositionFilter}
+                      onChange={(e) => setEmployeePositionFilter(e.target.value)}
+                      className="rounded border border-violet-200 bg-white px-2 py-1 text-xs text-slate-700 outline-none focus:ring-2 focus:ring-violet-100"
+                    >
+                      <option value="all">ทั้งหมด</option>
+                      {employeePositionOptions.map((position) => (
+                        <option key={position} value={position}>
+                          {position}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  {activeModule !== "emp_direct_leader" && (
+                    <div className="flex items-center gap-2 rounded-lg border border-sky-200 bg-sky-50 px-2.5 py-1.5 text-xs text-sky-900">
+                      <span className="font-semibold whitespace-nowrap">สถานะกลุ่มงาน</span>
+                      <select
+                        value={employeeWorkGroupFilter}
+                        onChange={(e) => setEmployeeWorkGroupFilter(e.target.value)}
+                        className="rounded border border-sky-200 bg-white px-2 py-1 text-xs text-slate-700 outline-none focus:ring-2 focus:ring-sky-100"
+                      >
+                        <option value="all">ทั้งหมด</option>
+                        {employeeWorkGroupOptions.map((group) => (
+                          <option key={group} value={group}>
+                            {group}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+                </>
+              )}
+              {activeModule === "emp_direct_leader" && (
+                <div className="flex items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-2.5 py-1.5 text-xs text-blue-800">
+                  <span className="font-semibold whitespace-nowrap">DC Daily:</span>
+                  <select
+                    value={dcDailyGroupFilter}
+                    onChange={(e) => setDcDailyGroupFilter(e.target.value as "all" | "staff" | "worker")}
+                    className="rounded border border-blue-200 bg-white px-2 py-1 text-xs text-slate-700 outline-none focus:ring-2 focus:ring-blue-100"
+                  >
+                    <option value="all">ทั้งหมด</option>
+                    <option value="staff">Staff</option>
+                    <option value="worker">Worker</option>
+                  </select>
+                </div>
+              )}
+              {isEmployeeModule && (
+                <button
+                  type="button"
+                  onClick={resetEmployeeFilters}
+                  className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-100"
+                >
+                  ล้าง filter ทั้งหมด
+                </button>
+              )}
               <div className="flex gap-2 text-sm items-center flex-wrap">
                 <div className="relative">
                   <button
@@ -2627,9 +3178,13 @@ function MasterDatabaseApp() {
                 {canAdd && (
                   <button
                     onClick={() => {
-                      setEditingItem(null);
-                      setFormData({});
-                      setIsAddModalOpen(true);
+                        if (activeModule === "projects") {
+                          openProjectEditor(null);
+                        } else {
+                          setEditingItem(null);
+                          setFormData({});
+                          setIsAddModalOpen(true);
+                        }
                     }}
                     className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 text-white rounded-lg shadow-sm hover:bg-blue-700 text-xs font-bold whitespace-nowrap shrink-0"
                   >
@@ -2671,6 +3226,8 @@ function MasterDatabaseApp() {
               <div className="p-6">
                 <ManpowerDashboard projectOptions={projectStatusOptions} />
               </div>
+            ) : activeModule === 'risk_monitoring' ? (
+              <RiskMonitoringPage projectOptions={projectStatusOptions} />
             ) : activeModule === 'attendance' ? (
               <div className="p-6">
                 <AttendancePage projectOptions={projectStatusOptions} />
@@ -2705,38 +3262,88 @@ function MasterDatabaseApp() {
                 )}
               </div>
             ) : activeModule === "projects" ? (
-              <div className="p-8 flex flex-wrap gap-6 items-start h-full overflow-y-auto">
-                {filteredData.length > 0 ? (
-                  filteredData.map((row) => (
-                    <div key={row.id} className="bg-white rounded-2xl shadow-sm hover:shadow border border-gray-200 p-6 relative group flex flex-col items-center justify-center w-64 transition-all">
-                      <div className="absolute top-3 right-3 opacity-0 group-hover:opacity-100 transition-opacity flex gap-1">
-                        <button onClick={() => { setEditingItem(row); setFormData(row); setIsAddModalOpen(true); }} className="p-1.5 text-blue-600 hover:bg-blue-50 rounded-lg bg-white shadow-sm border"><Edit size={14}/></button>
-                        <button onClick={() => handleDeleteItem(row.id)} className="p-1.5 text-red-600 hover:bg-red-50 rounded-lg bg-white shadow-sm border"><Trash2 size={14}/></button>
-                      </div>
-                      
-                      {/* Avatar/Icon Circle */}
-                      <div className="w-16 h-16 rounded-full bg-blue-50 flex items-center justify-center text-blue-600 mb-4 border border-blue-100 shadow-sm">
-                        <Briefcase size={28} />
-                      </div>
-                      
-                      {/* Texts */}
-                      <h3 className="font-bold text-gray-800 text-lg mb-1 truncate w-full text-center" title={String(row.project_no || row.id)}>{String(row.project_no || row.id)}</h3>
-                      <p className="text-gray-500 text-sm font-medium truncate w-full text-center mb-5" title={String(row.project_name || "-")}>{String(row.project_name || "-")}</p>
-                      
-                      {/* Pill Badges */}
-                      <div className="flex flex-wrap justify-center gap-2 mt-auto">
-                        <span className="px-3 py-1 bg-blue-50 text-blue-600 text-xs font-semibold rounded-full border border-blue-100 truncate max-w-[110px]" title={`PM: ${row.project_manager || "-"}`}>
-                          PM: {String(row.project_manager || "-").split(" ")[0]}
-                        </span>
-                        <span className="px-3 py-1 bg-emerald-50 text-emerald-600 text-xs font-semibold rounded-full border border-emerald-100 truncate max-w-[110px]" title={`CM: ${row.construction_manager || "-"}`}>
-                          CM: {String(row.construction_manager || "-").split(" ")[0]}
-                        </span>
-                      </div>
+              <div className="p-6 h-full overflow-y-auto">
+                <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+                  {filteredData.length > 0 ? (
+                    <div className="overflow-x-auto">
+                      <table className="w-full min-w-[920px] border-collapse">
+                        <thead className="bg-slate-50 border-b border-gray-200">
+                          <tr>
+                            <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500">โครงการ</th>
+                            <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500">ชื่อโครงการ</th>
+                            <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500">ระยะสัญญา</th>
+                            <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500">Project Manager</th>
+                            <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500">Construction Manager</th>
+                            <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wider text-gray-500">จัดการ</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {filteredData.map((row) => {
+                            const projectNo = String(row.project_no || row.id);
+                            const projectName = String(row.project_name || "-");
+                            const startDate = String(row.start_date || "").trim();
+                            const endDate = String(row.end_date || "").trim();
+                            const projectPeriod = startDate && endDate
+                              ? `${startDate} - ${endDate}`
+                              : startDate || endDate || "-";
+                            const projectManager = String(row.project_manager || "-");
+                            const constructionManager = String(row.construction_manager || "-");
+
+                            return (
+                              <tr key={row.id} className="border-b border-gray-100 last:border-b-0 hover:bg-slate-50/70">
+                                <td className="px-4 py-3 align-top">
+                                  <div className="flex items-center gap-3 min-w-0">
+                                    <div className="w-10 h-10 rounded-lg bg-blue-50 border border-blue-100 text-blue-600 flex items-center justify-center shrink-0">
+                                      <Briefcase size={18} />
+                                    </div>
+                                    <div className="min-w-0">
+                                      <div className="font-semibold text-gray-900 truncate" title={projectNo}>{projectNo}</div>
+                                      <div className="text-xs text-gray-500">{formatProjectNo(projectNo)}</div>
+                                    </div>
+                                  </div>
+                                </td>
+                                <td className="px-4 py-3 align-top">
+                                  <div className="font-medium text-gray-800 break-words">{projectName}</div>
+                                </td>
+                                <td className="px-4 py-3 align-top">
+                                  <span className="inline-flex px-2.5 py-1 rounded-full bg-amber-50 text-amber-700 border border-amber-100 text-xs font-medium">
+                                    {projectPeriod}
+                                  </span>
+                                </td>
+                                <td className="px-4 py-3 align-top">
+                                  <div className="text-sm text-gray-700 break-words">{projectManager}</div>
+                                </td>
+                                <td className="px-4 py-3 align-top">
+                                  <div className="text-sm text-gray-700 break-words">{constructionManager}</div>
+                                </td>
+                                <td className="px-4 py-3 align-top">
+                                  <div className="flex items-center justify-end gap-2">
+                                    <button
+                                      onClick={() => { openProjectEditor(row); }}
+                                      className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm text-blue-600 hover:bg-blue-50 rounded-lg border border-blue-100"
+                                    >
+                                      <Edit size={14} />
+                                      แก้ไข
+                                    </button>
+                                    <button
+                                      onClick={() => handleDeleteItem(row.id)}
+                                      className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm text-red-600 hover:bg-red-50 rounded-lg border border-red-100"
+                                    >
+                                      <Trash2 size={14} />
+                                      ลบ
+                                    </button>
+                                  </div>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
                     </div>
-                  ))
-                ) : (
-                  <div className="col-span-full p-12 text-center text-gray-400">ยังไม่มีข้อมูลโครงการ</div>
-                )}
+                  ) : (
+                    <div className="p-12 text-center text-gray-400">ยังไม่มีข้อมูลโครงการ</div>
+                  )}
+                </div>
               </div>
             ) : (
               <table ref={tableElementRef} className="w-full text-left border-collapse min-w-max">
@@ -2857,9 +3464,13 @@ function MasterDatabaseApp() {
                           {canEdit && (
                             <button
                               onClick={() => {
-                                setEditingItem(row);
-                                setFormData(row);
-                                setIsAddModalOpen(true);
+                                if (activeModule === "projects") {
+                                  openProjectEditor(row);
+                                } else {
+                                  setEditingItem(row);
+                                  setFormData(row);
+                                  setIsAddModalOpen(true);
+                                }
                               }}
                               className="p-1 text-blue-600 hover:bg-blue-100 rounded"
                               title="แก้ไข"
@@ -2977,12 +3588,18 @@ function MasterDatabaseApp() {
 
       <Modal
         isOpen={isAddModalOpen}
-        onClose={() => setIsAddModalOpen(false)}
+        onClose={() => {
+          setIsAddModalOpen(false);
+          setProjectFormTab("general");
+        }}
         title={editingItem ? "แก้ไขข้อมูล" : activeModule === "position_labor" ? "เพิ่ม Position" : "เพิ่มข้อมูลใหม่"}
         footer={
           <>
             <button
-              onClick={() => setIsAddModalOpen(false)}
+              onClick={() => {
+                setIsAddModalOpen(false);
+                setProjectFormTab("general");
+              }}
               className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg"
             >
               ยกเลิก
@@ -2998,12 +3615,17 @@ function MasterDatabaseApp() {
       >
         {/* Separate status fields from normal fields */}
         {(() => {
+          const isProjectModule = activeModule === "projects";
+          const projectSpecialFieldIds = new Set(["required_manpower", "required_role_plan"]);
           const normalFields = currentSchema.filter(
-            (f) => !STATUS_FIELD_IDS.includes(f.id)
+            (f) => !STATUS_FIELD_IDS.includes(f.id) && (!isProjectModule || !projectSpecialFieldIds.has(f.id))
           );
           const statusFields = currentSchema.filter((f) =>
             STATUS_FIELD_IDS.includes(f.id)
           );
+          const requiredManpowerField = currentSchema.find((f) => f.id === "required_manpower");
+          const baselineRows = normalizeProjectRolePlanBaseline(formData["required_role_plan_baseline"], formData["required_role_plan"]);
+          const adjustmentRows = normalizeProjectRolePlanAdjustments(formData["required_role_plan_adjustments"]);
 
           const empStatusField = statusFields.find((f) => f.id === "สถานะพนักงาน");
           const grpStatusField = statusFields.find((f) => f.id === "สถานะกลุ่มงาน");
@@ -3011,122 +3633,410 @@ function MasterDatabaseApp() {
 
           return (
             <div className="space-y-6">
-              {/* Normal fields grid */}
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                {normalFields.map((field) => {
-                  const isClientAuto =
-                    activeModule === "client_list" && field.id === "Customer_ID";
-                  const isContractorAuto =
-                    activeModule === "contractors" && field.id === "con_id";
-                  if ((isClientAuto || isContractorAuto) && !editingItem) return null;
-                  return (
-                    <div key={field.id} className="space-y-1">
-                      <label className="text-sm font-medium text-gray-700">
-                        {field.label}
-                      </label>
-                      <DynamicInput
-                        field={field}
-                        value={(formData[field.id] as string | boolean) ?? ""}
-                        onChange={(val) => setFormData({ ...formData, [field.id]: val })}
-                        disabled={isClientAuto || isContractorAuto}
-                      />
-                    </div>
-                  );
-                })}
-              </div>
+              {isProjectModule && (
+                <div className="inline-flex rounded-xl border border-gray-200 bg-gray-50 p-1">
+                  <button
+                    type="button"
+                    onClick={() => setProjectFormTab("general")}
+                    className={`rounded-lg px-4 py-2 text-sm font-semibold ${projectFormTab === "general" ? "bg-white text-slate-900 shadow-sm" : "text-slate-600 hover:text-slate-900"}`}
+                  >
+                    ข้อมูลทั่วไป
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setProjectFormTab("plan")}
+                    className={`rounded-lg px-4 py-2 text-sm font-semibold ${projectFormTab === "plan" ? "bg-white text-slate-900 shadow-sm" : "text-slate-600 hover:text-slate-900"}`}
+                  >
+                    แผนกำลังคน
+                  </button>
+                </div>
+              )}
 
-              {/* Status fields — pastel color bands */}
-              {statusFields.length > 0 && (
-                <div className="rounded-xl border border-gray-100 overflow-hidden shadow-sm">
-                  <div className="px-4 py-2 bg-gray-50 border-b border-gray-100">
-                    <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">สถานะ</span>
-                  </div>
-                  <div className="grid grid-cols-1 md:grid-cols-3">
-
-                    {/* สถานะพนักงาน — rose */}
-                    {empStatusField && (
-                      <div className="p-4 bg-rose-50/70 border-r border-rose-100 space-y-1">
-                        <label className="text-sm font-semibold text-rose-700 flex items-center gap-1">
-                          <span className="w-2 h-2 rounded-full bg-rose-400 inline-block"></span>
-                          {empStatusField.label}
-                        </label>
-                        <select
-                          className="w-full px-3 py-2 border border-rose-200 rounded-md focus:ring-2 focus:ring-rose-400 focus:border-transparent outline-none transition-all text-sm bg-white text-rose-800"
-                          value={(formData[empStatusField.id] as string) ?? ""}
-                          onChange={(e) => setFormData({ ...formData, [empStatusField.id]: e.target.value })}
-                        >
-                          <option value="">-- กรุณาเลือก --</option>
-                          {empStatusField.options?.map((opt, i) => (
-                            <option key={i} value={opt}>{opt}</option>
-                          ))}
-                        </select>
-                      </div>
-                    )}
-
-                    {/* สถานะกลุ่มงาน — sky */}
-                    {grpStatusField && (
-                      <div className="p-4 bg-sky-50/70 border-r border-sky-100 space-y-1">
-                        <label className="text-sm font-semibold text-sky-700 flex items-center gap-1">
-                          <span className="w-2 h-2 rounded-full bg-sky-400 inline-block"></span>
-                          {grpStatusField.label}
-                        </label>
-                        <select
-                          className="w-full px-3 py-2 border border-sky-200 rounded-md focus:ring-2 focus:ring-sky-400 focus:border-transparent outline-none transition-all text-sm bg-white text-sky-800"
-                          value={(formData[grpStatusField.id] as string) ?? ""}
-                          onChange={(e) => setFormData({ ...formData, [grpStatusField.id]: e.target.value })}
-                        >
-                          <option value="">-- กรุณาเลือก --</option>
-                          {grpStatusField.options?.map((opt, i) => (
-                            <option key={i} value={opt}>{opt}</option>
-                          ))}
-                        </select>
-                      </div>
-                    )}
-
-                    {/* สถานะโครงการ — emerald + multi-checkbox */}
-                    {projStatusField && (
-                      <div className="p-4 bg-emerald-50/70 space-y-2">
-                        <label className="text-sm font-semibold text-emerald-700 flex items-center gap-1">
-                          <span className="w-2 h-2 rounded-full bg-emerald-400 inline-block"></span>
-                          {projStatusField.label}
-                          <span className="text-xs font-normal text-emerald-500 ml-1">(เลือกได้หลายโครงการ)</span>
-                        </label>
-                        {/* Multi-checkbox list */}
-                        <div className="flex flex-wrap gap-2">
-                          {projectStatusOptions.map((opt) => {
-                            const selected: string[] = Array.isArray(formData[projStatusField.id])
-                              ? (formData[projStatusField.id] as string[])
-                              : formData[projStatusField.id]
-                                ? [String(formData[projStatusField.id])]
-                                : [];
-                            const isChecked = selected.includes(opt);
-                            const toggle = () => {
-                              const next = isChecked
-                                ? selected.filter((s) => s !== opt)
-                                : [...selected, opt];
-                              setFormData({ ...formData, [projStatusField.id]: next });
-                            };
-                            return (
-                              <button
-                                key={opt}
-                                type="button"
-                                onClick={toggle}
-                                className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border transition-all ${
-                                  isChecked
-                                    ? "bg-emerald-500 text-white border-emerald-500 shadow-sm"
-                                    : "bg-white text-emerald-700 border-emerald-300 hover:bg-emerald-100"
-                                }`}
-                                title={opt} // แสดง Project No. เต็มใน tooltip
-                              >
-                                {isChecked && <Check size={11} />}
-                                {formatProjectNo(opt)}
-                              </button>
-                            );
-                          })}
+              {(!isProjectModule || projectFormTab === "general") && (
+                <>
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                    {normalFields.map((field) => {
+                      const isClientAuto =
+                        activeModule === "client_list" && field.id === "Customer_ID";
+                      const isContractorAuto =
+                        activeModule === "contractors" && field.id === "con_id";
+                      if ((isClientAuto || isContractorAuto) && !editingItem) return null;
+                      return (
+                        <div key={field.id} className="space-y-1">
+                          <label className="text-sm font-medium text-gray-700">
+                            {field.label}
+                          </label>
+                          <DynamicInput
+                            field={field}
+                            value={(formData[field.id] as string | boolean) ?? ""}
+                            onChange={(val) => setFormData({ ...formData, [field.id]: val })}
+                            disabled={isClientAuto || isContractorAuto}
+                          />
                         </div>
-                      </div>
-                    )}
+                      );
+                    })}
+                  </div>
 
+                  {statusFields.length > 0 && (
+                    <div className="rounded-xl border border-gray-100 overflow-hidden shadow-sm">
+                      <div className="px-4 py-2 bg-gray-50 border-b border-gray-100">
+                        <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">สถานะ</span>
+                      </div>
+                      <div className="grid grid-cols-1 md:grid-cols-3">
+                        {empStatusField && (
+                          <div className="p-4 bg-rose-50/70 border-r border-rose-100 space-y-1">
+                            <label className="text-sm font-semibold text-rose-700 flex items-center gap-1">
+                              <span className="w-2 h-2 rounded-full bg-rose-400 inline-block"></span>
+                              {empStatusField.label}
+                            </label>
+                            <select
+                              className="w-full px-3 py-2 border border-rose-200 rounded-md focus:ring-2 focus:ring-rose-400 focus:border-transparent outline-none transition-all text-sm bg-white text-rose-800"
+                              value={(formData[empStatusField.id] as string) ?? ""}
+                              onChange={(e) => setFormData({ ...formData, [empStatusField.id]: e.target.value })}
+                            >
+                              <option value="">-- กรุณาเลือก --</option>
+                              {empStatusField.options?.map((opt, i) => (
+                                <option key={i} value={opt}>{opt}</option>
+                              ))}
+                            </select>
+                          </div>
+                        )}
+
+                        {grpStatusField && (
+                          <div className="p-4 bg-sky-50/70 border-r border-sky-100 space-y-1">
+                            <label className="text-sm font-semibold text-sky-700 flex items-center gap-1">
+                              <span className="w-2 h-2 rounded-full bg-sky-400 inline-block"></span>
+                              {grpStatusField.label}
+                            </label>
+                            <select
+                              className="w-full px-3 py-2 border border-sky-200 rounded-md focus:ring-2 focus:ring-sky-400 focus:border-transparent outline-none transition-all text-sm bg-white text-sky-800"
+                              value={(formData[grpStatusField.id] as string) ?? ""}
+                              onChange={(e) => setFormData({ ...formData, [grpStatusField.id]: e.target.value })}
+                            >
+                              <option value="">-- กรุณาเลือก --</option>
+                              {grpStatusField.options?.map((opt, i) => (
+                                <option key={i} value={opt}>{opt}</option>
+                              ))}
+                            </select>
+                          </div>
+                        )}
+
+                        {projStatusField && (
+                          <div className="p-4 bg-emerald-50/70 space-y-2">
+                            <label className="text-sm font-semibold text-emerald-700 flex items-center gap-1">
+                              <span className="w-2 h-2 rounded-full bg-emerald-400 inline-block"></span>
+                              {projStatusField.label}
+                              <span className="text-xs font-normal text-emerald-500 ml-1">(เลือกได้หลายโครงการ)</span>
+                            </label>
+                            <div className="flex flex-wrap gap-2">
+                              {projectStatusOptions.map((opt) => {
+                                const selected: string[] = Array.isArray(formData[projStatusField.id])
+                                  ? (formData[projStatusField.id] as string[])
+                                  : formData[projStatusField.id]
+                                    ? [String(formData[projStatusField.id])]
+                                    : [];
+                                const isChecked = selected.includes(opt);
+                                const toggle = () => {
+                                  const next = isChecked
+                                    ? selected.filter((s) => s !== opt)
+                                    : [...selected, opt];
+                                  setFormData({ ...formData, [projStatusField.id]: next });
+                                };
+                                return (
+                                  <button
+                                    key={opt}
+                                    type="button"
+                                    onClick={toggle}
+                                    className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border transition-all ${
+                                      isChecked
+                                        ? "bg-emerald-500 text-white border-emerald-500 shadow-sm"
+                                        : "bg-white text-emerald-700 border-emerald-300 hover:bg-emerald-100"
+                                    }`}
+                                    title={opt}
+                                  >
+                                    {isChecked && <Check size={11} />}
+                                    {formatProjectNo(opt)}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
+
+              {isProjectModule && projectFormTab === "plan" && (
+                <div className="space-y-6">
+                  {requiredManpowerField && (
+                    <div className="rounded-xl border border-slate-200 p-4 space-y-2">
+                      <label className="text-sm font-semibold text-slate-700">{requiredManpowerField.label}</label>
+                      <DynamicInput
+                        field={requiredManpowerField}
+                        value={(formData[requiredManpowerField.id] as string | boolean) ?? ""}
+                        onChange={(val) => setFormData({ ...formData, [requiredManpowerField.id]: val })}
+                      />
+                      <p className="text-xs text-slate-500">ใช้สำหรับ Coverage รวมของโครงการ ถ้าไม่กรอก ระบบจะอิงผลรวม role plan รายวันหรือ assigned headcount ตามลำดับ</p>
+                    </div>
+                  )}
+
+                  <div className="rounded-xl border border-slate-200 overflow-hidden">
+                    <div className="flex items-center justify-between px-4 py-3 bg-slate-50 border-b border-slate-200">
+                      <div>
+                        <h4 className="text-sm font-bold text-slate-900">แผนตั้งต้นรายตำแหน่ง</h4>
+                        <p className="text-xs text-slate-500">ใช้เป็น baseline ก่อนมีการปรับเพิ่มหรือลดระหว่างงาน</p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setFormData((prev) => ({
+                            ...prev,
+                            required_role_plan_baseline: [
+                              ...normalizeProjectRolePlanBaseline(prev["required_role_plan_baseline"], prev["required_role_plan"]),
+                              { id: createLocalId(), position: "", required: 1 },
+                            ],
+                          }))
+                        }
+                        className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-700"
+                      >
+                        <Plus size={14} /> เพิ่มตำแหน่ง
+                      </button>
+                    </div>
+                    <div className="p-4 space-y-3">
+                      {baselineRows.length === 0 ? (
+                        <div className="rounded-lg border border-dashed border-slate-300 p-4 text-sm text-slate-500">ยังไม่มีแผนตั้งต้นรายตำแหน่ง</div>
+                      ) : baselineRows.map((row) => (
+                        <div key={row.id} className="grid grid-cols-1 gap-3 md:grid-cols-[minmax(0,1fr)_180px_48px]">
+                          <select
+                            className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm"
+                            value={row.position}
+                            onChange={(e) =>
+                              setFormData((prev) => ({
+                                ...prev,
+                                required_role_plan_baseline: normalizeProjectRolePlanBaseline(prev["required_role_plan_baseline"], prev["required_role_plan"]).map((item) =>
+                                  item.id === row.id ? { ...item, position: e.target.value } : item
+                                ),
+                              }))
+                            }
+                          >
+                            <option value="">-- เลือกตำแหน่ง --</option>
+                            {positionOptions.map((opt) => (
+                              <option key={opt} value={opt}>{opt}</option>
+                            ))}
+                          </select>
+                          <input
+                            type="number"
+                            min={1}
+                            className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm"
+                            value={row.required}
+                            onChange={(e) =>
+                              setFormData((prev) => ({
+                                ...prev,
+                                required_role_plan_baseline: normalizeProjectRolePlanBaseline(prev["required_role_plan_baseline"], prev["required_role_plan"]).map((item) =>
+                                  item.id === row.id ? { ...item, required: Math.max(Number(e.target.value || 0), 0) } : item
+                                ),
+                              }))
+                            }
+                          />
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setFormData((prev) => ({
+                                ...prev,
+                                required_role_plan_baseline: normalizeProjectRolePlanBaseline(prev["required_role_plan_baseline"], prev["required_role_plan"]).filter((item) => item.id !== row.id),
+                              }))
+                            }
+                            className="rounded-md border border-red-200 text-red-600 hover:bg-red-50"
+                          >
+                            <Trash2 size={14} className="mx-auto" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="rounded-xl border border-slate-200 overflow-hidden">
+                    <div className="flex items-center justify-between px-4 py-3 bg-slate-50 border-b border-slate-200">
+                      <div>
+                        <h4 className="text-sm font-bold text-slate-900">การปรับเพิ่ม/ลดระหว่างงาน</h4>
+                        <p className="text-xs text-slate-500">ใช้บันทึกช่วงเวลาที่ต้องเพิ่มหรือลดกำลังคนจากแผนตั้งต้น</p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setFormData((prev) => ({
+                            ...prev,
+                            required_role_plan_adjustments: [
+                              ...normalizeProjectRolePlanAdjustments(prev["required_role_plan_adjustments"]),
+                              { id: createLocalId(), start_date: "", end_date: "", note: "", rows: [{ id: createLocalId(), position: "", delta: 1 }] },
+                            ],
+                          }))
+                        }
+                        className="inline-flex items-center gap-1.5 rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white hover:bg-slate-800"
+                      >
+                        <Plus size={14} /> เพิ่มช่วงปรับแผน
+                      </button>
+                    </div>
+                    <div className="p-4 space-y-4">
+                      {adjustmentRows.length === 0 ? (
+                        <div className="rounded-lg border border-dashed border-slate-300 p-4 text-sm text-slate-500">ยังไม่มีรายการปรับแผน</div>
+                      ) : adjustmentRows.map((adjustment) => (
+                        <div key={adjustment.id} className="rounded-xl border border-slate-200 p-4 space-y-4">
+                          <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+                            <div className="space-y-1">
+                              <label className="text-xs font-semibold text-slate-600">วันที่เริ่มมีผล</label>
+                              <input
+                                type="date"
+                                className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm"
+                                value={adjustment.start_date}
+                                onChange={(e) =>
+                                  setFormData((prev) => ({
+                                    ...prev,
+                                    required_role_plan_adjustments: normalizeProjectRolePlanAdjustments(prev["required_role_plan_adjustments"]).map((item) =>
+                                      item.id === adjustment.id ? { ...item, start_date: e.target.value } : item
+                                    ),
+                                  }))
+                                }
+                              />
+                            </div>
+                            <div className="space-y-1">
+                              <label className="text-xs font-semibold text-slate-600">วันที่สิ้นสุด</label>
+                              <input
+                                type="date"
+                                className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm"
+                                value={adjustment.end_date}
+                                onChange={(e) =>
+                                  setFormData((prev) => ({
+                                    ...prev,
+                                    required_role_plan_adjustments: normalizeProjectRolePlanAdjustments(prev["required_role_plan_adjustments"]).map((item) =>
+                                      item.id === adjustment.id ? { ...item, end_date: e.target.value } : item
+                                    ),
+                                  }))
+                                }
+                              />
+                            </div>
+                            <div className="space-y-1">
+                              <label className="text-xs font-semibold text-slate-600">หมายเหตุ</label>
+                              <input
+                                type="text"
+                                className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm"
+                                value={adjustment.note || ""}
+                                onChange={(e) =>
+                                  setFormData((prev) => ({
+                                    ...prev,
+                                    required_role_plan_adjustments: normalizeProjectRolePlanAdjustments(prev["required_role_plan_adjustments"]).map((item) =>
+                                      item.id === adjustment.id ? { ...item, note: e.target.value } : item
+                                    ),
+                                  }))
+                                }
+                                placeholder="เช่น เร่งงานฐานราก / ลดกำลังคนช่วง close project"
+                              />
+                            </div>
+                          </div>
+
+                          <div className="space-y-3">
+                            {adjustment.rows.map((detail) => (
+                              <div key={detail.id} className="grid grid-cols-1 gap-3 md:grid-cols-[minmax(0,1fr)_160px_48px]">
+                                <select
+                                  className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm"
+                                  value={detail.position}
+                                  onChange={(e) =>
+                                    setFormData((prev) => ({
+                                      ...prev,
+                                      required_role_plan_adjustments: normalizeProjectRolePlanAdjustments(prev["required_role_plan_adjustments"]).map((item) =>
+                                        item.id === adjustment.id
+                                          ? {
+                                              ...item,
+                                              rows: item.rows.map((row) =>
+                                                row.id === detail.id ? { ...row, position: e.target.value } : row
+                                              ),
+                                            }
+                                          : item
+                                      ),
+                                    }))
+                                  }
+                                >
+                                  <option value="">-- เลือกตำแหน่ง --</option>
+                                  {positionOptions.map((opt) => (
+                                    <option key={opt} value={opt}>{opt}</option>
+                                  ))}
+                                </select>
+                                <input
+                                  type="number"
+                                  className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm"
+                                  value={detail.delta}
+                                  onChange={(e) =>
+                                    setFormData((prev) => ({
+                                      ...prev,
+                                      required_role_plan_adjustments: normalizeProjectRolePlanAdjustments(prev["required_role_plan_adjustments"]).map((item) =>
+                                        item.id === adjustment.id
+                                          ? {
+                                              ...item,
+                                              rows: item.rows.map((row) =>
+                                                row.id === detail.id ? { ...row, delta: Number(e.target.value || 0) } : row
+                                              ),
+                                            }
+                                          : item
+                                      ),
+                                    }))
+                                  }
+                                  placeholder="+/- จำนวน"
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setFormData((prev) => ({
+                                      ...prev,
+                                      required_role_plan_adjustments: normalizeProjectRolePlanAdjustments(prev["required_role_plan_adjustments"]).map((item) =>
+                                        item.id === adjustment.id
+                                          ? { ...item, rows: item.rows.filter((row) => row.id !== detail.id) }
+                                          : item
+                                      ),
+                                    }))
+                                  }
+                                  className="rounded-md border border-red-200 text-red-600 hover:bg-red-50"
+                                >
+                                  <Trash2 size={14} className="mx-auto" />
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+
+                          <div className="flex flex-wrap gap-2">
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setFormData((prev) => ({
+                                  ...prev,
+                                  required_role_plan_adjustments: normalizeProjectRolePlanAdjustments(prev["required_role_plan_adjustments"]).map((item) =>
+                                    item.id === adjustment.id
+                                      ? { ...item, rows: [...item.rows, { id: createLocalId(), position: "", delta: 1 }] }
+                                      : item
+                                  ),
+                                }))
+                              }
+                              className="inline-flex items-center gap-1.5 rounded-lg border border-sky-200 bg-sky-50 px-3 py-1.5 text-xs font-semibold text-sky-700 hover:bg-sky-100"
+                            >
+                              <Plus size={13} /> เพิ่มตำแหน่งในช่วงนี้
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setFormData((prev) => ({
+                                  ...prev,
+                                  required_role_plan_adjustments: normalizeProjectRolePlanAdjustments(prev["required_role_plan_adjustments"]).filter((item) => item.id !== adjustment.id),
+                                }))
+                              }
+                              className="inline-flex items-center gap-1.5 rounded-lg border border-red-200 bg-red-50 px-3 py-1.5 text-xs font-semibold text-red-700 hover:bg-red-100"
+                            >
+                              <Trash2 size={13} /> ลบช่วงปรับแผนนี้
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 </div>
               )}
@@ -3237,6 +4147,7 @@ function MasterDatabaseApp() {
               }
             >
               <option value="text">ข้อความ</option>
+              <option value="textarea">ข้อความหลายบรรทัด</option>
               <option value="number">ตัวเลข</option>
               <option value="date">วันที่</option>
               <option value="select">ตัวเลือก (Dropdown)</option>

@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { getFirestore, collection, getDocs, doc, updateDoc, deleteField } from 'firebase/firestore';
 import { Trash2, AlertCircle, Loader2, CheckCircle, XCircle } from 'lucide-react';
 import { useAuth } from '../auth/AuthContext';
+import { InfoTooltip } from './InfoTooltip';
 
 export const DeleteProjectStatus = () => {
   const { hasRole } = useAuth();
@@ -110,7 +111,10 @@ export const DeleteProjectStatus = () => {
   return (
     <div className="p-8">
       <div className="max-w-4xl mx-auto">
-        <h1 className="text-2xl font-bold mb-6">ลบข้อมูลสถานะโครงการ</h1>
+        <h1 className="text-2xl font-bold mb-6 flex items-center gap-2">
+          <span>ลบข้อมูลสถานะโครงการ</span>
+          <InfoTooltip content="คำสั่งนี้จะลบ field สถานะโครงการออกจาก employee_data ทุกคน จึงเหมาะกับงานแก้ไขข้อมูลครั้งใหญ่และควรใช้อย่างระมัดระวัง" />
+        </h1>
         
         {/* Warning Banner */}
         <div className="bg-amber-50 border border-amber-200 rounded-lg p-6 mb-6">

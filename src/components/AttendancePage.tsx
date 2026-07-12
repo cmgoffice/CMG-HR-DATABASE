@@ -23,6 +23,7 @@ import {
   ArrowDown,
 } from "lucide-react";
 import { useAuth } from "../auth/AuthContext";
+import { InfoTooltip } from "./InfoTooltip";
 
 interface Employee {
   id: string;
@@ -837,6 +838,23 @@ export const AttendancePage = ({ projectOptions }: { projectOptions: string[] })
 
   return (
     <div className="space-y-3">
+      <div className="bg-white rounded-lg shadow-sm border border-gray-200 px-4 py-3">
+        <h2 className="text-xl font-bold text-gray-800 flex items-center gap-2">
+          <span>Attendance</span>
+          <InfoTooltip
+            content={
+              <div>
+                <div className="font-semibold text-slate-800 mb-1">วิธีอ่านข้อมูล</div>
+                <div>ตารางนี้แสดงสถานะรายวันของพนักงานตามเดือนและโครงการที่เลือก</div>
+                <div>สูตรสรุปหลัก: จำนวนสถานะแต่ละประเภท = นับจาก attendance record รายวันของพนักงาน</div>
+              </div>
+            }
+          />
+        </h2>
+        <p className="mt-1 text-sm text-gray-600">
+          ใช้ติดตามการมา ขาด ลา มาผิดโครงการ และวันหยุดในมุมมองรายเดือน
+        </p>
+      </div>
       {/* ── Controls ── */}
       <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-3">
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
