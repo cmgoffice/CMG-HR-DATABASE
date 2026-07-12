@@ -4039,15 +4039,10 @@ export const ManpowerDashboard = ({
                     />
                   </div>
                   <div className="mt-0.5 text-[22px] leading-none font-black text-emerald-700">{projectData.present}</div>
-                  <div className="mt-1.5 grid grid-cols-2 gap-1 text-[10px] leading-4">
-                    <div className="rounded-md bg-slate-50 px-1.5 py-0.5">
-                      <div className="text-slate-500">กำลังคนประจำ</div>
-                      <div className="font-bold text-slate-800">{projectData.scopedEmployees.length} คน</div>
-                    </div>
-                    <div className="rounded-md bg-emerald-50 px-1.5 py-0.5">
-                      <div className="text-emerald-700">อัตรามา</div>
-                      <div className="font-bold text-emerald-800">{formatPercent(projectData.present, projectData.totalSlots)}</div>
-                    </div>
+                  <div className="mt-1 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[10px] leading-4 text-slate-500">
+                    <span>กำลังคน <span className="font-bold text-slate-800">{projectData.scopedEmployees.length}</span></span>
+                    <span className="text-slate-300">·</span>
+                    <span>อัตรามา <span className="font-bold text-emerald-700">{formatPercent(projectData.present, projectData.totalSlots)}</span></span>
                   </div>
                 </div>
                 <div className="rounded-md border border-emerald-200 bg-emerald-50 p-1">
