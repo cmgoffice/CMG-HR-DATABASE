@@ -3481,11 +3481,11 @@ export const ManpowerDashboard = ({
 
   return (
     <div className="bg-gradient-to-br from-slate-50 via-sky-50 to-rose-50 border border-slate-200 rounded-xl shadow-sm overflow-hidden text-sm">
-      <div className="bg-white/90 border-b border-slate-200 px-4 py-3">
-        <div className="space-y-3">
+      <div className="bg-white/90 border-b border-slate-200 px-3 py-2">
+        <div className="space-y-2">
           <div className="min-w-0">
-            <div className="text-[10px] font-black uppercase tracking-[0.18em] text-sky-500">Dashboard Center</div>
-            <h1 className="text-xl font-black text-slate-900 inline-flex items-center gap-2">
+            <div className="text-[9px] font-black uppercase tracking-[0.18em] text-sky-500">Dashboard Center</div>
+            <h1 className="text-base font-black text-slate-900 inline-flex items-center gap-2">
               <span>HR Dashboard / Project Dashboard</span>
               <InfoTooltip
                 content={
@@ -3497,7 +3497,7 @@ export const ManpowerDashboard = ({
                 }
               />
             </h1>
-            <div className="mt-1 flex flex-wrap gap-2 text-xs text-slate-600">
+            <div className="mt-1 flex flex-wrap gap-1.5 text-[11px] text-slate-600">
               <span className="inline-flex items-center gap-1 rounded border border-sky-200 bg-sky-50 px-2 py-0.5">
                 <Calendar size={12} /> {formatThaiDate(startDate)} - {formatThaiDate(endDate)}
               </span>
@@ -3517,9 +3517,9 @@ export const ManpowerDashboard = ({
             </div>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2 border-t border-slate-100 pt-3">
+          <div className="flex flex-wrap items-center gap-2 border-t border-slate-100 pt-2">
             {canSeeHrDashboard && !showOnlyRiskMonitoring && (
-              <div className="inline-flex h-9 shrink-0 border border-slate-200 rounded-lg overflow-hidden bg-white">
+              <div className="inline-flex h-8 shrink-0 border border-slate-200 rounded-lg overflow-hidden bg-white">
                 <button
                   type="button"
                   onClick={() => setDashboardMode("hr")}
@@ -3536,7 +3536,7 @@ export const ManpowerDashboard = ({
                 </button>
               </div>
             )}
-            <div className="inline-flex h-9 shrink-0 border border-slate-200 rounded-lg overflow-hidden bg-white">
+            <div className="inline-flex h-8 shrink-0 border border-slate-200 rounded-lg overflow-hidden bg-white">
               <button
                 type="button"
                 onClick={() => applyTimePreset("today")}
@@ -3576,7 +3576,7 @@ export const ManpowerDashboard = ({
                   setTimePreset("custom");
                   setStartDate(e.target.value);
                 }}
-                className="h-9 w-[150px] px-3 border border-slate-200 rounded-lg bg-white text-xs focus:ring-2 focus:ring-sky-300 outline-none"
+                className="h-8 w-[150px] px-3 border border-slate-200 rounded-lg bg-white text-xs focus:ring-2 focus:ring-sky-300 outline-none"
               />
               <span className="text-xs text-slate-400">ถึง</span>
               <input
@@ -3587,7 +3587,7 @@ export const ManpowerDashboard = ({
                   setTimePreset("custom");
                   setEndDate(e.target.value);
                 }}
-                className="h-9 w-[150px] px-3 border border-slate-200 rounded-lg bg-white text-xs focus:ring-2 focus:ring-sky-300 outline-none"
+                className="h-8 w-[150px] px-3 border border-slate-200 rounded-lg bg-white text-xs focus:ring-2 focus:ring-sky-300 outline-none"
               />
             </div>
             {/* ช่องเลือกโครงการ: ตรึงตำแหน่งขวาเสมอและ reserve พื้นที่กัน layout เด้งตอนสลับ dashboard */}
@@ -3597,7 +3597,7 @@ export const ManpowerDashboard = ({
                   <select
                     value={selectedProject}
                     onChange={(e) => setSelectedProject(e.target.value)}
-                    className="h-9 w-full px-3 border border-slate-200 rounded-lg bg-white text-xs focus:ring-2 focus:ring-sky-300 outline-none truncate"
+                    className="h-8 w-full px-3 border border-slate-200 rounded-lg bg-white text-xs focus:ring-2 focus:ring-sky-300 outline-none truncate"
                   >
                     {filteredProjectOptions.map((project) => (
                       <option key={project} value={project}>
