@@ -99,7 +99,7 @@ export interface CoverageBarDatum {
 
 export const CoverageCompareChart = ({
   data,
-  height = 240,
+  height,
   yAxisWidth = 120,
   onBarClick,
 }: {
@@ -110,20 +110,21 @@ export const CoverageCompareChart = ({
 }) => {
   if (data.length === 0) {
     return (
-      <div className="flex items-center justify-center text-sm text-slate-400" style={{ height }}>
+      <div className="flex items-center justify-center text-sm text-slate-400" style={{ height: height ?? 80 }}>
         ไม่มีข้อมูลในช่วงนี้
       </div>
     );
   }
+  const chartHeight = height ?? Math.max(80, 26 + data.length * 28);
   return (
-    <div style={{ height }}>
+    <div style={{ height: chartHeight }}>
       <ResponsiveContainer width="100%" height="100%">
         <BarChart
           data={data}
           layout="vertical"
           margin={{ left: 4, right: 34, top: 4, bottom: 4 }}
-          barGap={2}
-          barCategoryGap={12}
+          barGap={1}
+          barCategoryGap="22%"
         >
           <CartesianGrid horizontal={false} stroke="#f1f5f9" />
           <XAxis type="number" hide />
@@ -148,13 +149,14 @@ export const CoverageCompareChart = ({
             iconSize={9}
             formatter={(value) => <span style={{ fontSize: 11, color: "#475569" }}>{value}</span>}
           />
-          <Bar dataKey="target" name="ต้องการ (แผน)" fill="#cbd5e1" radius={[0, 4, 4, 0]}>
+          <Bar dataKey="target" name="ต้องการ (แผน)" fill="#cbd5e1" radius={[0, 3, 3, 0]} maxBarSize={11}>
             <LabelList dataKey="target" position="right" style={{ fontSize: 9, fill: "#94a3b8" }} />
           </Bar>
           <Bar
             dataKey="actual"
             name="มาจริง"
-            radius={[0, 4, 4, 0]}
+            radius={[0, 3, 3, 0]}
+            maxBarSize={11}
             onClick={(entry: any) => onBarClick && entry && onBarClick(entry.fullName)}
             cursor={onBarClick ? "pointer" : undefined}
           >
