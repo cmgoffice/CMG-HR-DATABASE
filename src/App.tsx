@@ -206,6 +206,7 @@ import {
   ArrowUp,
   ArrowDown,
   RefreshCw,
+  Menu,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
@@ -500,11 +501,18 @@ type SidebarMenuItem = SidebarLinkItem | SidebarGroupItem | SidebarDividerItem;
 
 const hasSubMenu = (item: SidebarMenuItem): item is SidebarGroupItem => Array.isArray(item.sub);
 
-const Sidebar = ({ activeModule, setActiveModule, dbConnected, sidebarOpen, onToggleSidebar }: {
+const Sidebar = ({ activeModule, setActiveModule, dbConnected, sidebarOpen, onToggleSidebar, isMobile }: {
   activeModule: string; setActiveModule: (id: string) => void; dbConnected: boolean;
-  sidebarOpen: boolean; onToggleSidebar: () => void;
+  sidebarOpen: boolean; onToggleSidebar: () => void; isMobile: boolean;
 }) => {
   const { userProfile, firebaseUser, hasRole, logout } = useAuth();
+  // On mobile the sidebar behaves as an off-canvas drawer: it is always shown fully
+  // expanded (with labels) when open, and hidden off-screen when closed.
+  const expanded = isMobile ? true : sidebarOpen;
+  const selectAndClose = (id: string) => {
+    setActiveModule(id);
+    if (isMobile) onToggleSidebar();
+  };
   const [expandedMenus, setExpandedMenus] = useState<Record<string, boolean>>({});
   const [pendingCount, setPendingCount] = useState(0);
   const db = getFirestore(app);
@@ -576,43 +584,43 @@ const Sidebar = ({ activeModule, setActiveModule, dbConnected, sidebarOpen, onTo
         <div className="border-t border-slate-800 my-2 mx-2" />
       ) : !hasSubMenu(item) ? (
         <button
-          onClick={() => setActiveModule(item.id)}
+          onClick={() => selectAndClose(item.id)}
           className={`w-full flex items-center rounded-lg transition-colors ${
-            sidebarOpen ? "gap-3 px-4 py-3" : "justify-center p-3"
+            expanded ? "gap-3 px-4 py-3" : "justify-center p-3"
           } ${
             activeModule === item.id ? "bg-blue-600 text-white shadow-md" : "text-slate-300 hover:bg-slate-800"
           }`}
-          title={!sidebarOpen ? item.label : undefined}
+          title={!expanded ? item.label : undefined}
         >
           {item.icon && <item.icon size={20} className="shrink-0" />}
-          {sidebarOpen && <span className="text-sm font-medium truncate">{item.label}</span>}
-          {sidebarOpen && item.badge && <span className="ml-auto bg-red-500 text-white text-xs font-bold px-2 py-0.5 rounded-full">{item.badge}</span>}
-          {!sidebarOpen && item.badge && <span className="absolute top-1 right-1 w-3 h-3 bg-red-500 rounded-full border-2 border-slate-900"></span>}
+          {expanded && <span className="text-sm font-medium truncate">{item.label}</span>}
+          {expanded && item.badge && <span className="ml-auto bg-red-500 text-white text-xs font-bold px-2 py-0.5 rounded-full">{item.badge}</span>}
+          {!expanded && item.badge && <span className="absolute top-1 right-1 w-3 h-3 bg-red-500 rounded-full border-2 border-slate-900"></span>}
         </button>
       ) : (
         <div className="space-y-1">
           <button
-            onClick={() => sidebarOpen ? toggleMenu(item.id) : onToggleSidebar()}
+            onClick={() => expanded ? toggleMenu(item.id) : onToggleSidebar()}
             className={`w-full flex items-center rounded-lg transition-colors hover:bg-slate-800 ${
-              sidebarOpen ? "justify-between px-4 py-3" : "justify-center p-3"
+              expanded ? "justify-between px-4 py-3" : "justify-center p-3"
             } ${
               expandedMenus[item.id] ? "text-white bg-slate-800/50" : "text-slate-400"
             }`}
-            title={!sidebarOpen ? item.label : undefined}
+            title={!expanded ? item.label : undefined}
           >
-            <div className={`flex items-center ${sidebarOpen ? "gap-3" : ""}`}>
+            <div className={`flex items-center ${expanded ? "gap-3" : ""}`}>
               {item.icon && <item.icon size={20} className="shrink-0" />}
-              {sidebarOpen && <span className="text-sm font-semibold truncate">{item.label}</span>}
+              {expanded && <span className="text-sm font-semibold truncate">{item.label}</span>}
             </div>
-            {sidebarOpen && (expandedMenus[item.id] ? <ChevronDown size={16} /> : <ChevronRight size={16} />)}
+            {expanded && (expandedMenus[item.id] ? <ChevronDown size={16} /> : <ChevronRight size={16} />)}
           </button>
 
-          {sidebarOpen && expandedMenus[item.id] && (
+          {expanded && expandedMenus[item.id] && (
             <div className="pl-12 space-y-1 border-l-2 border-slate-800 ml-6 animate-fade-in-down">
               {item.sub.map((subItem: SidebarSubItem) => (
                 <button
                   key={subItem.id}
-                  onClick={() => setActiveModule(subItem.id)}
+                  onClick={() => selectAndClose(subItem.id)}
                   className={`w-full text-left px-3 py-2 text-sm rounded-md transition-colors ${
                     activeModule === subItem.id ? "text-blue-400 font-medium bg-slate-800" : "text-slate-500 hover:text-slate-300"
                   }`}
@@ -635,22 +643,22 @@ const Sidebar = ({ activeModule, setActiveModule, dbConnected, sidebarOpen, onTo
     return (
       <div className="mb-2" key={sectionKey}>
         <button
-          onClick={() => sidebarOpen ? toggleMenu(sectionKey) : onToggleSidebar()}
+          onClick={() => expanded ? toggleMenu(sectionKey) : onToggleSidebar()}
           className={`w-full flex items-center rounded-lg transition-colors hover:bg-slate-800 ${
-            sidebarOpen ? "justify-between px-4 py-3" : "justify-center p-3"
+            expanded ? "justify-between px-4 py-3" : "justify-center p-3"
           } ${
             expandedMenus[sectionKey] ? "text-white bg-slate-800/50" : "text-slate-300"
           }`}
-          title={!sidebarOpen ? title : undefined}
+          title={!expanded ? title : undefined}
         >
-          <div className={`flex items-center ${sidebarOpen ? "gap-3" : ""}`}>
+          <div className={`flex items-center ${expanded ? "gap-3" : ""}`}>
             <SectionIcon size={20} className="shrink-0" />
-            {sidebarOpen && <span className="text-sm font-semibold truncate">{title}</span>}
+            {expanded && <span className="text-sm font-semibold truncate">{title}</span>}
           </div>
-          {sidebarOpen && (expandedMenus[sectionKey] ? <ChevronDown size={16} /> : <ChevronRight size={16} />)}
+          {expanded && (expandedMenus[sectionKey] ? <ChevronDown size={16} /> : <ChevronRight size={16} />)}
         </button>
 
-        {sidebarOpen && expandedMenus[sectionKey] && (
+        {expanded && expandedMenus[sectionKey] && (
           <div className="mt-1 pl-4 space-y-1 border-l-2 border-slate-800 ml-6 animate-fade-in-down">
             {items.map((item) => renderMenuItem(item))}
           </div>
@@ -715,21 +723,54 @@ const Sidebar = ({ activeModule, setActiveModule, dbConnected, sidebarOpen, onTo
   const isConnected = firebaseUser || dbConnected;
 
   return (
-    <div
-      className="bg-slate-900 text-white flex flex-col h-screen fixed left-0 top-0 overflow-y-auto overflow-x-hidden z-10 shadow-xl transition-[width] duration-200 ease-in-out"
-      style={{ width: sidebarOpen ? SIDEBAR_WIDTH : SIDEBAR_COLLAPSED_WIDTH }}
-    >
+    <>
+      {/* Mobile top bar with hamburger (only visible on small screens) */}
+      {isMobile && (
+        <div className="fixed top-0 left-0 right-0 h-12 z-30 bg-slate-900 text-white flex items-center gap-2 px-3 shadow-md">
+          <button
+            type="button"
+            onClick={onToggleSidebar}
+            className="p-1.5 rounded-lg text-slate-200 hover:bg-slate-800 transition-colors"
+            aria-label="เปิดเมนู"
+          >
+            <Menu size={22} />
+          </button>
+          <div className="relative shrink-0">
+            <Database className="text-blue-400" size={20} />
+            <div className={`absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full border-2 border-slate-900 ${isConnected ? "bg-green-500" : "bg-red-500"}`} />
+          </div>
+          <span className="font-semibold text-sm truncate">CMG Master Database</span>
+        </div>
+      )}
+
+      {/* Backdrop for mobile drawer */}
+      {isMobile && sidebarOpen && (
+        <div
+          className="fixed inset-0 z-30 bg-black/50 backdrop-blur-[1px]"
+          onClick={onToggleSidebar}
+          aria-hidden="true"
+        />
+      )}
+
+      <div
+        className={`bg-slate-900 text-white flex flex-col h-screen fixed left-0 top-0 overflow-y-auto overflow-x-hidden shadow-xl transition-[width,transform] duration-200 ease-in-out ${
+          isMobile
+            ? `z-40 ${sidebarOpen ? "translate-x-0" : "-translate-x-full"}`
+            : "z-10 translate-x-0"
+        }`}
+        style={{ width: isMobile ? SIDEBAR_WIDTH : sidebarOpen ? SIDEBAR_WIDTH : SIDEBAR_COLLAPSED_WIDTH }}
+      >
       {/* Header */}
-      <div className={`border-b border-slate-700 flex items-center gap-3 shrink-0 ${sidebarOpen ? "p-6" : "p-3 justify-center"}`}>
+      <div className={`border-b border-slate-700 flex items-center gap-3 shrink-0 ${expanded ? "p-6" : "p-3 justify-center"}`}>
         <div className="relative shrink-0">
-          <Database className="text-blue-400" size={sidebarOpen ? 28 : 24} />
+          <Database className="text-blue-400" size={expanded ? 28 : 24} />
           <div
             className={`absolute -top-1 -right-1 w-3 h-3 rounded-full border-2 border-slate-900 ${
               isConnected ? "bg-green-500" : "bg-red-500"
             }`}
           />
         </div>
-        {sidebarOpen && (
+        {expanded && (
           <div className="min-w-0">
             <h1 className="font-bold text-base leading-tight">
               Master Database
@@ -745,14 +786,14 @@ const Sidebar = ({ activeModule, setActiveModule, dbConnected, sidebarOpen, onTo
       </div>
 
       {/* Toggle button - top */}
-      <div className={`shrink-0 flex ${sidebarOpen ? "justify-end px-2 pt-2" : "justify-center p-2"}`}>
+      <div className={`shrink-0 flex ${expanded ? "justify-end px-2 pt-2" : "justify-center p-2"}`}>
         <button
           type="button"
           onClick={onToggleSidebar}
           className="p-2 rounded-lg text-slate-400 hover:bg-slate-800 hover:text-white transition-colors"
-          title={sidebarOpen ? "ย่อเมนู" : "ขยายเมนู"}
+          title={isMobile ? "ปิดเมนู" : sidebarOpen ? "ย่อเมนู" : "ขยายเมนู"}
         >
-          {sidebarOpen ? <PanelLeft size={20} /> : <PanelLeftClose size={20} />}
+          {isMobile ? <X size={20} /> : sidebarOpen ? <PanelLeft size={20} /> : <PanelLeftClose size={20} />}
         </button>
       </div>
 
@@ -765,8 +806,8 @@ const Sidebar = ({ activeModule, setActiveModule, dbConnected, sidebarOpen, onTo
         {renderSection("reporting_section", "รายงาน", Activity, reportingItems)}
       </nav>
 
-      <div className={`border-t border-slate-800 shrink-0 ${sidebarOpen ? "p-4" : "p-2 flex justify-center"}`}>
-        {sidebarOpen ? (
+      <div className={`border-t border-slate-800 shrink-0 ${expanded ? "p-4" : "p-2 flex justify-center"}`}>
+        {expanded ? (
           <div className="flex items-center gap-3 text-slate-400 text-sm w-full">
             {userProfile?.photoURL ? (
               <img src={userProfile.photoURL} alt="Profile" className="w-10 h-10 rounded-full object-cover border border-slate-700 shrink-0" />
@@ -790,7 +831,8 @@ const Sidebar = ({ activeModule, setActiveModule, dbConnected, sidebarOpen, onTo
           )
         )}
       </div>
-    </div>
+      </div>
+    </>
   );
 };
 
@@ -1012,6 +1054,20 @@ function MasterDatabaseApp() {
   const [activeModule, setActiveModule] = useState(""); // เริ่มต้นเป็นว่าง ไม่โหลดจนกว่าจะกดเมนู
   const [dbConnected, setDbConnected] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [isMobile, setIsMobile] = useState<boolean>(
+    () => typeof window !== "undefined" && window.matchMedia("(max-width: 1023px)").matches
+  );
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const mq = window.matchMedia("(max-width: 1023px)");
+    const handler = (e: MediaQueryListEvent) => {
+      setIsMobile(e.matches);
+      // Close the drawer automatically when growing back to desktop
+      if (!e.matches) setSidebarOpen(false);
+    };
+    mq.addEventListener("change", handler);
+    return () => mq.removeEventListener("change", handler);
+  }, []);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
   const [dataLoading, setDataLoading] = useState(false);
@@ -2778,10 +2834,11 @@ function MasterDatabaseApp() {
           dbConnected={dbConnected}
           sidebarOpen={sidebarOpen}
           onToggleSidebar={() => setSidebarOpen((o) => !o)}
+          isMobile={isMobile}
         />
         <main
           className="flex-1 flex flex-col items-center justify-center min-w-0 transition-[margin-left] duration-200 ease-in-out"
-          style={{ marginLeft: sidebarOpen ? SIDEBAR_WIDTH : SIDEBAR_COLLAPSED_WIDTH }}
+          style={{ marginLeft: isMobile ? 0 : sidebarOpen ? SIDEBAR_WIDTH : SIDEBAR_COLLAPSED_WIDTH }}
         >
           <div className="text-center p-12">
             <Database className="text-blue-200 mx-auto mb-6" size={72} />
@@ -2802,10 +2859,11 @@ function MasterDatabaseApp() {
           dbConnected={dbConnected}
           sidebarOpen={sidebarOpen}
           onToggleSidebar={() => setSidebarOpen((o) => !o)}
+          isMobile={isMobile}
         />
         <main
-          className="flex-1 p-8 min-w-0 overflow-x-hidden transition-[margin-left] duration-200 ease-in-out"
-          style={{ marginLeft: sidebarOpen ? SIDEBAR_WIDTH : SIDEBAR_COLLAPSED_WIDTH }}
+          className="flex-1 p-4 pt-16 sm:p-6 lg:p-8 lg:pt-8 min-w-0 overflow-x-hidden transition-[margin-left] duration-200 ease-in-out"
+          style={{ marginLeft: isMobile ? 0 : sidebarOpen ? SIDEBAR_WIDTH : SIDEBAR_COLLAPSED_WIDTH }}
         >
           <header className="mb-8">
             <h1 className="text-3xl font-bold text-gray-800 flex items-center gap-3">
@@ -2905,10 +2963,11 @@ function MasterDatabaseApp() {
         dbConnected={dbConnected}
         sidebarOpen={sidebarOpen}
         onToggleSidebar={() => setSidebarOpen((o) => !o)}
+          isMobile={isMobile}
       />
       <main
-        className="flex-1 flex flex-col px-6 pt-4 pb-4 min-w-0 overflow-x-hidden transition-[margin-left] duration-200 ease-in-out h-screen"
-        style={{ marginLeft: sidebarOpen ? SIDEBAR_WIDTH : SIDEBAR_COLLAPSED_WIDTH }}
+        className="flex-1 flex flex-col px-3 pt-14 pb-3 sm:px-4 lg:px-6 lg:pt-4 lg:pb-4 min-w-0 overflow-x-hidden transition-[margin-left] duration-200 ease-in-out h-screen"
+        style={{ marginLeft: isMobile ? 0 : sidebarOpen ? SIDEBAR_WIDTH : SIDEBAR_COLLAPSED_WIDTH }}
       >
         <header className="mb-3 flex flex-wrap items-center gap-3 rounded-xl border border-gray-200 bg-white px-3 py-2 shadow-sm">
           <h1 className="text-base font-bold text-gray-800 whitespace-nowrap flex items-center gap-2 shrink-0">

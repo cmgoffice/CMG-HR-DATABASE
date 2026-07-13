@@ -14,6 +14,20 @@ import {
   LabelList,
 } from "recharts";
 
+const useIsMobile = (query = "(max-width: 1023px)"): boolean => {
+  const [matches, setMatches] = React.useState<boolean>(
+    () => typeof window !== "undefined" && window.matchMedia(query).matches
+  );
+  React.useEffect(() => {
+    if (typeof window === "undefined") return;
+    const mq = window.matchMedia(query);
+    const handler = (e: MediaQueryListEvent) => setMatches(e.matches);
+    mq.addEventListener("change", handler);
+    return () => mq.removeEventListener("change", handler);
+  }, [query]);
+  return matches;
+};
+
 export interface DonutDatum {
   name: string;
   value: number;
@@ -24,7 +38,7 @@ export const DonutChart = ({
   data,
   centerValue,
   centerSub,
-  height = 220,
+  height,
   unit = "คน",
 }: {
   data: DonutDatum[];
@@ -33,16 +47,18 @@ export const DonutChart = ({
   height?: number;
   unit?: string;
 }) => {
+  const isMobile = useIsMobile();
+  const resolvedHeight = height ?? (isMobile ? 165 : 220);
   const filtered = data.filter((d) => d.value > 0);
   if (filtered.length === 0) {
     return (
-      <div className="flex items-center justify-center text-sm text-slate-400" style={{ height }}>
+      <div className="flex items-center justify-center text-sm text-slate-400" style={{ height: resolvedHeight }}>
         ไม่มีข้อมูลในช่วงนี้
       </div>
     );
   }
   return (
-    <div className="relative" style={{ height }}>
+    <div className="relative" style={{ height: resolvedHeight }}>
       <ResponsiveContainer width="100%" height="100%">
         <PieChart>
           <Pie
@@ -75,8 +91,8 @@ export const DonutChart = ({
         className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center"
         style={{ paddingBottom: 28 }}
       >
-        <div className="text-2xl font-black leading-none text-slate-900">{centerValue}</div>
-        {centerSub && <div className="mt-1 text-[11px] text-slate-500">{centerSub}</div>}
+        <div className="text-xl lg:text-2xl font-black leading-none text-slate-900">{centerValue}</div>
+        {centerSub && <div className="mt-1 text-[10px] lg:text-[11px] text-slate-500">{centerSub}</div>}
       </div>
     </div>
   );
@@ -180,10 +196,10 @@ export interface RankedBarDatum {
 
 export const RankedBarChart = ({
   data,
-  height = 240,
+  height,
   maxValue = 100,
   valueSuffix = "",
-  yAxisWidth = 130,
+  yAxisWidth,
   onBarClick,
 }: {
   data: RankedBarDatum[];
@@ -193,15 +209,18 @@ export const RankedBarChart = ({
   yAxisWidth?: number;
   onBarClick?: (fullName: string) => void;
 }) => {
+  const isMobile = useIsMobile();
+  const resolvedHeight = height ?? (isMobile ? 200 : 240);
+  const resolvedYAxisWidth = yAxisWidth ?? (isMobile ? 96 : 130);
   if (data.length === 0) {
     return (
-      <div className="flex items-center justify-center text-sm text-slate-400" style={{ height }}>
+      <div className="flex items-center justify-center text-sm text-slate-400" style={{ height: resolvedHeight }}>
         ไม่มีข้อมูลในช่วงนี้
       </div>
     );
   }
   return (
-    <div style={{ height }}>
+    <div style={{ height: resolvedHeight }}>
       <ResponsiveContainer width="100%" height="100%">
         <BarChart
           data={data}
@@ -214,7 +233,7 @@ export const RankedBarChart = ({
           <YAxis
             type="category"
             dataKey="name"
-            width={yAxisWidth}
+            width={resolvedYAxisWidth}
             tick={{ fontSize: 11, fill: "#475569" }}
             tickLine={false}
             axisLine={false}

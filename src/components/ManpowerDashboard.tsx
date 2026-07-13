@@ -1,5 +1,6 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { collection, getFirestore, onSnapshot } from "firebase/firestore";
+import html2canvas from "html2canvas";
 import {
   AlertCircle,
   BarChart3,
@@ -7,9 +8,12 @@ import {
   Calendar,
   CheckCircle,
   Clock,
+  Download,
   Loader2,
+  RotateCw,
   Table2,
   Users,
+  X,
   XCircle,
 } from "lucide-react";
 import { useAuth } from "../auth/AuthContext";
@@ -683,20 +687,20 @@ const MetricCard = ({
   onClick?: () => void;
 }) => (
   <div
-    className={`bg-white rounded-lg border border-slate-200 px-2.5 py-2 shadow-sm ${onClick ? "cursor-pointer transition-all hover:-translate-y-0.5 hover:border-sky-300 hover:shadow-md" : ""}`}
+    className={`bg-white rounded-lg border border-slate-200 px-2 py-1.5 lg:px-2.5 lg:py-2 shadow-sm ${onClick ? "cursor-pointer transition-all hover:-translate-y-0.5 hover:border-sky-300 hover:shadow-md" : ""}`}
     onClick={onClick}
     role={onClick ? "button" : undefined}
   >
-    <div className="flex items-start justify-between gap-2">
+    <div className="flex items-start justify-between gap-1.5 lg:gap-2">
       <div className="min-w-0">
-        <div className="text-[10px] font-black uppercase tracking-wide text-slate-500 inline-flex items-center gap-1">
+        <div className="text-[9px] lg:text-[10px] font-black uppercase tracking-wide text-slate-500 inline-flex items-center gap-1">
           <span>{title}</span>
           {tooltip && <InfoTooltip content={tooltip} iconSize={11} />}
         </div>
-        <div className={`mt-0.5 text-[22px] leading-none font-black ${accent}`}>{value}</div>
-        {subvalue && <div className="mt-0.5 text-[10px] leading-4 text-slate-500">{subvalue}</div>}
+        <div className={`mt-0.5 text-base lg:text-[22px] leading-none font-black ${accent}`}>{value}</div>
+        {subvalue && <div className="mt-0.5 text-[9px] lg:text-[10px] leading-tight lg:leading-4 text-slate-500">{subvalue}</div>}
       </div>
-      <div className="rounded-md bg-slate-50 border border-slate-200 p-1">
+      <div className="hidden lg:block rounded-md bg-slate-50 border border-slate-200 p-1">
         <Icon size={14} className={accent} />
       </div>
     </div>
@@ -717,19 +721,19 @@ const SectionCard = ({
   headerAction?: React.ReactNode;
 }) => (
   <section className="bg-white rounded-lg border border-slate-200 shadow-sm overflow-hidden">
-    <div className="px-3 py-2 border-b border-slate-100">
-      <div className="flex items-start justify-between gap-3">
+    <div className="px-2.5 py-1.5 lg:px-3 lg:py-2 border-b border-slate-100">
+      <div className="flex items-start justify-between gap-2 lg:gap-3">
         <div className="min-w-0">
-          <h3 className="text-[13px] font-black text-slate-900 inline-flex items-center gap-1.5">
+          <h3 className="text-xs lg:text-[13px] font-black text-slate-900 inline-flex items-center gap-1.5">
             <span>{title}</span>
             {tooltip && <InfoTooltip content={tooltip} iconSize={13} />}
           </h3>
-          {subtitle && <p className="mt-0.5 text-[11px] leading-4 text-slate-500">{subtitle}</p>}
+          {subtitle && <p className="mt-0.5 text-[10px] lg:text-[11px] leading-tight lg:leading-4 text-slate-500">{subtitle}</p>}
         </div>
         {headerAction && <div className="shrink-0">{headerAction}</div>}
       </div>
     </div>
-    <div className="p-3">{children}</div>
+    <div className="p-2 lg:p-3">{children}</div>
   </section>
 );
 
@@ -750,20 +754,20 @@ const DashboardModal = ({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4">
       <div className="w-full max-w-5xl overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl">
-        <div className="flex items-start justify-between gap-4 border-b border-slate-200 px-5 py-4">
-          <div>
-            <h3 className="text-lg font-black text-slate-900">{title}</h3>
-            {subtitle && <p className="mt-1 text-sm text-slate-600">{subtitle}</p>}
+        <div className="flex items-start justify-between gap-3 border-b border-slate-200 px-4 py-3 sm:px-5 sm:py-4">
+          <div className="min-w-0">
+            <h3 className="text-base sm:text-lg font-black text-slate-900">{title}</h3>
+            {subtitle && <p className="mt-1 text-xs sm:text-sm text-slate-600">{subtitle}</p>}
           </div>
           <button
             type="button"
             onClick={onClose}
-            className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-50"
+            className="shrink-0 rounded-lg border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-50"
           >
             ปิด
           </button>
         </div>
-        <div className="max-h-[80vh] overflow-y-auto px-5 py-4">{children}</div>
+        <div className="max-h-[80vh] overflow-y-auto px-4 py-3 sm:px-5 sm:py-4">{children}</div>
       </div>
     </div>
   );
@@ -787,20 +791,20 @@ const DashboardSidePanel = ({
     <div className="fixed inset-0 z-50 bg-slate-900/40">
       <div className="absolute inset-0" onClick={onClose} />
       <div className="absolute right-0 top-0 h-full w-full max-w-2xl overflow-hidden border-l border-slate-200 bg-white shadow-2xl">
-        <div className="flex items-start justify-between gap-4 border-b border-slate-200 px-5 py-4">
-          <div>
-            <h3 className="text-lg font-black text-slate-900">{title}</h3>
-            {subtitle && <p className="mt-1 text-sm text-slate-600">{subtitle}</p>}
+        <div className="flex items-start justify-between gap-3 border-b border-slate-200 px-4 py-3 sm:px-5 sm:py-4">
+          <div className="min-w-0">
+            <h3 className="text-base sm:text-lg font-black text-slate-900">{title}</h3>
+            {subtitle && <p className="mt-1 text-xs sm:text-sm text-slate-600">{subtitle}</p>}
           </div>
           <button
             type="button"
             onClick={onClose}
-            className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-50"
+            className="shrink-0 rounded-lg border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-50"
           >
             ปิด
           </button>
         </div>
-        <div className="h-[calc(100%-77px)] overflow-y-auto px-5 py-4">{children}</div>
+        <div className="h-[calc(100%-69px)] sm:h-[calc(100%-77px)] overflow-y-auto px-4 py-3 sm:px-5 sm:py-4">{children}</div>
       </div>
     </div>
   );
@@ -904,6 +908,9 @@ export const ManpowerDashboard = ({
   const [sidePanel, setSidePanel] = useState<null | { key: string; title: string; subtitle?: string; selectedKey?: string }>(null);
   const [expandedTypeBreakdown, setExpandedTypeBreakdown] = useState<Set<string>>(new Set());
   const [expandedPositionBreakdown, setExpandedPositionBreakdown] = useState<Set<string>>(new Set());
+  const dashboardRef = useRef<HTMLDivElement>(null);
+  const [exporting, setExporting] = useState(false);
+  const [showLandscapeHint, setShowLandscapeHint] = useState(false);
   const [riskSeverityFilter, setRiskSeverityFilter] = useState<"all" | RiskSeverity>("all");
   const [riskProjectFilter, setRiskProjectFilter] = useState("all");
   const [riskEmployeeTypeFilter, setRiskEmployeeTypeFilter] = useState("all");
@@ -938,6 +945,71 @@ export const ManpowerDashboard = ({
       const range = getMonthPresetRange();
       setStartDate(range.start);
       setEndDate(range.end);
+    }
+  };
+
+  // แนะนำให้หมุนแนวนอนเมื่อเปิด Dashboard บนมือถือแนวตั้ง (แสดงครั้งเดียวต่อ session)
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const isPortraitMobile = window.matchMedia("(max-width: 1023px) and (orientation: portrait)").matches;
+    let dismissed = false;
+    try {
+      dismissed = sessionStorage.getItem("dashLandscapeHintDismissed") === "1";
+    } catch {
+      dismissed = false;
+    }
+    if (isPortraitMobile && !dismissed) setShowLandscapeHint(true);
+  }, []);
+
+  const dismissLandscapeHint = () => {
+    setShowLandscapeHint(false);
+    try {
+      sessionStorage.setItem("dashLandscapeHintDismissed", "1");
+    } catch {
+      /* ignore */
+    }
+  };
+
+  // ส่งออก Dashboard เป็นรูปภาพ โดยบังคับ render ด้วย viewport กว้างแบบ desktop
+  const handleExportDashboard = async () => {
+    const node = dashboardRef.current;
+    if (!node || exporting) return;
+    setExporting(true);
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 60));
+      const canvas = await html2canvas(node, {
+        backgroundColor: "#f8fafc",
+        scale: 2,
+        useCORS: true,
+        logging: false,
+        windowWidth: 1440,
+        windowHeight: Math.max(node.scrollHeight, 900),
+        scrollX: 0,
+        scrollY: 0,
+        onclone: (clonedDoc) => {
+          // html2canvas ตัดตัวอักษรไทยด้านบนเมื่อ line-height แคบ (leading-none) — คลายให้กว้างขึ้นเฉพาะตอน export
+          const style = clonedDoc.createElement("style");
+          style.textContent = `
+            [data-export-root] * { line-height: 1.5 !important; }
+            [data-export-root] .leading-none,
+            [data-export-root] .leading-tight,
+            [data-export-root] .leading-4 { line-height: 1.5 !important; }
+          `;
+          clonedDoc.head.appendChild(style);
+        },
+      });
+      const modeLabel = dashboardMode === "project" ? selectedProjectLabel : "HR";
+      const safeLabel = String(modeLabel).replace(/[^\w\u0E00-\u0E7F]+/g, "_").slice(0, 40);
+      const dateTag = startDate === endDate ? startDate : `${startDate}_${endDate}`;
+      const link = document.createElement("a");
+      link.download = `dashboard-${safeLabel}-${dateTag}.png`;
+      link.href = canvas.toDataURL("image/png");
+      link.click();
+    } catch (error) {
+      console.error("export dashboard failed", error);
+      window.alert("ส่งออกไม่สำเร็จ กรุณาลองใหม่อีกครั้ง");
+    } finally {
+      setExporting(false);
     }
   };
 
@@ -3480,12 +3552,12 @@ export const ManpowerDashboard = ({
     isSingleDayView ? projectData.followUpProjectEmployeeStatusRows : projectData.projectEmployeeStatusRows;
 
   return (
-    <div className="bg-gradient-to-br from-slate-50 via-sky-50 to-rose-50 border border-slate-200 rounded-xl shadow-sm overflow-hidden text-sm">
-      <div className="bg-white/90 border-b border-slate-200 px-3 py-2">
-        <div className="space-y-2">
+    <div ref={dashboardRef} data-export-root className="bg-gradient-to-br from-slate-50 via-sky-50 to-rose-50 border border-slate-200 rounded-xl shadow-sm overflow-hidden text-sm">
+      <div className="bg-white/90 border-b border-slate-200 px-2 py-1.5 lg:px-3 lg:py-2">
+        <div className="space-y-1.5 lg:space-y-2">
           <div className="min-w-0">
             <div className="text-[9px] font-black uppercase tracking-[0.18em] text-sky-500">Dashboard Center</div>
-            <h1 className="text-base font-black text-slate-900 inline-flex items-center gap-2">
+            <h1 className="text-sm lg:text-base font-black text-slate-900 inline-flex items-center gap-2">
               <span>HR Dashboard / Project Dashboard</span>
               <InfoTooltip
                 content={
@@ -3497,7 +3569,7 @@ export const ManpowerDashboard = ({
                 }
               />
             </h1>
-            <div className="mt-1 flex flex-wrap gap-1.5 text-[11px] text-slate-600">
+            <div className="mt-1 flex flex-wrap gap-1 lg:gap-1.5 text-[10px] lg:text-[11px] text-slate-600">
               <span className="inline-flex items-center gap-1 rounded border border-sky-200 bg-sky-50 px-2 py-0.5">
                 <Calendar size={12} /> {formatThaiDate(startDate)} - {formatThaiDate(endDate)}
               </span>
@@ -3566,8 +3638,19 @@ export const ManpowerDashboard = ({
                 เลือกวันที่
               </button>
             </div>
+            <button
+              type="button"
+              data-html2canvas-ignore="true"
+              onClick={handleExportDashboard}
+              disabled={exporting}
+              title="ส่งออก Dashboard เป็นรูปภาพ (จัดหน้าแบบ desktop)"
+              className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-xs font-bold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {exporting ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
+              {exporting ? "กำลังส่งออก..." : "ส่งออกรูป"}
+            </button>
             {/* ช่องวันที่: reserve พื้นที่ไว้เสมอเพื่อกัน layout เด้ง เปิดใช้งานเฉพาะโหมดเลือกวันที่ */}
-            <div className={`flex shrink-0 items-center gap-2 transition-opacity ${timePreset === "custom" ? "opacity-100" : "pointer-events-none opacity-0"}`}>
+            <div className={`shrink-0 items-center gap-2 transition-opacity ${timePreset === "custom" ? "flex opacity-100" : "hidden lg:flex pointer-events-none lg:opacity-0"}`}>
               <input
                 type="date"
                 value={startDate}
@@ -3592,7 +3675,7 @@ export const ManpowerDashboard = ({
             </div>
             {/* ช่องเลือกโครงการ: ตรึงตำแหน่งขวาเสมอและ reserve พื้นที่กัน layout เด้งตอนสลับ dashboard */}
             {!showOnlyRiskMonitoring && (
-              <div className="ml-auto w-[240px] shrink-0">
+              <div className="w-full sm:ml-auto sm:w-[240px] shrink-0">
                 {(dashboardMode === "project" || !canSeeHrDashboard) && (
                   <select
                     value={selectedProject}
@@ -3615,10 +3698,10 @@ export const ManpowerDashboard = ({
       {!dateRange.length ? (
         <div className="p-8 text-center text-rose-600 font-medium">กรุณาเลือกช่วงวันที่ให้ถูกต้อง</div>
       ) : dashboardMode === "hr" && canSeeHrDashboard ? (
-        <div className="p-4 space-y-4">
+        <div className="p-2 space-y-2 lg:p-4 lg:space-y-4">
           {!showOnlyRiskMonitoring && (
             <>
-              <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-7 gap-3">
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-7 gap-2 sm:gap-3">
                 <MetricCard title="พนักงานทั้งหมด" value={employees.length} subvalue="เฉพาะสถานะทำงาน" icon={Users} accent="text-slate-900" tooltip="นับจากพนักงานที่สถานะพนักงาน = ทำงาน ใน employee master ปัจจุบัน" />
                 <MetricCard title="อัตรามาทำงาน" value={formatPercent(hrData.present, hrData.totalSlots)} subvalue={`${hrData.present} / ${hrData.totalSlots} employee-days`} icon={CheckCircle} accent="text-emerald-700" tooltip="สูตร: จำนวนที่มา / scheduled workforce ทั้งช่วงที่เลือก" />
                 <MetricCard
@@ -4026,26 +4109,26 @@ export const ManpowerDashboard = ({
           </div>
         </div>
       ) : (
-        <div className="p-3 space-y-3">
-          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-6 gap-2">
-            <div className="rounded-lg border border-emerald-200 bg-white px-2.5 py-2 shadow-sm">
-              <div className="flex items-start justify-between gap-2">
+        <div className="p-2 space-y-2 lg:p-3 lg:space-y-3">
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-6 gap-2">
+            <div className="rounded-lg border border-emerald-200 bg-white px-2 py-1.5 lg:px-2.5 lg:py-2 shadow-sm">
+              <div className="flex items-start justify-between gap-1.5 lg:gap-2">
                 <div className="min-w-0">
-                  <div className="inline-flex items-center gap-1 text-[10px] font-black uppercase tracking-wide text-slate-500">
+                  <div className="inline-flex items-center gap-1 text-[9px] lg:text-[10px] font-black uppercase tracking-wide text-slate-500">
                     <span>{isSingleDayView ? "คนมาทำงานวันนี้" : "จำนวนมาทำงานรวม"}</span>
                     <InfoTooltip
                       content="ตัวเลขหลักคือจำนวนมาทำงานของโครงการในช่วงที่เลือก ส่วนกำลังคนประจำโครงการคือจำนวนคนที่ assign อยู่ในโครงการ และอัตรามาทำงาน = จำนวนมา / scheduled workforce"
                       iconSize={11}
                     />
                   </div>
-                  <div className="mt-0.5 text-[22px] leading-none font-black text-emerald-700">{projectData.present}</div>
-                  <div className="mt-1 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[10px] leading-4 text-slate-500">
+                  <div className="mt-0.5 text-base lg:text-[22px] leading-none font-black text-emerald-700">{projectData.present}</div>
+                  <div className="mt-1 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[9px] lg:text-[10px] leading-tight lg:leading-4 text-slate-500">
                     <span>กำลังคน <span className="font-bold text-slate-800">{projectData.scopedEmployees.length}</span></span>
                     <span className="text-slate-300">·</span>
                     <span>อัตรามา <span className="font-bold text-emerald-700">{formatPercent(projectData.present, projectData.totalSlots)}</span></span>
                   </div>
                 </div>
-                <div className="rounded-md border border-emerald-200 bg-emerald-50 p-1">
+                <div className="hidden lg:block rounded-md border border-emerald-200 bg-emerald-50 p-1">
                   <CheckCircle size={14} className="text-emerald-700" />
                 </div>
               </div>
@@ -4054,8 +4137,8 @@ export const ManpowerDashboard = ({
             <MetricCard title="ลา" value={projectData.leave} subvalue={formatPercent(projectData.leave, projectData.totalSlots)} icon={AlertCircle} accent="text-amber-700" tooltip="จำนวนลาของพนักงานที่ assign อยู่ในโครงการนี้ในช่วงที่เลือก" onClick={() => setMetricModal({ key: "project-leave", title: `รายละเอียดการลาของ ${selectedProjectLabel}`, subtitle: "ดูรายชื่อคนที่ลาของโครงการนี้ในช่วงวันที่เลือก" })} />
             <MetricCard title="ค้าง/ผิดโครงการ" value={projectData.notRecorded + projectData.wrongProject} subvalue={`ค้าง ${projectData.notRecorded} | ผิดโครงการ ${projectData.wrongProject}`} icon={Clock} accent="text-slate-700" tooltip="ค้าง = ไม่มี attendance record, ผิดโครงการ = มาทำงานแต่ลงโครงการอื่น" onClick={() => setMetricModal({ key: "project-pending", title: `รายละเอียดค้าง/ผิดโครงการของ ${selectedProjectLabel}`, subtitle: "แยกดูคนที่ยังไม่ลงเวลาและคนที่ลงผิดโครงการ" })} />
             <MetricCard title="OT รวม" value={projectData.totalOtHours.toFixed(1)} subvalue={`มี OT ${projectData.otEmployees} คน`} icon={BarChart3} accent="text-sky-700" tooltip="รวมชั่วโมง OT ของพนักงานในโครงการนี้ตามช่วงวันที่ที่เลือก" onClick={() => setMetricModal({ key: "project-ot", title: `รายละเอียด OT ของ ${selectedProjectLabel}`, subtitle: "ดูคนที่มี OT สูงและภาระ OT ของโครงการ" })} />
-            <div className="rounded-lg border border-slate-200 bg-white px-2.5 py-2 shadow-sm">
-              <div className="inline-flex items-center gap-1 text-[10px] font-black uppercase tracking-wide text-slate-500">
+            <div className="rounded-lg border border-slate-200 bg-white px-2 py-1.5 lg:px-2.5 lg:py-2 shadow-sm">
+              <div className="inline-flex items-center gap-1 text-[9px] lg:text-[10px] font-black uppercase tracking-wide text-slate-500">
                 <span>เพศ</span>
                 <InfoTooltip content="สัดส่วนเพศของพนักงานที่ assign อยู่ในโครงการนี้ ใช้ field เพศ/gender หรืออนุมานจากคำนำหน้า" iconSize={11} />
               </div>
@@ -4067,15 +4150,15 @@ export const ManpowerDashboard = ({
                   <>
                     <div className="mt-1 flex items-center gap-2">
                       <div className="flex items-center gap-1">
-                        <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-sky-500 text-sm font-bold leading-none text-white">♂</span>
-                        <span className="text-lg font-black leading-none text-sky-700">{male}</span>
+                        <span className="flex h-5 w-5 lg:h-6 lg:w-6 shrink-0 items-center justify-center rounded-full bg-sky-500 text-xs lg:text-sm font-bold leading-none text-white">♂</span>
+                        <span className="text-base lg:text-lg font-black leading-none text-sky-700">{male}</span>
                       </div>
                       <div className="flex items-center gap-1">
-                        <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-rose-500 text-sm font-bold leading-none text-white">♀</span>
-                        <span className="text-lg font-black leading-none text-rose-600">{female}</span>
+                        <span className="flex h-5 w-5 lg:h-6 lg:w-6 shrink-0 items-center justify-center rounded-full bg-rose-500 text-xs lg:text-sm font-bold leading-none text-white">♀</span>
+                        <span className="text-base lg:text-lg font-black leading-none text-rose-600">{female}</span>
                       </div>
                     </div>
-                    {unknown > 0 && <div className="mt-1 text-[10px] leading-4 text-slate-400">ไม่ระบุ {unknown} คน</div>}
+                    {unknown > 0 && <div className="mt-1 text-[9px] lg:text-[10px] leading-tight lg:leading-4 text-slate-400">ไม่ระบุ {unknown} คน</div>}
                   </>
                 );
               })()}
@@ -4153,8 +4236,8 @@ export const ManpowerDashboard = ({
                 {sortedBreakdown.length === 0 ? (
                   <div className="text-sm text-slate-500">ยังไม่มีข้อมูลประเภทพนักงานในโครงการนี้</div>
                 ) : (
-                  <div>
-                    <table className="w-full table-fixed text-[11px]">
+                  <div className="-mx-2 overflow-x-auto px-2 sm:mx-0 sm:overflow-visible sm:px-0">
+                    <table className="w-full min-w-[520px] sm:min-w-0 table-fixed text-[11px]">
                       <thead>
                         <tr className="bg-slate-50 text-[10px] text-slate-600">
                           <th className="w-4 px-0.5 py-1.5" />
@@ -4278,8 +4361,8 @@ export const ManpowerDashboard = ({
                     {sortedPositions.length === 0 ? (
                       <div className="text-sm text-slate-500">ยังไม่มีข้อมูลตำแหน่งในโครงการนี้</div>
                     ) : (
-                      <div>
-                        <table className="w-full table-fixed text-[11px]">
+                      <div className="-mx-2 overflow-x-auto px-2 sm:mx-0 sm:overflow-visible sm:px-0">
+                        <table className="w-full min-w-[520px] sm:min-w-0 table-fixed text-[11px]">
                           <thead>
                             <tr className="bg-slate-50 text-[10px] text-slate-600">
                               <th className="w-4 px-0.5 py-1.5" />
@@ -4470,33 +4553,32 @@ export const ManpowerDashboard = ({
             {projectData.coverageTrend.length === 0 ? (
               <div className="text-sm text-slate-500">ยังไม่มีข้อมูล coverage รายวันในช่วงนี้</div>
             ) : (
-              <div className="space-y-3">
+              <div className="space-y-2 lg:space-y-3">
                 <div className="overflow-x-auto">
-                  <div className="flex min-w-max items-end gap-1.5 rounded-xl border border-slate-200 bg-slate-50 p-3">
+                  <div className="flex min-w-max items-end gap-1 lg:gap-1.5 rounded-xl border border-slate-200 bg-slate-50 p-2 lg:p-3">
                     {projectData.coverageTrend.map((row) => {
                       const tone = getCoverageRiskTone(row.coverageRate);
                       const isTodayMarker = isSingleDayView && row.date === todayReferenceDate;
-                      const barHeight = row.coverageRate <= 0
+                      const barPct = row.coverageRate <= 0
                         ? 12
-                        : Math.max(16, Math.min(row.coverageRate * 84, 84));
+                        : Math.max(18, Math.min(row.coverageRate * 100, 100));
                       return (
                         <div
                           key={row.date}
-                          className={`flex w-10 shrink-0 flex-col items-center rounded-md px-1 py-1 ${isTodayMarker ? "bg-sky-100 ring-1 ring-sky-300" : ""}`}
+                          className={`flex w-8 lg:w-10 shrink-0 flex-col items-center rounded-md px-0.5 py-1 lg:px-1 ${isTodayMarker ? "bg-sky-100 ring-1 ring-sky-300" : ""}`}
                         >
-                          <div className="mb-1 h-4" />
-                          <div className={`mb-1 inline-flex rounded px-1 py-0.5 text-[9px] font-bold ${tone.emphasis}`}>
+                          <div className={`mb-1 inline-flex rounded px-1 py-0.5 text-[8px] lg:text-[9px] font-bold ${tone.emphasis}`}>
                             {formatPercent(row.present, row.required)}
                           </div>
-                          <div className="flex h-20 items-end">
+                          <div className="flex h-12 lg:h-20 w-full items-end justify-center">
                             <div
-                              className={`w-5 rounded-t ${tone.bar} ${isTodayMarker ? "ring-2 ring-sky-500 ring-offset-1 ring-offset-sky-100" : ""}`}
-                              style={{ height: barHeight }}
+                              className={`w-4 lg:w-5 rounded-t ${tone.bar} ${isTodayMarker ? "ring-2 ring-sky-500 ring-offset-1 ring-offset-sky-100" : ""}`}
+                              style={{ height: `${barPct}%` }}
                               title={`${row.label}: ${row.present}/${row.required} | gap ${row.gapHeadcount} คน`}
                             />
                           </div>
-                          <div className={`mt-1 text-[10px] font-medium ${isTodayMarker ? "text-sky-800" : "text-slate-700"}`}>{row.label}</div>
-                          <div className={`text-[9px] ${tone.subtext}`}>{row.present}/{row.required}</div>
+                          <div className={`mt-1 text-[9px] lg:text-[10px] font-medium ${isTodayMarker ? "text-sky-800" : "text-slate-700"}`}>{row.label}</div>
+                          <div className={`text-[8px] lg:text-[9px] ${tone.subtext}`}>{row.present}/{row.required}</div>
                         </div>
                       );
                     })}
@@ -4504,17 +4586,19 @@ export const ManpowerDashboard = ({
                 </div>
 
                 {projectData.coverageTrend.some((row) => row.coverageRate < 0.95) ? (
-                  <div className="grid grid-cols-1 gap-1.5 md:grid-cols-3">
+                  <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-3">
                     {projectData.coverageTrend
                       .filter((row) => row.coverageRate < 0.95)
                       .slice(0, 3)
                       .map((row) => {
                         const tone = getCoverageRiskTone(row.coverageRate);
                         return (
-                          <div key={row.date} className={`rounded-lg border px-2.5 py-2 ${tone.card}`}>
-                            <div className={`text-[11px] font-semibold ${tone.subtext}`}>{row.label}</div>
-                            <div className={`mt-0.5 text-sm font-black ${tone.text}`}>{formatPercent(row.present, row.required)}</div>
-                            <div className={`mt-0.5 text-[10px] leading-4 ${tone.subtext}`}>มา {row.present} / ต้องการ {row.required} | gap {row.gapHeadcount} คน</div>
+                          <div key={row.date} className={`flex items-center gap-2 rounded-lg border px-2 py-1.5 ${tone.card}`}>
+                            <div className={`text-sm font-black ${tone.text}`}>{formatPercent(row.present, row.required)}</div>
+                            <div className="min-w-0">
+                              <div className={`text-[10px] font-semibold ${tone.subtext}`}>{row.label}</div>
+                              <div className={`text-[9px] leading-tight ${tone.subtext}`}>มา {row.present}/{row.required} · gap {row.gapHeadcount}</div>
+                            </div>
                           </div>
                         );
                       })}
@@ -4528,38 +4612,38 @@ export const ManpowerDashboard = ({
             )}
           </SectionCard>
 
-          <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 xl:grid-cols-3 gap-2 lg:gap-4">
             <SectionCard title="Coverage Analysis" subtitle="วิเคราะห์การครอบคลุมกำลังคนเทียบฐาน coverage ของโครงการ" tooltip="ถ้าโครงการมี required manpower ระบบจะใช้เป็น Phase 2 coverage ทันที ถ้ายังไม่มีจะ fallback ไปใช้ assigned headcount แบบ Phase 1">
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 lg:gap-3">
                 <button
                   type="button"
                   onClick={() => setMetricModal({ key: "coverage-total", title: `Coverage รวมของ ${selectedProjectLabel}`, subtitle: "สรุป coverage รายวันเทียบ target coverage ของโครงการ" })}
-                  className={`rounded-xl border p-3 text-left transition-all hover:-translate-y-0.5 hover:shadow-md ${getCoverageRiskTone(projectData.coverageRate).card}`}
+                  className={`rounded-xl border p-2 lg:p-3 text-left transition-all hover:-translate-y-0.5 hover:shadow-md ${getCoverageRiskTone(projectData.coverageRate).card}`}
                 >
                   <div className={`text-xs font-semibold ${getCoverageRiskTone(projectData.coverageRate).subtext}`}>Coverage รวม</div>
-                  <div className={`mt-1 text-2xl font-black ${getCoverageRiskTone(projectData.coverageRate).text}`}>{formatPercent(projectData.present, projectData.coverageDenominator)}</div>
-                  <div className={`mt-1 text-xs ${getCoverageRiskTone(projectData.coverageRate).subtext}`}>{projectData.present} / {projectData.coverageDenominator} employee-days</div>
+                  <div className={`mt-0.5 lg:mt-1 text-lg lg:text-2xl font-black ${getCoverageRiskTone(projectData.coverageRate).text}`}>{formatPercent(projectData.present, projectData.coverageDenominator)}</div>
+                  <div className={`mt-0.5 lg:mt-1 text-[11px] lg:text-xs ${getCoverageRiskTone(projectData.coverageRate).subtext}`}>{projectData.present} / {projectData.coverageDenominator} employee-days</div>
                 </button>
                 <button
                   type="button"
                   onClick={() => setMetricModal({ key: "coverage-gap", title: `Coverage Gap ของ ${selectedProjectLabel}`, subtitle: "ดู role และวันที่เป็นตัวดัน gap ของโครงการ" })}
-                  className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-left transition-all hover:-translate-y-0.5 hover:shadow-md"
+                  className="rounded-xl border border-rose-200 bg-rose-50 p-2 lg:p-3 text-left transition-all hover:-translate-y-0.5 hover:shadow-md"
                 >
                   <div className="text-xs font-semibold text-rose-700">Coverage Gap</div>
-                  <div className="mt-1 text-2xl font-black text-rose-800">{projectData.coverageGapSlots}</div>
-                  <div className="mt-1 text-xs text-rose-700">เฉลี่ยขาด coverage {projectData.averageDailyShortfall.toFixed(1)} คน/วัน</div>
+                  <div className="mt-0.5 lg:mt-1 text-lg lg:text-2xl font-black text-rose-800">{projectData.coverageGapSlots}</div>
+                  <div className="mt-0.5 lg:mt-1 text-[11px] lg:text-xs text-rose-700">เฉลี่ยขาด coverage {projectData.averageDailyShortfall.toFixed(1)} คน/วัน</div>
                 </button>
                 <button
                   type="button"
                   onClick={() => setMetricModal({ key: "ot-dependency", title: `OT Dependency ของ ${selectedProjectLabel}`, subtitle: "ดูว่าการพึ่ง OT กระจุกตัวอยู่ที่ใครและระดับใด" })}
-                  className="rounded-xl border border-sky-200 bg-sky-50 p-3 text-left transition-all hover:-translate-y-0.5 hover:shadow-md"
+                  className="rounded-xl border border-sky-200 bg-sky-50 p-2 lg:p-3 text-left transition-all hover:-translate-y-0.5 hover:shadow-md"
                 >
                   <div className="text-xs font-semibold text-sky-700">OT Dependency</div>
-                  <div className="mt-1 text-2xl font-black text-sky-800">{formatPercent(projectData.otEmployees, Math.max(projectData.scopedEmployees.length, 1))}</div>
-                  <div className="mt-1 text-xs text-sky-700">มี OT {projectData.totalOtHours.toFixed(1)} ชม. | คนที่ทำ OT {projectData.otEmployees} คน</div>
+                  <div className="mt-0.5 lg:mt-1 text-lg lg:text-2xl font-black text-sky-800">{formatPercent(projectData.otEmployees, Math.max(projectData.scopedEmployees.length, 1))}</div>
+                  <div className="mt-0.5 lg:mt-1 text-[11px] lg:text-xs text-sky-700">มี OT {projectData.totalOtHours.toFixed(1)} ชม. | คนที่ทำ OT {projectData.otEmployees} คน</div>
                 </button>
               </div>
-              <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
+              <div className="mt-2 lg:mt-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
                 {projectData.coverageBasisLabel}
               </div>
             </SectionCard>
@@ -4581,7 +4665,7 @@ export const ManpowerDashboard = ({
               {projectData.coverageByType.length === 0 ? (
                 <div className="text-sm text-slate-500">ยังไม่มีข้อมูล coverage ของประเภทพนักงานในโครงการนี้</div>
               ) : (
-                <div className="space-y-3">
+                <div className="space-y-2 lg:space-y-3">
                   <div className="rounded-xl border border-slate-100 bg-slate-50/60 p-2">
                     <CoverageCompareChart data={coverageByTypeBarData} onBarClick={(key) => setSidePanel({ key: "coverage-types", title: "Coverage ตามประเภทพนักงาน", subtitle: "ขยายดู coverage ทุกประเภทพนักงานภายในโครงการนี้", selectedKey: (projectData.coverageByType.find((r) => r.label === key)?.key) })} />
                   </div>
@@ -4590,19 +4674,17 @@ export const ManpowerDashboard = ({
                       key={row.key}
                       type="button"
                       onClick={() => setSidePanel({ key: "coverage-types", title: "Coverage ตามประเภทพนักงาน", subtitle: "ขยายดู coverage ทุกประเภทพนักงานภายในโครงการนี้", selectedKey: row.key })}
-                      className={`block w-full rounded-lg border p-3 text-left transition-colors hover:border-sky-300 ${getCoverageRiskTone(row.coverageRate).card}`}
+                      className={`block w-full rounded-lg border px-2 py-1.5 text-left transition-colors hover:border-sky-300 ${getCoverageRiskTone(row.coverageRate).card}`}
                     >
-                      <div className="flex items-center justify-between gap-3">
-                        <div className="min-w-0">
-                          <div className={`font-semibold ${getCoverageRiskTone(row.coverageRate).text}`}>{row.label}</div>
-                          <div className={`text-xs ${getCoverageRiskTone(row.coverageRate).subtext}`}>Assign {row.assignedHeadcount} คน | Gap {row.gapSlots} employee-days</div>
-                        </div>
-                        <div className="text-right">
-                          <div className={`inline-flex rounded-md px-2 py-0.5 text-sm font-black ${getCoverageRiskTone(row.coverageRate).emphasis}`}>{formatPercent(row.present, row.scheduledSlots)}</div>
-                          <div className={`mt-1 text-[11px] ${getCoverageRiskTone(row.coverageRate).subtext}`}>OT {row.otHours.toFixed(1)} ชม.</div>
-                        </div>
+                      <div className="flex items-center justify-between gap-2">
+                        <div className={`truncate text-xs font-semibold ${getCoverageRiskTone(row.coverageRate).text}`}>{row.label}</div>
+                        <div className={`shrink-0 inline-flex rounded px-1.5 py-0.5 text-xs font-black ${getCoverageRiskTone(row.coverageRate).emphasis}`}>{formatPercent(row.present, row.scheduledSlots)}</div>
                       </div>
-                      <div className={`mt-2 h-2.5 overflow-hidden rounded-full ${getCoverageRiskTone(row.coverageRate).track}`}>
+                      <div className={`mt-0.5 flex items-center justify-between gap-2 text-[10px] ${getCoverageRiskTone(row.coverageRate).subtext}`}>
+                        <span className="truncate">Assign {row.assignedHeadcount} | Gap {row.gapSlots}</span>
+                        <span className="shrink-0">OT {row.otHours.toFixed(1)} ชม.</span>
+                      </div>
+                      <div className={`mt-1 h-1.5 overflow-hidden rounded-full ${getCoverageRiskTone(row.coverageRate).track}`}>
                         <div
                           className={`h-full rounded-full ${getCoverageRiskTone(row.coverageRate).bar}`}
                           style={{ width: row.coverageRate <= 0 ? 24 : `${Math.max(Math.min(row.coverageRate * 100, 100), 0)}%` }}
@@ -4631,7 +4713,7 @@ export const ManpowerDashboard = ({
               {projectData.coverageByPosition.length === 0 ? (
                 <div className="text-sm text-slate-500">ยังไม่มีข้อมูล coverage ของตำแหน่งในโครงการนี้</div>
               ) : (
-                <div className="space-y-3">
+                <div className="space-y-2 lg:space-y-3">
                   <div className="rounded-xl border border-slate-100 bg-slate-50/60 p-2">
                     <CoverageCompareChart data={coverageByPositionBarData} onBarClick={(key) => setSidePanel({ key: "coverage-roles", title: "Critical Role Coverage", subtitle: "ขยายดู coverage ทุกตำแหน่งหลักในโครงการนี้", selectedKey: (projectData.coverageByPosition.find((r) => r.label === key)?.key) })} />
                   </div>
@@ -4640,19 +4722,17 @@ export const ManpowerDashboard = ({
                       key={row.key}
                       type="button"
                       onClick={() => setSidePanel({ key: "coverage-roles", title: "Critical Role Coverage", subtitle: "ขยายดู coverage ทุกตำแหน่งหลักในโครงการนี้", selectedKey: row.key })}
-                      className={`block w-full rounded-lg border p-3 text-left transition-colors hover:border-sky-300 ${getCoverageRiskTone(row.coverageRate).card}`}
+                      className={`block w-full rounded-lg border px-2 py-1.5 text-left transition-colors hover:border-sky-300 ${getCoverageRiskTone(row.coverageRate).card}`}
                     >
-                      <div className="flex items-center justify-between gap-3">
-                        <div className="min-w-0">
-                          <div className={`font-semibold truncate ${getCoverageRiskTone(row.coverageRate).text}`}>{row.label}</div>
-                          <div className={`text-xs ${getCoverageRiskTone(row.coverageRate).subtext}`}>{projectData.hasRequiredRolePlan ? `Plan เฉลี่ย ${row.assignedHeadcount.toFixed(1)} คน/วัน` : `Assign ${row.assignedHeadcount} คน`} | Gap {row.gapSlots} employee-days</div>
-                        </div>
-                        <div className="text-right">
-                          <div className={`inline-flex rounded-md px-2 py-0.5 text-sm font-black ${getCoverageRiskTone(row.coverageRate).emphasis}`}>{formatPercent(row.present, row.scheduledSlots)}</div>
-                          <div className={`mt-1 text-[11px] ${getCoverageRiskTone(row.coverageRate).subtext}`}>{row.present} / {row.scheduledSlots}</div>
-                        </div>
+                      <div className="flex items-center justify-between gap-2">
+                        <div className={`truncate text-xs font-semibold ${getCoverageRiskTone(row.coverageRate).text}`}>{row.label}</div>
+                        <div className={`shrink-0 inline-flex rounded px-1.5 py-0.5 text-xs font-black ${getCoverageRiskTone(row.coverageRate).emphasis}`}>{formatPercent(row.present, row.scheduledSlots)}</div>
                       </div>
-                      <div className={`mt-2 h-2.5 overflow-hidden rounded-full ${getCoverageRiskTone(row.coverageRate).track}`}>
+                      <div className={`mt-0.5 flex items-center justify-between gap-2 text-[10px] ${getCoverageRiskTone(row.coverageRate).subtext}`}>
+                        <span className="truncate">{projectData.hasRequiredRolePlan ? `Plan ${row.assignedHeadcount.toFixed(1)}/วัน` : `Assign ${row.assignedHeadcount}`} | Gap {row.gapSlots}</span>
+                        <span className="shrink-0">{row.present}/{row.scheduledSlots}</span>
+                      </div>
+                      <div className={`mt-1 h-1.5 overflow-hidden rounded-full ${getCoverageRiskTone(row.coverageRate).track}`}>
                         <div
                           className={`h-full rounded-full ${getCoverageRiskTone(row.coverageRate).bar}`}
                           style={{ width: row.coverageRate <= 0 ? 24 : `${Math.max(Math.min(row.coverageRate * 100, 100), 0)}%` }}
@@ -4683,8 +4763,8 @@ export const ManpowerDashboard = ({
               {projectFollowUpList.length === 0 ? (
                 <div className="text-sm text-slate-500">ไม่มี exception ในช่วงนี้</div>
               ) : (
-                <div className="max-h-[420px] overflow-y-auto pr-1">
-                  <table className="w-full table-fixed text-[11px]">
+                <div className="max-h-[420px] overflow-auto pr-1">
+                  <table className="w-full min-w-[420px] sm:min-w-0 table-fixed text-[11px]">
                     <thead>
                       <tr className="sticky top-0 z-10 bg-slate-50 text-[10px] text-slate-600">
                         <th className="px-1 py-1.5 text-left font-semibold">ชื่อ</th>
@@ -4741,18 +4821,16 @@ export const ManpowerDashboard = ({
                     วันนี้ยังไม่พบพนักงานลา/ขาดในโครงการนี้
                   </div>
                 ) : (
-                  <div className="max-h-[420px] space-y-1.5 overflow-y-auto pr-1">
+                  <div className="max-h-[420px] space-y-1 overflow-y-auto pr-1">
                     {projectData.todayAbsentLeaveProjectRows.map((row) => (
-                      <div key={`${row.employeeId}-${row.status}`} className="rounded-lg border border-slate-200 p-2.5">
-                        <div className="flex flex-col gap-1.5 md:flex-row md:items-center md:justify-between">
-                          <div className="min-w-0">
-                            <div className="font-semibold text-slate-800">{row.fullName}</div>
-                            <div className="text-xs text-slate-500">{row.employeeCode} | {row.position} | {row.employeeType}</div>
-                          </div>
-                          <span className={`inline-flex rounded-full px-2 py-1 text-xs font-medium ${row.status === "ไม่มา" ? "border border-rose-200 bg-rose-50 text-rose-700" : "border border-amber-200 bg-amber-50 text-amber-700"}`}>
-                            {row.status}
-                          </span>
+                      <div key={`${row.employeeId}-${row.status}`} className="flex items-center justify-between gap-2 rounded-lg border border-slate-200 px-2 py-1.5">
+                        <div className="min-w-0">
+                          <div className="truncate text-xs font-semibold text-slate-800">{row.fullName}</div>
+                          <div className="truncate text-[10px] text-slate-500">{row.employeeCode} | {row.position} | {row.employeeType}</div>
                         </div>
+                        <span className={`shrink-0 inline-flex rounded-full px-2 py-0.5 text-[10px] font-medium ${row.status === "ไม่มา" ? "border border-rose-200 bg-rose-50 text-rose-700" : "border border-amber-200 bg-amber-50 text-amber-700"}`}>
+                          {row.status}
+                        </span>
                       </div>
                     ))}
                   </div>
@@ -4780,6 +4858,30 @@ export const ManpowerDashboard = ({
       >
         {renderSidePanelContent()}
       </DashboardSidePanel>
+
+      {showLandscapeHint && (
+        <div data-html2canvas-ignore="true" className="fixed inset-0 z-[60] flex items-end justify-center bg-slate-900/50 p-4 sm:items-center">
+          <div className="w-full max-w-sm rounded-2xl border border-slate-200 bg-white p-5 text-center shadow-2xl">
+            <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-sky-100 text-sky-600">
+              <RotateCw size={24} />
+            </div>
+            <h3 className="text-base font-black text-slate-900">แนะนำให้หมุนหน้าจอแนวนอน</h3>
+            <p className="mt-1 text-sm text-slate-600">
+              Dashboard มีข้อมูลหลายคอลัมน์ การเปิดแบบแนวนอน (landscape) จะอ่านง่ายและเห็นภาพรวมชัดกว่า
+            </p>
+            <p className="mt-2 text-xs text-slate-400">
+              หรือกดปุ่ม “ส่งออกรูป” เพื่อดาวน์โหลดภาพ Dashboard แบบหน้าจอคอมพิวเตอร์
+            </p>
+            <button
+              type="button"
+              onClick={dismissLandscapeHint}
+              className="mt-4 inline-flex w-full items-center justify-center gap-1.5 rounded-lg bg-slate-900 px-4 py-2 text-sm font-bold text-white hover:bg-slate-800"
+            >
+              <X size={16} /> เข้าใจแล้ว
+            </button>
+          </div>
+        </div>
+      )}
 
       {showRiskScoreGuide && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4">
