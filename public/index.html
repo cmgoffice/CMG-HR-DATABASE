@@ -25,6 +25,15 @@
     <title>React App</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
+      /*
+       * ย่อ UI ทั้งแอปลง ~15% ผ่าน root font-size (Tailwind ใช้ rem จึงย่อ
+       * ทั้งตัวอักษรและระยะห่างพร้อมกัน). ตัวอักษรที่โค้ดกำหนดเป็น px ตายตัว
+       * เช่น text-[8px]/[9px]/[10px] จะไม่ย่อตาม → ทำหน้าที่เป็นขนาดขั้นต่ำ
+       * เพื่อกันตัวหนังสือเล็กจนอ่านไม่ออก.
+       */
+      html {
+        font-size: 85%;
+      }
       /* Hide spin buttons in number inputs */
       input[type="number"]::-webkit-inner-spin-button,
       input[type="number"]::-webkit-outer-spin-button {

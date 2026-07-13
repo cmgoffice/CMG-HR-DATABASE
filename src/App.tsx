@@ -443,8 +443,8 @@ const DEFAULT_SCHEMAS = {
 };
 
 // --- LAYOUT CONSTANTS ---
-const SIDEBAR_WIDTH = 256;   // w-64
-const SIDEBAR_COLLAPSED_WIDTH = 64; // w-16
+const SIDEBAR_WIDTH = 218;   // ~w-64 ย่อลง 15%
+const SIDEBAR_COLLAPSED_WIDTH = 56; // ~w-16 ย่อลง 15%
 
 // --- COMPONENTS ---
 
@@ -461,6 +461,7 @@ import { ManpowerDashboard } from './components/ManpowerDashboard';
 import { DayOffPage } from './components/DayOffPage';
 import { ActivityLogPage } from './components/ActivityLogPage';
 import { RiskMonitoringPage } from './components/RiskMonitoringPage';
+import { EvaluationPage } from './components/EvaluationPage';
 import { InfoTooltip } from './components/InfoTooltip';
 import { ColumnMappingModal } from './components/ColumnMappingModal';
 import { ImportPreviewModal } from './components/ImportPreviewModal';
@@ -515,6 +516,8 @@ const Sidebar = ({ activeModule, setActiveModule, dbConnected, sidebarOpen, onTo
   };
   const [expandedMenus, setExpandedMenus] = useState<Record<string, boolean>>({});
   const [pendingCount, setPendingCount] = useState(0);
+  // true ถ้า uid ของผู้ใช้ปรากฏใน tier1Uids/tier2Uids ของ evaluation_assignments ใด ๆ
+  const [isAssignedEvaluator, setIsAssignedEvaluator] = useState(false);
   const db = getFirestore(app);
 
   useEffect(() => {
@@ -526,6 +529,22 @@ const Sidebar = ({ activeModule, setActiveModule, dbConnected, sidebarOpen, onTo
       return () => unsubscribe();
     }
   }, [hasRole, db]);
+
+  useEffect(() => {
+    const uid = firebaseUser?.uid;
+    if (!uid) {
+      setIsAssignedEvaluator(false);
+      return;
+    }
+    const unsub = onSnapshot(collection(db, "CMG-HR-Database", "root", "evaluation_assignments"), (snap) => {
+      const assigned = snap.docs.some((d) => {
+        const data = d.data() as { tier1Uids?: string[]; tier2Uids?: string[] };
+        return (data.tier1Uids || []).includes(uid) || (data.tier2Uids || []).includes(uid);
+      });
+      setIsAssignedEvaluator(assigned);
+    });
+    return () => unsub();
+  }, [firebaseUser?.uid, db]);
 
   const managementItems: SidebarMenuItem[] = hasRole(['MasterAdmin', 'MD', 'GM', 'PD', 'HRM', 'HR']) ? [
     { id: "projects", label: "โครงการ", icon: Briefcase },
@@ -564,6 +583,14 @@ const Sidebar = ({ activeModule, setActiveModule, dbConnected, sidebarOpen, onTo
       : []),
   ];
 
+  // เห็นเมนูประเมินได้เมื่อ: (ก) เป็น role ที่ทำ Tier 3/4 หรือมอบหมายชุดได้
+  // หรือ (ข) ถูก assign เป็น Tier 1/2 ของชุดใด ๆ (role ใดก็ได้ รวม Staff/Admin Site)
+  const canSeeEvaluation =
+    hasRole(['MasterAdmin', 'MD', 'GM', 'PD', 'PM', 'CM', 'HRM', 'HR']) || isAssignedEvaluator;
+  const evaluationItems: SidebarMenuItem[] = canSeeEvaluation
+    ? [{ id: "evaluation", label: "ประเมินผลพนักงาน", icon: ClipboardList } as SidebarLinkItem]
+    : [];
+
   const reportingItems: SidebarMenuItem[] = hasRole(['MasterAdmin', 'MD', 'GM', 'HRM'])
     ? [
         { id: "risk_monitoring", label: "Risk Monitoring", icon: AlertCircle },
@@ -575,18 +602,19 @@ const Sidebar = ({ activeModule, setActiveModule, dbConnected, sidebarOpen, onTo
     dashboardItem,
     ...managementItems,
     ...manpowerItems,
+    ...evaluationItems,
     ...reportingItems,
   ];
 
   const renderMenuItem = (item: SidebarMenuItem) => (
     <div key={item.id}>
       {item.isDivider ? (
-        <div className="border-t border-slate-800 my-2 mx-2" />
+        <div className="border-t border-slate-800 my-1.5 mx-2" />
       ) : !hasSubMenu(item) ? (
         <button
           onClick={() => selectAndClose(item.id)}
           className={`w-full flex items-center rounded-lg transition-colors ${
-            expanded ? "gap-3 px-4 py-3" : "justify-center p-3"
+            expanded ? "gap-3 px-4 py-2" : "justify-center p-2.5"
           } ${
             activeModule === item.id ? "bg-blue-600 text-white shadow-md" : "text-slate-300 hover:bg-slate-800"
           }`}
@@ -602,7 +630,7 @@ const Sidebar = ({ activeModule, setActiveModule, dbConnected, sidebarOpen, onTo
           <button
             onClick={() => expanded ? toggleMenu(item.id) : onToggleSidebar()}
             className={`w-full flex items-center rounded-lg transition-colors hover:bg-slate-800 ${
-              expanded ? "justify-between px-4 py-3" : "justify-center p-3"
+              expanded ? "justify-between px-4 py-2" : "justify-center p-2.5"
             } ${
               expandedMenus[item.id] ? "text-white bg-slate-800/50" : "text-slate-400"
             }`}
@@ -616,12 +644,12 @@ const Sidebar = ({ activeModule, setActiveModule, dbConnected, sidebarOpen, onTo
           </button>
 
           {expanded && expandedMenus[item.id] && (
-            <div className="pl-12 space-y-1 border-l-2 border-slate-800 ml-6 animate-fade-in-down">
+            <div className="pl-2 space-y-0.5 border-l-2 border-slate-800 ml-3 animate-fade-in-down">
               {item.sub.map((subItem: SidebarSubItem) => (
                 <button
                   key={subItem.id}
                   onClick={() => selectAndClose(subItem.id)}
-                  className={`w-full text-left px-3 py-2 text-sm rounded-md transition-colors ${
+                  className={`w-full text-left px-2.5 py-1.5 text-sm rounded-md transition-colors ${
                     activeModule === subItem.id ? "text-blue-400 font-medium bg-slate-800" : "text-slate-500 hover:text-slate-300"
                   }`}
                 >
@@ -641,11 +669,11 @@ const Sidebar = ({ activeModule, setActiveModule, dbConnected, sidebarOpen, onTo
     const SectionIcon = icon;
 
     return (
-      <div className="mb-2" key={sectionKey}>
+      <div className="mb-1" key={sectionKey}>
         <button
           onClick={() => expanded ? toggleMenu(sectionKey) : onToggleSidebar()}
           className={`w-full flex items-center rounded-lg transition-colors hover:bg-slate-800 ${
-            expanded ? "justify-between px-4 py-3" : "justify-center p-3"
+            expanded ? "justify-between px-4 py-2" : "justify-center p-2.5"
           } ${
             expandedMenus[sectionKey] ? "text-white bg-slate-800/50" : "text-slate-300"
           }`}
@@ -659,7 +687,7 @@ const Sidebar = ({ activeModule, setActiveModule, dbConnected, sidebarOpen, onTo
         </button>
 
         {expanded && expandedMenus[sectionKey] && (
-          <div className="mt-1 pl-4 space-y-1 border-l-2 border-slate-800 ml-6 animate-fade-in-down">
+          <div className="mt-0.5 pl-2 space-y-0.5 border-l-2 border-slate-800 ml-3 animate-fade-in-down">
             {items.map((item) => renderMenuItem(item))}
           </div>
         )}
@@ -698,6 +726,18 @@ const Sidebar = ({ activeModule, setActiveModule, dbConnected, sidebarOpen, onTo
 
     if (activeInManpower) {
       setExpandedMenus((prev) => ({ ...prev, manpower_section: true }));
+    }
+
+    const activeInEvaluation = evaluationItems.some((item) => {
+      if (item.isDivider) return false;
+      if (hasSubMenu(item)) {
+        return item.id === activeModule || item.sub.some((subItem) => subItem.id === activeModule);
+      }
+      return item.id === activeModule;
+    });
+
+    if (activeInEvaluation) {
+      setExpandedMenus((prev) => ({ ...prev, evaluation_section: true }));
     }
 
     const activeInReporting = reportingItems.some((item) => {
@@ -761,7 +801,7 @@ const Sidebar = ({ activeModule, setActiveModule, dbConnected, sidebarOpen, onTo
         style={{ width: isMobile ? SIDEBAR_WIDTH : sidebarOpen ? SIDEBAR_WIDTH : SIDEBAR_COLLAPSED_WIDTH }}
       >
       {/* Header */}
-      <div className={`border-b border-slate-700 flex items-center gap-3 shrink-0 ${expanded ? "p-6" : "p-3 justify-center"}`}>
+      <div className={`border-b border-slate-700 flex items-center gap-3 shrink-0 ${expanded ? "p-4" : "p-3 justify-center"}`}>
         <div className="relative shrink-0">
           <Database className="text-blue-400" size={expanded ? 28 : 24} />
           <div
@@ -799,10 +839,11 @@ const Sidebar = ({ activeModule, setActiveModule, dbConnected, sidebarOpen, onTo
 
       <nav className="flex-1 p-2 space-y-1 min-w-0">
         {renderMenuItem(dashboardItem)}
-        <div className="border-t border-slate-800 my-2 mx-2" />
+        <div className="border-t border-slate-800 my-1.5 mx-2" />
 
         {renderSection("management_section", "การจัดการ", Settings, managementItems)}
         {renderSection("manpower_section", "Manpower", Clock, manpowerItems)}
+        {renderSection("evaluation_section", "ประเมินผล", ClipboardList, evaluationItems)}
         {renderSection("reporting_section", "รายงาน", Activity, reportingItems)}
       </nav>
 
@@ -2925,6 +2966,7 @@ function MasterDatabaseApp() {
     overtime: "ข้อมูล OT รายวัน ใช้สรุปชั่วโมง OT รายบุคคล รายโครงการ และภาระงาน",
     manpower_dashboard: "Dashboard สรุป KPI ฝั่ง HR และโครงการ โดยคำนวณจากช่วงวันที่ที่เลือก",
     risk_monitoring: "หน้าแสดงเฉพาะความเสี่ยงของพนักงานและโครงการ โดยใช้ risk score เดียวกับ dashboard",
+    evaluation: "ประเมินผลพนักงานกลุ่ม Supply manpower / Sub contractor / DC Daily - Worker ตามเกณฑ์ 5 ด้าน (ถ่วงน้ำหนัก) รอบทดลองงาน 14 วันแรกและรายเดือน",
     activity_logs: "บันทึกกิจกรรมการเปลี่ยนแปลงข้อมูลในระบบ เรียงตามเวลาล่าสุด",
     day_off: "วันหยุดบริษัทที่ใช้เป็นฐานตัดวันทำงานในหน้าลงเวลาและหน้า OT",
   };
@@ -2981,6 +3023,8 @@ function MasterDatabaseApp() {
                     ? 'Manpower Dashboard'
                     : activeModule === 'risk_monitoring'
                       ? 'Risk Monitoring'
+                    : activeModule === 'evaluation'
+                      ? 'ประเมินผลพนักงาน'
                     : activeModule === 'activity_logs'
                       ? 'บันทึกกิจกรรมระบบ (Activity Logs)'
                       : config.label}
@@ -2997,7 +3041,7 @@ function MasterDatabaseApp() {
             </div>
           )}
           
-          {activeModule !== 'attendance' && activeModule !== 'overtime' && activeModule !== 'manpower_dashboard' && activeModule !== 'risk_monitoring' && activeModule !== 'activity_logs' && (
+          {activeModule !== 'attendance' && activeModule !== 'overtime' && activeModule !== 'manpower_dashboard' && activeModule !== 'risk_monitoring' && activeModule !== 'evaluation' && activeModule !== 'activity_logs' && (
             <>
               <div className="w-px h-5 bg-gray-200 shrink-0" />
 
@@ -3287,6 +3331,8 @@ function MasterDatabaseApp() {
               </div>
             ) : activeModule === 'risk_monitoring' ? (
               <RiskMonitoringPage projectOptions={projectStatusOptions} />
+            ) : activeModule === 'evaluation' ? (
+              <EvaluationPage projectOptions={projectStatusOptions} />
             ) : activeModule === 'attendance' ? (
               <div className="p-6">
                 <AttendancePage projectOptions={projectStatusOptions} />

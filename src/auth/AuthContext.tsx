@@ -20,9 +20,9 @@ import {
 } from "firebase/firestore";
 
 // Shared type definitions
-export type UserRole = "MasterAdmin" | "MD" | "GM" | "PD" | "HRM" | "HR" | "Admin Site" | "Staff";
+export type UserRole = "MasterAdmin" | "MD" | "GM" | "PD" | "PM" | "CM" | "HRM" | "HR" | "Admin Site" | "Staff";
 
-export const ALL_ROLES: UserRole[] = ["MasterAdmin", "MD", "GM", "PD", "HRM", "HR", "Admin Site", "Staff"];
+export const ALL_ROLES: UserRole[] = ["MasterAdmin", "MD", "GM", "PD", "PM", "CM", "HRM", "HR", "Admin Site", "Staff"];
 
 export interface UserProfile {
   uid: string;
