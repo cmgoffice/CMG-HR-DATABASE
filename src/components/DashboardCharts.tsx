@@ -105,6 +105,83 @@ const coverageColor = (rate: number): string => {
   return "#10b981";
 };
 
+export const CoverageGaugeDonut = ({
+  coverageRate,
+  present,
+  gap,
+  height,
+  centerClassName,
+  onClick,
+}: {
+  coverageRate: number;
+  present: number;
+  gap: number;
+  height?: number;
+  centerClassName?: string;
+  onClick?: () => void;
+}) => {
+  const isMobile = useIsMobile();
+  const resolvedHeight = height ?? (isMobile ? 150 : 168);
+  const covered = Math.max(present, 0);
+  const shortfall = Math.max(gap, 0);
+  const pct = Math.round(coverageRate * 100);
+  const data = [
+    { name: "มาจริง", value: covered, color: coverageColor(coverageRate) },
+    { name: "ขาด coverage", value: shortfall, color: "#fecaca" },
+  ].filter((d) => d.value > 0);
+
+  const chart =
+    data.length === 0 ? (
+      <div className="flex items-center justify-center text-sm text-slate-400" style={{ height: resolvedHeight }}>
+        ไม่มีข้อมูลในช่วงนี้
+      </div>
+    ) : (
+      <div className="relative" style={{ height: resolvedHeight }}>
+        <ResponsiveContainer width="100%" height="100%">
+          <PieChart>
+            <Pie
+              data={data}
+              dataKey="value"
+              nameKey="name"
+              innerRadius="66%"
+              outerRadius="90%"
+              paddingAngle={2}
+              startAngle={90}
+              endAngle={-270}
+              stroke="none"
+            >
+              {data.map((d) => (
+                <Cell key={d.name} fill={d.color} />
+              ))}
+            </Pie>
+            <Tooltip
+              formatter={(value, name) => [`${value} employee-days`, name] as [string, typeof name]}
+              contentStyle={{ fontSize: 12, borderRadius: 8, border: "1px solid #e2e8f0" }}
+            />
+          </PieChart>
+        </ResponsiveContainer>
+        <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
+          <div className={`text-2xl lg:text-3xl font-black leading-none ${centerClassName ?? "text-slate-900"}`}>{pct}%</div>
+          <div className="mt-0.5 text-[10px] lg:text-[11px] text-slate-500">coverage รวม</div>
+        </div>
+      </div>
+    );
+
+  if (onClick) {
+    return (
+      <button
+        type="button"
+        onClick={onClick}
+        className="block w-full rounded-xl transition-all hover:-translate-y-0.5 hover:shadow-md"
+        title="กดเพื่อดูรายละเอียด coverage รวม"
+      >
+        {chart}
+      </button>
+    );
+  }
+  return chart;
+};
+
 export interface CoverageBarDatum {
   name: string;
   fullName: string;

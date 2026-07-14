@@ -207,6 +207,7 @@ import {
   ArrowDown,
   RefreshCw,
   Menu,
+  ShieldCheck,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
@@ -465,6 +466,13 @@ import { EvaluationPage } from './components/EvaluationPage';
 import { InfoTooltip } from './components/InfoTooltip';
 import { ColumnMappingModal } from './components/ColumnMappingModal';
 import { ImportPreviewModal } from './components/ImportPreviewModal';
+import { RolePermissionSettings } from './components/RolePermissionSettings';
+import {
+  RolePermissionConfig,
+  ROLE_PERMISSIONS_COLLECTION,
+  ROLE_PERMISSIONS_DOC_ID,
+  isModuleVisible,
+} from './config/rolePermissions';
 
 type SidebarSubItem = {
   id: string;
@@ -546,64 +554,105 @@ const Sidebar = ({ activeModule, setActiveModule, dbConnected, sidebarOpen, onTo
     return () => unsub();
   }, [firebaseUser?.uid, db]);
 
-  const managementItems: SidebarMenuItem[] = hasRole(['MasterAdmin', 'MD', 'GM', 'PD', 'HRM', 'HR']) ? [
-    { id: "projects", label: "โครงการ", icon: Briefcase },
-    {
-      id: "employees",
-      label: "พนักงาน (Employees)",
-      icon: Users,
-      sub: [
-        { id: "emp_indirect", label: "Staff Monthly" },
-        { id: "emp_direct_leader", label: "DC Daily" },
-        { id: "emp_direct_supply", label: "Supply manpower" },
-        { id: "emp_direct_sub", label: "Sub contractor" },
-        { id: "position_labor", label: "Position Labor" },
-      ],
-    },
-    ...(hasRole(['MasterAdmin'])
-      ? [{ id: "users_data", label: "จัดการผู้ใช้ (Admin)", icon: UserCog, badge: pendingCount > 0 ? pendingCount : undefined } as SidebarLinkItem]
+  // Role-permission override config (settings/role_permissions). `null` while
+  // loading -> treated as "no overrides" so default gating applies.
+  const [rolePermConfig, setRolePermConfig] = useState<RolePermissionConfig | null>(null);
+  useEffect(() => {
+    const ref = doc(db, "CMG-HR-Database", "root", ROLE_PERMISSIONS_COLLECTION, ROLE_PERMISSIONS_DOC_ID);
+    const unsub = onSnapshot(
+      ref,
+      (snap) => setRolePermConfig(snap.exists() ? (snap.data() as RolePermissionConfig) : {}),
+      () => setRolePermConfig({})
+    );
+    return () => unsub();
+  }, [db]);
+
+  const userRoles = userProfile?.role || [];
+  // Apply the config override on top of the existing default gating.
+  const canSee = (moduleKey: string, defaultVisible: boolean) =>
+    isModuleVisible(moduleKey, userRoles, rolePermConfig, defaultVisible);
+
+  // Existing hard-coded defaults, kept intact as the fallback layer.
+  const dfManagement = hasRole(['MasterAdmin', 'MD', 'GM', 'PD', 'HRM', 'HR']);
+  const dfUsers = hasRole(['MasterAdmin']);
+  const dfAttendance = hasRole(['MasterAdmin', 'MD', 'GM', 'PD', 'HRM', 'HR', 'Admin Site']);
+  const dfDayOff = hasRole(['MasterAdmin', 'MD', 'GM', 'PD', 'HRM', 'HR']);
+  const dfReporting = hasRole(['MasterAdmin', 'MD', 'GM', 'HRM']);
+
+  const employeeSubDefs: SidebarSubItem[] = [
+    { id: "emp_indirect", label: "Staff Monthly" },
+    { id: "emp_direct_leader", label: "DC Daily" },
+    { id: "emp_direct_supply", label: "Supply manpower" },
+    { id: "emp_direct_sub", label: "Sub contractor" },
+    { id: "position_labor", label: "Position Labor" },
+  ];
+  const visibleEmployeeSubs = employeeSubDefs.filter((s) => canSee(s.id, dfManagement));
+
+  const managementItems: SidebarMenuItem[] = [
+    ...(canSee("projects", dfManagement)
+      ? [{ id: "projects", label: "โครงการ", icon: Briefcase } as SidebarLinkItem]
       : []),
-  ] : [];
+    ...(visibleEmployeeSubs.length > 0
+      ? [{ id: "employees", label: "พนักงาน (Employees)", icon: Users, sub: visibleEmployeeSubs } as SidebarGroupItem]
+      : []),
+  ];
 
   const dashboardItem: SidebarLinkItem = {
     id: "manpower_dashboard",
     label: "Dashboard",
     icon: LayoutDashboard,
   };
+  // Dashboard is visible to everyone by default; config can still override it.
+  const showDashboard = canSee("manpower_dashboard", true);
 
   const manpowerItems: SidebarMenuItem[] = [
-    ...(hasRole(['MasterAdmin', 'MD', 'GM', 'PD', 'HRM', 'HR', 'Admin Site'])
-      ? [
-          { id: "attendance", label: "ลงเวลาการมาทำงาน", icon: Clock } as SidebarLinkItem,
-          { id: "overtime", label: "ลง Overtime", icon: Clock } as SidebarLinkItem,
-        ]
+    ...(canSee("attendance", dfAttendance)
+      ? [{ id: "attendance", label: "ลงเวลาการมาทำงาน", icon: Clock } as SidebarLinkItem]
       : []),
-    ...(hasRole(['MasterAdmin', 'MD', 'GM', 'PD', 'HRM', 'HR'])
+    ...(canSee("overtime", dfAttendance)
+      ? [{ id: "overtime", label: "ลง Overtime", icon: Clock } as SidebarLinkItem]
+      : []),
+    ...(canSee("day_off", dfDayOff)
       ? [{ id: "day_off", label: "วันหยุด (Day Off)", icon: Calendar } as SidebarLinkItem]
       : []),
   ];
 
   // เห็นเมนูประเมินได้เมื่อ: (ก) เป็น role ที่ทำ Tier 3/4 หรือมอบหมายชุดได้
   // หรือ (ข) ถูก assign เป็น Tier 1/2 ของชุดใด ๆ (role ใดก็ได้ รวม Staff/Admin Site)
-  const canSeeEvaluation =
+  const canSeeEvaluationDefault =
     hasRole(['MasterAdmin', 'MD', 'GM', 'PD', 'PM', 'CM', 'HRM', 'HR']) || isAssignedEvaluator;
-  const evaluationItems: SidebarMenuItem[] = canSeeEvaluation
+  const evaluationItems: SidebarMenuItem[] = canSee("evaluation", canSeeEvaluationDefault)
     ? [{ id: "evaluation", label: "ประเมินผลพนักงาน", icon: ClipboardList } as SidebarLinkItem]
     : [];
 
-  const reportingItems: SidebarMenuItem[] = hasRole(['MasterAdmin', 'MD', 'GM', 'HRM'])
-    ? [
-        { id: "risk_monitoring", label: "Risk Monitoring", icon: AlertCircle },
-        { id: "activity_logs", label: "Activity Logs", icon: Activity },
-      ]
-    : [];
+  const reportingItems: SidebarMenuItem[] = [
+    ...(canSee("risk_monitoring", dfReporting)
+      ? [{ id: "risk_monitoring", label: "Risk Monitoring", icon: AlertCircle } as SidebarLinkItem]
+      : []),
+    ...(canSee("activity_logs", dfReporting)
+      ? [{ id: "activity_logs", label: "Activity Logs", icon: Activity } as SidebarLinkItem]
+      : []),
+  ];
+
+  // System settings section ("ตั้งค่าระบบ").
+  // - จัดการผู้ใช้ keeps its existing role-based gating (dfUsers).
+  // - จัดการสิทธิ์การเข้าถึงตาม Role is strictly MasterAdmin-only (handled inside canSee).
+  const settingsItems: SidebarMenuItem[] = [
+    ...(canSee("users_data", dfUsers)
+      ? [{ id: "users_data", label: "จัดการผู้ใช้ (Admin)", icon: UserCog, badge: pendingCount > 0 ? pendingCount : undefined } as SidebarLinkItem]
+      : []),
+    ...(canSee("role_permissions", hasRole(['MasterAdmin']))
+      ? [{ id: "role_permissions", label: "จัดการสิทธิ์การเข้าถึงตาม Role", icon: ShieldCheck } as SidebarLinkItem]
+      : []),
+  ];
 
   const menuItems: SidebarMenuItem[] = [
-    dashboardItem,
+    ...(showDashboard ? [dashboardItem] : []),
     ...managementItems,
     ...manpowerItems,
     ...evaluationItems,
     ...reportingItems,
+    ...settingsItems,
   ];
 
   const renderMenuItem = (item: SidebarMenuItem) => (
@@ -751,6 +800,18 @@ const Sidebar = ({ activeModule, setActiveModule, dbConnected, sidebarOpen, onTo
     if (activeInReporting) {
       setExpandedMenus((prev) => ({ ...prev, reporting_section: true }));
     }
+
+    const activeInSettings = settingsItems.some((item) => {
+      if (item.isDivider) return false;
+      if (hasSubMenu(item)) {
+        return item.id === activeModule || item.sub.some((subItem) => subItem.id === activeModule);
+      }
+      return item.id === activeModule;
+    });
+
+    if (activeInSettings) {
+      setExpandedMenus((prev) => ({ ...prev, settings_section: true }));
+    }
   }, [activeModule]);
 
   const toggleMenu = (menuId: string) => {
@@ -838,13 +899,14 @@ const Sidebar = ({ activeModule, setActiveModule, dbConnected, sidebarOpen, onTo
       </div>
 
       <nav className="flex-1 p-2 space-y-1 min-w-0">
-        {renderMenuItem(dashboardItem)}
-        <div className="border-t border-slate-800 my-1.5 mx-2" />
+        {showDashboard && renderMenuItem(dashboardItem)}
+        {showDashboard && <div className="border-t border-slate-800 my-1.5 mx-2" />}
 
         {renderSection("management_section", "การจัดการ", Settings, managementItems)}
         {renderSection("manpower_section", "Manpower", Clock, manpowerItems)}
         {renderSection("evaluation_section", "ประเมินผล", ClipboardList, evaluationItems)}
         {renderSection("reporting_section", "รายงาน", Activity, reportingItems)}
+        {renderSection("settings_section", "ตั้งค่าระบบ", ShieldCheck, settingsItems)}
       </nav>
 
       <div className={`border-t border-slate-800 shrink-0 ${expanded ? "p-4" : "p-2 flex justify-center"}`}>
@@ -2952,6 +3014,26 @@ function MasterDatabaseApp() {
       </div>
     );
 
+  if (activeModule === "role_permissions")
+    return (
+      <div className="flex bg-gray-50 min-h-screen font-sans overflow-x-hidden">
+        <Sidebar
+          activeModule={activeModule}
+          setActiveModule={setActiveModule}
+          dbConnected={dbConnected}
+          sidebarOpen={sidebarOpen}
+          onToggleSidebar={() => setSidebarOpen((o) => !o)}
+          isMobile={isMobile}
+        />
+        <main
+          className="flex-1 p-4 pt-16 sm:p-6 lg:p-8 lg:pt-8 min-w-0 overflow-x-hidden transition-[margin-left] duration-200 ease-in-out"
+          style={{ marginLeft: isMobile ? 0 : sidebarOpen ? SIDEBAR_WIDTH : SIDEBAR_COLLAPSED_WIDTH }}
+        >
+          <RolePermissionSettings />
+        </main>
+      </div>
+    );
+
   const config = getModuleInfo(activeModule);
   const moduleTooltipMap: Record<string, React.ReactNode> = {
     projects: "รายการโครงการหลักของระบบ ใช้เป็น master สำหรับการ assign พนักงานและการวิเคราะห์ใน dashboard",
@@ -3318,7 +3400,7 @@ function MasterDatabaseApp() {
           </div>
         </header>
 
-        <div className="relative bg-white rounded-xl shadow-sm border border-gray-200 flex-1 min-h-0 flex flex-col" style={{ maxWidth: "100%" }}>
+        <div className={`relative flex-1 min-h-0 flex flex-col ${activeModule === 'manpower_dashboard' ? '' : 'bg-white rounded-xl shadow-sm border border-gray-200'}`} style={{ maxWidth: "100%" }}>
           <div
             ref={tableScrollRef}
             className="overflow-x-auto overflow-y-auto flex-1 min-h-0"
@@ -3326,7 +3408,7 @@ function MasterDatabaseApp() {
             onScroll={syncRailScrollFromTable}
           >
             {activeModule === 'manpower_dashboard' ? (
-              <div className="p-6">
+              <div className="p-0">
                 <ManpowerDashboard projectOptions={projectStatusOptions} />
               </div>
             ) : activeModule === 'risk_monitoring' ? (
