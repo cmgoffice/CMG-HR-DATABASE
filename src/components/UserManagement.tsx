@@ -130,7 +130,7 @@ export const UserManagement = ({
           <Loader2 className="animate-spin text-blue-500" size={32} />
         </div>
       ) : (
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+        <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-x-auto">
           <table className="w-full text-left border-collapse min-w-max">
             <thead className="bg-gray-50 border-b border-gray-200 text-gray-600 text-sm">
               <tr>
@@ -140,7 +140,7 @@ export const UserManagement = ({
                 <th className="px-4 py-0.5 font-semibold">สถานะ</th>
                 <th className="px-4 py-0.5 font-semibold">สิทธิ์ (Roles)</th>
                 <th className="px-4 py-0.5 font-semibold">โครงการที่รับผิดชอบ</th>
-                <th className="px-4 py-0.5 font-semibold text-center">จัดการ</th>
+                <th className="px-4 py-0.5 font-semibold text-center sticky right-0 bg-gray-50 z-10 shadow-[-6px_0_6px_-4px_rgba(0,0,0,0.08)]">จัดการ</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100 text-sm">
@@ -184,7 +184,7 @@ export const UserManagement = ({
                   <td className="px-4 py-0.5 text-xs text-gray-500 max-w-[200px] truncate">
                     {user.assignedProjects?.length > 0 ? user.assignedProjects.join(', ') : "ไม่ได้กำหนด"}
                   </td>
-                  <td className="px-4 py-0.5 text-center">
+                  <td className="px-4 py-0.5 text-center sticky right-0 bg-white z-10 shadow-[-6px_0_6px_-4px_rgba(0,0,0,0.08)]">
                     {user.status === 'pending' ? (
                       <div className="flex justify-center gap-2">
                         <button onClick={() => handleUpdateUserStatus(user.uid, 'approved')} className="p-1 bg-green-50 text-green-600 hover:bg-green-100 rounded-lg" title="อนุมัติ"><CheckCircle size={16} /></button>
