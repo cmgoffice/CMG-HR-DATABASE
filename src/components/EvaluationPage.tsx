@@ -858,13 +858,26 @@ const AssignmentTab = ({
   };
 
   const roleText = (u?: AppUser): string => (u?.role || []).join(", ") || "Staff";
+  const tier1Guide = "แนะนำให้เลือก Supervisor หรือ Admin Site ของชุดนั้น และควรมีอย่างน้อย 2 คน";
+  const tier2Guide = "แนะนำให้เลือก PM หรือ CM ของโครงการ เพื่อทบทวนผลระดับชุดและ override รายคนเมื่อจำเป็น";
 
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap items-center gap-2 rounded-xl border border-slate-200 bg-white p-2 lg:p-3">
         <FilterSelect label="โครงการ" value={projectSel} onChange={setProjectSel}
           options={projectOptions.map((p) => ({ value: p, label: p }))} />
-        <span className="text-[11px] text-slate-500 flex items-center gap-1"><Info size={12} /> เลือกผู้ประเมิน Tier 1 (ต้อง ≥2 คน) และผู้ตรวจ Tier 2 ของแต่ละชุด — เลือกได้จากผู้ใช้ที่อนุมัติแล้วทุกคน</span>
+        <span className="text-[11px] text-slate-500 flex items-center gap-1"><Info size={12} /> เลือกผู้ประเมินและผู้ตรวจของแต่ละชุด โดยเลือกได้จากผู้ใช้ที่อนุมัติแล้วในระบบ</span>
+      </div>
+
+      <div className="rounded-xl border border-sky-200 bg-sky-50/70 p-3 text-xs text-slate-700">
+        <div className="flex items-start gap-2">
+          <Info className="mt-0.5 shrink-0 text-sky-600" size={14} />
+          <div className="space-y-1">
+            <div className="font-semibold text-slate-800">คำแนะนำการมอบหมายผู้ประเมิน</div>
+            <div><b>Tier 1:</b> เลือก Supervisor หรือ Admin Site ของชุดนั้น เพื่อประเมินรายบุคคล และควรมีอย่างน้อย 2 คน</div>
+            <div><b>Tier 2:</b> เลือก PM หรือ CM ของโครงการ เพื่อทบทวนผลระดับชุด และ override รายคนเมื่อจำเป็น</div>
+          </div>
+        </div>
       </div>
 
       {selectableUsers.length === 0 && (
@@ -892,14 +905,20 @@ const AssignmentTab = ({
               {/* Tier 1 */}
               <div className="mt-2">
                 <div className="flex items-center gap-2">
-                  <span className="text-[11px] font-semibold text-slate-600">Tier 1 · ให้คะแนนรายคน</span>
+                  <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-slate-600">
+                    Tier 1 · ให้คะแนนรายคน
+                    <InfoTooltip content={tier1Guide} iconSize={12} />
+                  </span>
                   <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${t1.length >= MIN_RATERS ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"}`}>
                     {t1.length}/{MIN_RATERS} คน
                   </span>
-                  <button onClick={() => setPickerFor({ group: g, tier: 1 })}
-                    className="ml-auto rounded-lg border border-indigo-200 bg-indigo-50 px-2.5 py-1 text-[11px] font-semibold text-indigo-700 hover:bg-indigo-100">
-                    + เลือกผู้ประเมิน
-                  </button>
+                  <div className="ml-auto flex items-center gap-1.5">
+                    <InfoTooltip content={tier1Guide} iconSize={12} />
+                    <button onClick={() => setPickerFor({ group: g, tier: 1 })}
+                      className="rounded-lg border border-indigo-200 bg-indigo-50 px-2.5 py-1 text-[11px] font-semibold text-indigo-700 hover:bg-indigo-100">
+                      + เลือกผู้ประเมิน
+                    </button>
+                  </div>
                 </div>
                 <div className="mt-1.5 flex flex-wrap gap-1.5">
                   {t1.length === 0 ? <span className="text-[11px] text-slate-400">ยังไม่ได้เลือก</span> :
@@ -915,12 +934,18 @@ const AssignmentTab = ({
               {/* Tier 2 */}
               <div className="mt-2 border-t border-slate-100 pt-2">
                 <div className="flex items-center gap-2">
-                  <span className="text-[11px] font-semibold text-slate-600">Tier 2 · ตรวจระดับชุด</span>
+                  <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-slate-600">
+                    Tier 2 · ตรวจระดับชุด
+                    <InfoTooltip content={tier2Guide} iconSize={12} />
+                  </span>
                   <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] text-slate-500">{t2.length} คน</span>
-                  <button onClick={() => setPickerFor({ group: g, tier: 2 })}
-                    className="ml-auto rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[11px] font-semibold text-emerald-700 hover:bg-emerald-100">
-                    + เลือกผู้ตรวจ
-                  </button>
+                  <div className="ml-auto flex items-center gap-1.5">
+                    <InfoTooltip content={tier2Guide} iconSize={12} />
+                    <button onClick={() => setPickerFor({ group: g, tier: 2 })}
+                      className="rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[11px] font-semibold text-emerald-700 hover:bg-emerald-100">
+                      + เลือกผู้ตรวจ
+                    </button>
+                  </div>
                 </div>
                 <div className="mt-1.5 flex flex-wrap gap-1.5">
                   {t2.length === 0 ? <span className="text-[11px] text-slate-400">ยังไม่ได้เลือก</span> :
