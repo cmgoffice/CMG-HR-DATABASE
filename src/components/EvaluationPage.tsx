@@ -24,7 +24,9 @@ import {
   X,
 } from "lucide-react";
 import { useAuth } from "../auth/AuthContext";
+import { getPageGuide } from "../config/pageGuides";
 import { InfoTooltip } from "./InfoTooltip";
+import { PageGuideButton, PageGuideModal } from "./PageGuideModal";
 import {
   ALL_TIERS,
   ASSIGNER_ROLES,
@@ -265,6 +267,8 @@ export const EvaluationPage = ({ projectOptions }: { projectOptions: string[] })
   const [scopeFilter, setScopeFilter] = useState<"mine" | "all">("mine");
   const [search, setSearch] = useState("");
   const [openGroup, setOpenGroup] = useState<GroupRow | null>(null);
+  const [showPageGuide, setShowPageGuide] = useState(false);
+  const pageGuide = getPageGuide("evaluation-page");
 
   useEffect(() => {
     if (!selectedPeriod && periodOptions.length > 0) setSelectedPeriod(periodOptions[0].key);
@@ -539,15 +543,18 @@ export const EvaluationPage = ({ projectOptions }: { projectOptions: string[] })
   return (
     <div className="p-3 lg:p-5 space-y-3 lg:space-y-4">
       {/* Header + tabs */}
-      <div className="flex flex-wrap items-center gap-2">
-        <div className="flex items-center gap-2">
-          <ClipboardCheck className="text-indigo-600" size={20} />
-          <h2 className="text-base lg:text-lg font-bold text-slate-800">ประเมินผลพนักงาน</h2>
-          <InfoTooltip content="ประเมินแบบ 4 ชั้น (tier) ทำต่อเนื่องกัน: Tier 1 ผู้ได้รับมอบหมายให้คะแนนรายคน (ต้อง ≥2 คน) → Tier 2 ผู้ได้รับมอบหมายตรวจระดับชุด → Tier 3 HR → Tier 4 PD ปิดรอบ ครบทุก tier รอบจึงสมบูรณ์ คะแนนสุดท้าย = เฉลี่ย Tier 1 เว้นแต่ tier สูงกว่า override รายคน" />
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="flex items-center gap-2">
+            <ClipboardCheck className="text-indigo-600" size={20} />
+            <h2 className="text-base lg:text-lg font-bold text-slate-800">ประเมินผลพนักงาน</h2>
+            <InfoTooltip content="ประเมินแบบ 4 ชั้น (tier) ทำต่อเนื่องกัน: Tier 1 ผู้ได้รับมอบหมายให้คะแนนรายคน (ต้อง ≥2 คน) → Tier 2 ผู้ได้รับมอบหมายตรวจระดับชุด → Tier 3 HR → Tier 4 PD ปิดรอบ ครบทุก tier รอบจึงสมบูรณ์ คะแนนสุดท้าย = เฉลี่ย Tier 1 เว้นแต่ tier สูงกว่า override รายคน" />
+          </div>
+          <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-semibold text-slate-600">
+            สิทธิ์ของคุณ: {myTierBadge.length > 0 ? myTierBadge.map((t) => `Tier ${t}`).join(", ") : "ดูอย่างเดียว"}
+          </span>
         </div>
-        <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-semibold text-slate-600">
-          สิทธิ์ของคุณ: {myTierBadge.length > 0 ? myTierBadge.map((t) => `Tier ${t}`).join(", ") : "ดูอย่างเดียว"}
-        </span>
+        <PageGuideButton onClick={() => setShowPageGuide(true)} />
       </div>
 
       <div className="flex items-center gap-1 border-b border-slate-200">
@@ -694,6 +701,12 @@ export const EvaluationPage = ({ projectOptions }: { projectOptions: string[] })
           log={logActivity}
         />
       )}
+
+      <PageGuideModal
+        open={showPageGuide}
+        guide={pageGuide}
+        onClose={() => setShowPageGuide(false)}
+      />
     </div>
   );
 };

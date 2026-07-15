@@ -17,7 +17,9 @@ import {
   XCircle,
 } from "lucide-react";
 import { useAuth } from "../auth/AuthContext";
+import { getPageGuide } from "../config/pageGuides";
 import { InfoTooltip } from "./InfoTooltip";
+import { PageGuideButton, PageGuideModal } from "./PageGuideModal";
 import { DonutChart, RankedBarChart, CoverageCompareChart, CoverageGaugeDonut } from "./DashboardCharts";
 
 interface Employee {
@@ -906,6 +908,7 @@ export const ManpowerDashboard = ({
   const [endDate, setEndDate] = useState(defaultTodayRange.end);
   const [selectedProject, setSelectedProject] = useState("");
   const [showRiskScoreGuide, setShowRiskScoreGuide] = useState(false);
+  const [showPageGuide, setShowPageGuide] = useState(false);
   const [metricModal, setMetricModal] = useState<null | { key: string; title: string; subtitle?: string }>(null);
   const [sidePanel, setSidePanel] = useState<null | { key: string; title: string; subtitle?: string; selectedKey?: string }>(null);
   const [expandedTypeBreakdown, setExpandedTypeBreakdown] = useState<Set<string>>(new Set());
@@ -3547,6 +3550,9 @@ export const ManpowerDashboard = ({
     : projectData.exceptionList;
   const projectFollowUpStatusRows =
     isSingleDayView ? projectData.followUpProjectEmployeeStatusRows : projectData.projectEmployeeStatusRows;
+  const activePageGuide = getPageGuide(
+    dashboardMode === "project" ? "project-dashboard" : "hr-dashboard"
+  );
 
   return (
     <div ref={dashboardRef} data-export-root className="bg-gradient-to-br from-slate-50 via-sky-50 to-rose-50 border border-slate-200 rounded-xl shadow-sm overflow-hidden text-sm">
@@ -3646,6 +3652,9 @@ export const ManpowerDashboard = ({
               {exporting ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
               {exporting ? "กำลังส่งออก..." : "ส่งออกรูป"}
             </button>
+            <div data-html2canvas-ignore="true">
+              <PageGuideButton onClick={() => setShowPageGuide(true)} />
+            </div>
             {/* ช่องวันที่: reserve พื้นที่ไว้เสมอเพื่อกัน layout เด้ง เปิดใช้งานเฉพาะโหมดเลือกวันที่ */}
             <div className={`shrink-0 items-center gap-2 transition-opacity ${timePreset === "custom" ? "flex opacity-100" : "hidden lg:flex pointer-events-none lg:opacity-0"}`}>
               <input
@@ -4827,6 +4836,12 @@ export const ManpowerDashboard = ({
       >
         {renderSidePanelContent()}
       </DashboardSidePanel>
+
+      <PageGuideModal
+        open={showPageGuide}
+        guide={activePageGuide}
+        onClose={() => setShowPageGuide(false)}
+      />
 
       {showLandscapeHint && (
         <div data-html2canvas-ignore="true" className="fixed inset-0 z-[60] flex items-end justify-center bg-slate-900/50 p-4 sm:items-center">
