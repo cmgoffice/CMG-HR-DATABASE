@@ -58,6 +58,14 @@ export interface RiskRuleConfig {
   description: string;
   enabled: boolean;
   tiers: RiskRuleTierConfig[];
+  /**
+   * Rules sharing the same scoreGroup describe the same underlying behavior
+   * (e.g. absence-based rules all derive from the same absence days). Only
+   * the highest-scoring rule within a group counts toward totalScore so the
+   * same incident isn't counted multiple times. Rules without a scoreGroup
+   * are scored independently (grouped by their own key).
+   */
+  scoreGroup?: string;
 }
 
 export interface SeverityBandConfig {
@@ -99,6 +107,7 @@ export interface EvaluatedRiskRule {
   severityImpact: RiskSeverity;
   reason: string;
   value: number;
+  scoreGroup: string;
 }
 
 const toNumber = (value: unknown, fallback: number): number => {
@@ -156,7 +165,8 @@ const defaultIssueTypes: RiskIssueTypeConfig[] = [
     label: "อัตราขาดงานสูง",
     shortLabel: "อัตราขาดสูง",
     category: "การมาทำงาน",
-    description: "ใช้ติดตามสัดส่วนวันขาดงานต่อวันทำงานทั้งหมดในช่วงวิเคราะห์",
+    description:
+      "เป็นอัตราส่วนที่คำนวณจากวันขาดงานชุดเดียวกับกลุ่มขาดต่อเนื่อง/ขาดสะสม ไม่ใช่หลักฐานผิดวินัยเพิ่มเติมด้วยตัวเอง จึงไม่ถูกส่งเข้าคิวติดตามพนักงานอัตโนมัติ ใช้เป็นสัญญาณเฝ้าระวังบน dashboard เท่านั้น",
     enabled: true,
   },
   {
@@ -164,7 +174,8 @@ const defaultIssueTypes: RiskIssueTypeConfig[] = [
     label: "รูปแบบขาดวันจันทร์/ศุกร์",
     shortLabel: "ขาดจันทร์/ศุกร์",
     category: "รูปแบบพฤติกรรม",
-    description: "ใช้ติดตามพฤติกรรมขาดงานในวันต้นหรือท้ายสัปดาห์ที่เกิดซ้ำ",
+    description:
+      "เป็นเพียงรูปแบบ (pattern) ของวันที่ขาดงานซึ่งนับซ้ำกับวันขาดงานที่ถูกนับในกลุ่มขาดต่อเนื่อง/ขาดสะสม/อัตราขาดสูงอยู่แล้ว ไม่ใช่หลักฐานผิดวินัยเพิ่มเติมด้วยตัวเอง จึงไม่ถูกส่งเข้าคิวติดตามพนักงานอัตโนมัติ ใช้เป็นสัญญาณเฝ้าระวังบน dashboard เท่านั้น",
     enabled: true,
   },
   {
@@ -172,7 +183,8 @@ const defaultIssueTypes: RiskIssueTypeConfig[] = [
     label: "ค้างลงเวลาและขาดงาน",
     shortLabel: "ค้างลงเวลา",
     category: "คุณภาพข้อมูลเวลา",
-    description: "ใช้ติดตามกรณีค้างลงเวลาหลายครั้งร่วมกับการขาดงาน",
+    description:
+      "ค้างลงเวลามักสะท้อนความบกพร่องของการบันทึกเวลา/อุปกรณ์ ไม่ใช่พฤติกรรมพนักงานโดยตรง จึงไม่ถูกส่งเข้าคิวติดตามพนักงานอัตโนมัติ แต่ยังใช้เป็นสัญญาณคุณภาพข้อมูลบน dashboard",
     enabled: true,
   },
   {
@@ -180,7 +192,8 @@ const defaultIssueTypes: RiskIssueTypeConfig[] = [
     label: "ลงผิดโครงการร่วมกับขาดงาน",
     shortLabel: "ลงผิดโครงการ",
     category: "คุณภาพข้อมูลเวลา",
-    description: "ใช้ติดตามการลงเวลาผิดโครงการร่วมกับการขาดงานที่อาจสะท้อนปัญหาหน้างาน",
+    description:
+      "มักสะท้อนความบกพร่องของผู้ลงเวลา (เช่น Admin Site) ไม่ใช่พฤติกรรมพนักงาน จึงไม่ถูกส่งเข้าคิวติดตามพนักงานอัตโนมัติ แต่ยังใช้เป็นสัญญาณคุณภาพข้อมูลบน dashboard",
     enabled: true,
   },
 ];
@@ -193,6 +206,7 @@ const defaultRiskRules: RiskRuleConfig[] = [
     valueFormat: "days",
     description: "ให้คะแนนเมื่อพนักงานขาดงานติดกันหลายวัน",
     enabled: true,
+    scoreGroup: "absence_days",
     tiers: [
       { id: "consecutive_absence_4", minValue: 4, score: 55, severityImpact: "critical", enabled: true, note: "เร่งติดตามทันที" },
       { id: "consecutive_absence_3", minValue: 3, score: 40, severityImpact: "critical", enabled: true, note: "ควรเริ่มเปิดเคสติดตาม" },
@@ -206,6 +220,7 @@ const defaultRiskRules: RiskRuleConfig[] = [
     valueFormat: "days",
     description: "ให้คะแนนเมื่อจำนวนวันขาดสะสมถึงเกณฑ์",
     enabled: true,
+    scoreGroup: "absence_days",
     tiers: [
       { id: "total_absence_5", minValue: 5, score: 30, severityImpact: "critical", enabled: true },
       { id: "total_absence_4", minValue: 4, score: 20, severityImpact: "high", enabled: true },
@@ -219,6 +234,7 @@ const defaultRiskRules: RiskRuleConfig[] = [
     valueFormat: "percent",
     description: "ให้คะแนนเมื่ออัตราขาดงานเกินเกณฑ์ของช่วงวิเคราะห์",
     enabled: true,
+    scoreGroup: "absence_days",
     tiers: [
       { id: "absence_rate_20", minValue: 0.2, score: 35, severityImpact: "critical", enabled: true },
       { id: "absence_rate_15", minValue: 0.15, score: 25, severityImpact: "high", enabled: true },
@@ -232,6 +248,7 @@ const defaultRiskRules: RiskRuleConfig[] = [
     valueFormat: "count",
     description: "ให้คะแนนเมื่อมีพฤติกรรมขาดวันจันทร์หรือศุกร์ซ้ำ",
     enabled: true,
+    scoreGroup: "absence_days",
     tiers: [
       { id: "monday_friday_pattern_3", minValue: 3, score: 20, severityImpact: "high", enabled: true },
       { id: "monday_friday_pattern_2", minValue: 2, score: 10, severityImpact: "watch", enabled: true },
@@ -551,10 +568,27 @@ export const evaluateConfiguredRiskRules = (
       severityImpact: matchedTier.severityImpact,
       reason,
       value: primaryValue,
+      scoreGroup: rule.scoreGroup || rule.key,
     });
   });
 
   return results;
+};
+
+/**
+ * Sums evaluated rule scores toward a single totalScore, but only counts the
+ * highest-scoring rule within each scoreGroup once. This avoids the same
+ * underlying incident (e.g. an absence streak) being counted multiple times
+ * across related rules (ขาดต่อเนื่อง / ขาดสะสม / อัตราขาดสูง).
+ */
+export const computeRiskTotalScore = (rules: Array<Pick<EvaluatedRiskRule, "score" | "scoreGroup">>): number => {
+  const bestScoreByGroup = new Map<string, number>();
+  rules.forEach((rule) => {
+    const current = bestScoreByGroup.get(rule.scoreGroup) || 0;
+    if (rule.score > current) bestScoreByGroup.set(rule.scoreGroup, rule.score);
+  });
+  const total = Array.from(bestScoreByGroup.values()).reduce((sum, score) => sum + score, 0);
+  return Math.min(100, total);
 };
 
 const getSeverityRank = (severity: RiskSeverity): number => severityOrder.indexOf(severity);

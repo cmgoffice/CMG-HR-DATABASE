@@ -48,6 +48,7 @@ import {
   getNextWarningRoundForAction,
   getInitialEscalationState,
   isFollowUpProcessedStatus,
+  isWatchOnlyIssueType,
 } from "./employeeFollowUpConfig";
 
 interface AppUser {
@@ -342,6 +343,12 @@ export const EmployeeFollowUpTab = ({
   const [busy, setBusy] = useState(false);
   const [ownerDraft, setOwnerDraft] = useState("");
   const [escalationDraft, setEscalationDraft] = useState<FollowUpEscalationState>("none");
+  const [toastMessage, setToastMessage] = useState("");
+
+  const showToast = (message: string) => {
+    setToastMessage(message);
+    window.setTimeout(() => setToastMessage(""), 2600);
+  };
   const [hrmReviewDraft, setHrmReviewDraft] = useState<HrmReviewDraft>({
     status: "approved",
     comment: "",
@@ -733,6 +740,9 @@ export const EmployeeFollowUpTab = ({
           nextCase.ownerName || "ยังไม่ระบุ"
         }`
       );
+      showToast("บันทึกผู้รับผิดชอบแล้ว");
+    } catch (error) {
+      window.alert(`บันทึกไม่สำเร็จ: ${error instanceof Error ? error.message : "เกิดข้อผิดพลาดที่ไม่คาดคิด"}`);
     } finally {
       setBusy(false);
     }
@@ -855,6 +865,9 @@ export const EmployeeFollowUpTab = ({
           FOLLOW_UP_STATUS_LABELS[nextStatus]
         }`
       );
+      showToast("บันทึกสถานะแล้ว");
+    } catch (error) {
+      window.alert(`บันทึกไม่สำเร็จ: ${error instanceof Error ? error.message : "เกิดข้อผิดพลาดที่ไม่คาดคิด"}`);
     } finally {
       setBusy(false);
     }
@@ -885,6 +898,9 @@ export const EmployeeFollowUpTab = ({
           FOLLOW_UP_ESCALATION_LABELS[escalationDraft]
         }`
       );
+      showToast("บันทึกสถานะยกระดับแล้ว");
+    } catch (error) {
+      window.alert(`บันทึกไม่สำเร็จ: ${error instanceof Error ? error.message : "เกิดข้อผิดพลาดที่ไม่คาดคิด"}`);
     } finally {
       setBusy(false);
     }
@@ -952,6 +968,11 @@ export const EmployeeFollowUpTab = ({
           FOLLOW_UP_HRM_REVIEW_LABELS[hrmReviewDraft.status]
         }`
       );
+      showToast(
+        hrmReviewDraft.status === "approved" ? "HRM อนุมัติแล้ว" : "ส่งความเห็นกลับให้ HR แล้ว"
+      );
+    } catch (error) {
+      window.alert(`บันทึกไม่สำเร็จ: ${error instanceof Error ? error.message : "เกิดข้อผิดพลาดที่ไม่คาดคิด"}`);
     } finally {
       setBusy(false);
     }
@@ -976,7 +997,7 @@ export const EmployeeFollowUpTab = ({
 
   const applyAction = async () => {
     if (!actionDraft || !selectedCase || !actor || !canManageFirstStage) return;
-    if (!canSelectFollowUpAction(policyConfig, actionDraft.type, selectedCase.warningRound)) return;
+    if (!canSelectFollowUpAction(policyConfig, actionDraft.type, selectedCase.warningRound, selectedCase.issueType)) return;
 
     const now = Date.now();
     const baseCase = materializeSelectedCase(selectedCase, now);
@@ -1039,7 +1060,10 @@ export const EmployeeFollowUpTab = ({
         `บันทึกการดำเนินการ: ${FOLLOW_UP_ACTION_LABELS[actionDraft.type]}`,
         `${selectedCase.employeeName} (${selectedCase.employeeCode}) · ${selectedCase.issueLabel}`
       );
+      showToast(`บันทึก "${FOLLOW_UP_ACTION_LABELS[actionDraft.type]}" แล้ว`);
       setActionDraft(null);
+    } catch (error) {
+      window.alert(`บันทึกไม่สำเร็จ: ${error instanceof Error ? error.message : "เกิดข้อผิดพลาดที่ไม่คาดคิด"}`);
     } finally {
       setBusy(false);
     }
@@ -1068,6 +1092,12 @@ export const EmployeeFollowUpTab = ({
 
   return (
     <div className="space-y-4">
+      {toastMessage && (
+        <div className="fixed right-4 top-4 z-[200] flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-2.5 text-sm font-semibold text-emerald-800 shadow-lg">
+          <CheckCircle2 size={16} className="text-emerald-600" />
+          {toastMessage}
+        </div>
+      )}
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <h3 className="text-lg font-black text-slate-900">{pageTitle}</h3>
@@ -1233,11 +1263,59 @@ export const EmployeeFollowUpTab = ({
       ) : (
         <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
           <SummaryCard label="ทั้งหมดในคิว" value={summary.total} tone="slate" />
-          <SummaryCard label="รอดำเนินการ" value={summary.pending} tone="amber" />
-          <SummaryCard label="กำลังติดตาม" value={summary.inProgress} tone="sky" />
-          <SummaryCard label="รอ HRM พิจารณา" value={summary.waitingHrm} tone="rose" />
+          <SummaryCard
+            label="รอดำเนินการ"
+            value={summary.pending}
+            tone="amber"
+            onClick={() => setStatusFilter((prev) => (prev === "pending" ? "all" : "pending"))}
+            active={statusFilter === "pending"}
+          />
+          <SummaryCard
+            label="กำลังติดตาม"
+            value={summary.inProgress}
+            tone="sky"
+            onClick={() => setStatusFilter((prev) => (prev === "in_progress" ? "all" : "in_progress"))}
+            active={statusFilter === "in_progress"}
+          />
+          <SummaryCard
+            label="รอ HRM พิจารณา"
+            value={summary.waitingHrm}
+            tone="rose"
+            onClick={
+              canReviewByHrm
+                ? () => setStatusFilter((prev) => (prev === "awaiting_hrm_review" ? "all" : "awaiting_hrm_review"))
+                : undefined
+            }
+            active={statusFilter === "awaiting_hrm_review"}
+          />
           <SummaryCard label="HRM ส่งความเห็นกลับ" value={summary.hrmCommented} tone="amber" />
           <SummaryCard label="เคสยกระดับ" value={summary.escalation} tone="rose" />
+        </div>
+      )}
+
+      {!isBacklogView && canReviewByHrm && (
+        <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-violet-200 bg-violet-50 px-3 py-2">
+          <span className="text-xs font-semibold text-violet-800">มุมมอง HRM:</span>
+          <button
+            type="button"
+            onClick={() => setStatusFilter("awaiting_hrm_review")}
+            className={`rounded-full border px-3 py-1 text-xs font-semibold transition-colors ${
+              statusFilter === "awaiting_hrm_review"
+                ? "border-violet-400 bg-violet-600 text-white"
+                : "border-violet-300 bg-white text-violet-700 hover:bg-violet-100"
+            }`}
+          >
+            แสดงเฉพาะรอ HRM พิจารณา ({summary.waitingHrm})
+          </button>
+          {statusFilter === "awaiting_hrm_review" && (
+            <button
+              type="button"
+              onClick={() => setStatusFilter("all")}
+              className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-semibold text-slate-600 hover:bg-slate-50"
+            >
+              ล้างตัวกรองนี้
+            </button>
+          )}
         </div>
       )}
 
@@ -1861,12 +1939,21 @@ export const EmployeeFollowUpTab = ({
             {canManageFirstStage && selectedCase.status !== "awaiting_hrm_review" && selectedCase.status !== "closed" && selectedCase.status !== "no_action" && (
               <div className="border-t border-slate-100 px-4 py-4 sm:px-5">
                 <div className="mb-2 text-sm font-bold text-slate-800">บันทึกการดำเนินการขั้นแรกของ HR</div>
+                {isWatchOnlyIssueType(selectedCase.issueType) && (
+                  <div className="mb-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                    ประเด็นนี้เป็นเพียงสัญญาณเฝ้าระวัง (pattern/อัตรา) ไม่ใช่ฐานตามกฎหมายที่ออกหนังสือเตือนเป็นลายลักษณ์อักษรได้ด้วยตัวเอง จึงอนุญาตให้เตือนวาจาเท่านั้น
+                    จนกว่าจะพบเงื่อนไขขาดต่อเนื่องหรือขาดสะสมร่วมด้วย
+                  </div>
+                )}
                 <div className="flex flex-wrap gap-2">
                   {enabledActionOptions.map((option) => (
                     <button
                       key={option.type}
                       type="button"
-                      disabled={busy || !canSelectFollowUpAction(policyConfig, option.type, selectedCase.warningRound)}
+                      disabled={
+                        busy ||
+                        !canSelectFollowUpAction(policyConfig, option.type, selectedCase.warningRound, selectedCase.issueType)
+                      }
                       onClick={() => openActionModal(option.type)}
                       className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
                     >
@@ -1974,10 +2061,14 @@ const SummaryCard = ({
   label,
   value,
   tone,
+  onClick,
+  active,
 }: {
   label: string;
   value: number;
   tone: "slate" | "amber" | "sky" | "emerald" | "rose";
+  onClick?: () => void;
+  active?: boolean;
 }) => {
   const toneClass: Record<typeof tone, string> = {
     slate: "border-slate-200 bg-slate-50 text-slate-700",
@@ -1986,11 +2077,18 @@ const SummaryCard = ({
     emerald: "border-emerald-200 bg-emerald-50 text-emerald-700",
     rose: "border-rose-200 bg-rose-50 text-rose-700",
   };
+  const Component = onClick ? "button" : "div";
   return (
-    <div className={`rounded-2xl border px-3 py-3 ${toneClass[tone]}`}>
+    <Component
+      type={onClick ? "button" : undefined}
+      onClick={onClick}
+      className={`rounded-2xl border px-3 py-3 text-left ${toneClass[tone]} ${
+        onClick ? "cursor-pointer transition-transform hover:-translate-y-0.5" : ""
+      } ${active ? "ring-2 ring-offset-1 ring-current" : ""}`}
+    >
       <div className="text-[11px] font-semibold opacity-80">{label}</div>
       <div className="mt-1 text-2xl font-black">{value}</div>
-    </div>
+    </Component>
   );
 };
 

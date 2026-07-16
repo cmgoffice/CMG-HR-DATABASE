@@ -31,6 +31,7 @@ import {
   isFollowUpOpenStatus,
 } from "./employeeFollowUpConfig";
 import {
+  computeRiskTotalScore,
   DEFAULT_RISK_MONITORING_SETTINGS,
   deriveSeverityFromSettings,
   evaluateConfiguredRiskRules,
@@ -139,6 +140,7 @@ interface RiskRuleResult {
   severityImpact: RiskSeverity;
   reason: string;
   value?: number | string;
+  scoreGroup: string;
 }
 
 interface RiskMetrics {
@@ -566,6 +568,59 @@ const formatShortThaiDate = (dateStr?: string): string => {
   });
 };
 
+/**
+ * Rules sharing the same scoreGroup describe the same underlying incident
+ * (e.g. ขาดต่อเนื่อง / ขาดสะสม / อัตราขาดสูง all come from the same absence
+ * pattern). Collapse them into a single follow-up issue so HR isn't asked to
+ * track 3 near-duplicate cases per employee for one event; the representative
+ * rule (highest score in the group) is used as the case's key/label, while
+ * every matched condition is still listed in the combined reason text.
+ */
+const consolidateRulesByScoreGroup = (rules: RiskRuleResult[]): RiskRuleResult[] => {
+  const groups = new Map<string, RiskRuleResult[]>();
+  rules.forEach((rule) => {
+    const groupKey = rule.scoreGroup || rule.key;
+    const list = groups.get(groupKey) || [];
+    list.push(rule);
+    groups.set(groupKey, list);
+  });
+  return Array.from(groups.values()).map((group) => {
+    if (group.length === 1) return group[0];
+    const representative = [...group].sort((a, b) => b.score - a.score)[0];
+    return {
+      ...representative,
+      label: `${representative.label} (รวม ${group.length} เงื่อนไขที่เกี่ยวข้อง)`,
+      reason: group.map((rule) => rule.reason).join(" · "),
+    };
+  });
+};
+
+/**
+ * These rules are excluded from the employee follow-up queue entirely (no
+ * case is created for them) and are shown only as warning signals on the
+ * Dashboard / Risk Monitoring cards:
+ * - wrong_project_pattern: logging attendance/project against the wrong
+ *   project is typically a mistake by whoever logs it (e.g. Admin Site),
+ *   not the employee's behavior.
+ * - missing_attendance: unresolved/pending clock-in-out records are usually
+ *   a timekeeping/device data-quality issue, not proof of employee absence.
+ * - absence_rate: an aggregate rate derived from the same absence days
+ *   already covered by ขาดต่อเนื่อง/ขาดสะสม; on its own it isn't a distinct
+ *   legal basis for disciplinary action, so it's kept as a dashboard-only
+ *   watch signal instead of generating a follow-up case.
+ * - monday_friday_pattern: a behavioral pattern flag over the same absence
+ *   days, not an independent violation; also kept as a dashboard-only
+ *   watch signal.
+ * All four still contribute to the risk score/dashboard as signals, just
+ * not as employee tracking cases.
+ */
+const EMPLOYEE_FOLLOW_UP_EXCLUDED_ISSUE_KEYS: readonly RiskRuleKey[] = [
+  "wrong_project_pattern",
+  "missing_attendance",
+  "absence_rate",
+  "monday_friday_pattern",
+];
+
 const buildFollowUpRiskSeed = (risk: EmployeeRiskScore): FollowUpRiskSeed => ({
   employeeId: risk.employeeId,
   employeeCode: risk.employeeCode,
@@ -579,7 +634,9 @@ const buildFollowUpRiskSeed = (risk: EmployeeRiskScore): FollowUpRiskSeed => ({
   evaluatedFrom: risk.evaluatedFrom,
   evaluatedTo: risk.evaluatedTo,
   latestIncidentDate: risk.metrics.latestIncidentDate,
-  rules: risk.rules.map((rule) => ({
+  rules: consolidateRulesByScoreGroup(
+    risk.rules.filter((rule) => !EMPLOYEE_FOLLOW_UP_EXCLUDED_ISSUE_KEYS.includes(rule.key))
+  ).map((rule) => ({
     key: rule.key,
     label: rule.label,
     reason: rule.reason,
@@ -1458,7 +1515,7 @@ export const ManpowerDashboard = ({
       .map((emp) => {
         const metrics = followUpRiskMetricsByEmployee[emp.id];
         const rules = evaluateRiskRules(metrics, riskSettings);
-        const totalScore = Math.min(100, rules.reduce((sum, rule) => sum + rule.score, 0));
+        const totalScore = computeRiskTotalScore(rules);
         const severityInfo = deriveSeverity(totalScore, rules, riskSettings);
         return {
           employeeId: emp.id,
@@ -1484,7 +1541,7 @@ export const ManpowerDashboard = ({
     const employeeAttendanceRows: EmployeeAttendanceSummaryRow[] = scopeEmployees.map((emp) => {
       const metrics = riskMetricsByEmployee[emp.id];
       const rules = evaluateRiskRules(metrics, riskSettings);
-      const totalScore = Math.min(100, rules.reduce((sum, rule) => sum + rule.score, 0));
+      const totalScore = computeRiskTotalScore(rules);
       const severityInfo = deriveSeverity(totalScore, rules, riskSettings);
       return {
         employeeId: emp.id,
@@ -3063,9 +3120,15 @@ export const ManpowerDashboard = ({
               {onOpenFollowUp ? (
                 <div className="rounded-xl border border-slate-200 p-4">
                   <div className="text-sm font-black text-slate-900">Follow-up Queue by Issue</div>
-                  <div className="mt-1 text-xs text-slate-500">เปิดรายการติดตามรายประเด็นจาก risk rule ที่ trigger จริง โดยไม่ต้องสร้างเคสเองก่อน</div>
+                  <div className="mt-1 text-xs text-slate-500">
+                    เปิดรายการติดตามรายประเด็นจาก risk rule ที่ trigger จริง โดยไม่ต้องสร้างเคสเองก่อน (เฉพาะขาดต่อเนื่องและขาดสะสมเท่านั้นที่เข้าคิวนี้ได้
+                    ส่วนอัตราขาดสูง ขาดจันทร์-ศุกร์ ลงผิดโครงการ และค้างลงเวลา ไม่แสดงในคิวนี้ เพราะเป็นเพียงสัญญาณเฝ้าระวัง/คุณภาพข้อมูลบน dashboard เท่านั้น
+                    ไม่ใช่ฐานให้ดำเนินการทางวินัยกับพนักงานได้ด้วยตัวเอง)
+                  </div>
                   <div className="mt-3 grid gap-2 xl:grid-cols-2">
-                    {activeRisk.rules.map((rule) => {
+                    {consolidateRulesByScoreGroup(
+                      activeRisk.rules.filter((rule) => rule.key !== "wrong_project_pattern")
+                    ).map((rule) => {
                       const existingCase = findFollowUpCase(followUpCases, activeRisk.employeeId, rule.key);
                       return (
                         <div key={`${activeRisk.employeeId}-${rule.key}`} className="rounded-xl border border-slate-200 p-3">
@@ -4960,7 +5023,11 @@ export const ManpowerDashboard = ({
             <div className="max-h-[80vh] overflow-y-auto px-5 py-4 space-y-5 text-sm text-slate-700">
               <div className="rounded-xl border border-sky-200 bg-sky-50 p-4">
                 <div className="font-bold text-sky-900">สูตรรวมคะแนน</div>
-                <div className="mt-2">Risk score = ผลรวมคะแนนจากทุก rule ที่เข้าเงื่อนไข</div>
+                <div className="mt-2">Risk score = ผลรวมคะแนนจาก rule ที่เข้าเงื่อนไข โดยนับคะแนนสูงสุดเพียง 1 rule ต่อกลุ่มเงื่อนไขที่มาจากเหตุการณ์เดียวกัน</div>
+                <div className="mt-1">
+                  เช่น ขาดต่อเนื่อง / ขาดสะสม / อัตราขาดสูง / ขาดจันทร์-ศุกร์ ล้วนสะท้อนการขาดงานชุดเดียวกัน จึงนับคะแนนของ rule ที่สูงสุดในกลุ่มนี้เพียงรายการเดียว
+                  ไม่บวกซ้ำกัน
+                </div>
                 <div className="mt-1">คะแนนสูงสุดถูกจำกัดไว้ที่ 100 คะแนน</div>
               </div>
 
@@ -5041,6 +5108,22 @@ export const ManpowerDashboard = ({
                     </tbody>
                   </table>
                 </div>
+                <ul className="mt-3 space-y-1.5 text-xs text-slate-600">
+                  <li>
+                    <span className="font-semibold text-slate-800">กลุ่มขาดงาน (ขาดต่อเนื่อง/ขาดสะสม/อัตราขาดสูง/ขาดจันทร์-ศุกร์):</span>{" "}
+                    ทั้ง 4 rule สะท้อนการขาดงานชุดเดียวกัน จึงนับคะแนนสูงสุดในกลุ่มนี้เพียง rule เดียว ไม่บวกซ้ำ
+                  </li>
+                  <li>
+                    <span className="font-semibold text-slate-800">อัตราขาดงานสูง / ขาดจันทร์-ศุกร์:</span>{" "}
+                    เป็นเพียงสัญญาณเฝ้าระวังบน dashboard เท่านั้น ไม่ใช่ฐานตามกฎหมายที่จะดำเนินการทางวินัยกับพนักงานได้ด้วยตัวเอง
+                    จึงไม่ถูกส่งเข้าคิวติดตามพนักงานโดยอัตโนมัติ ต้องรอให้พบขาดต่อเนื่องหรือขาดสะสมจริงก่อนจึงจะเปิดเคสติดตามได้
+                  </li>
+                  <li>
+                    <span className="font-semibold text-slate-800">ค้างลงเวลา + ขาด / ลงผิดโครงการ + ขาด:</span>{" "}
+                    มักสะท้อนความบกพร่องของการบันทึกเวลา/ผู้ลงเวลา ไม่ใช่พฤติกรรมพนักงานโดยตรง จึงยังคงนับคะแนนและแสดงใน dashboard
+                    แต่ไม่ถูกส่งเข้าคิวติดตามพนักงานโดยอัตโนมัติเช่นกัน
+                  </li>
+                </ul>
               </div>
 
               <div className="grid grid-cols-1 gap-4 md:grid-cols-2">

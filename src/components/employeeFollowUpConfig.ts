@@ -373,13 +373,34 @@ export const getNextWarningRoundForAction = (
   return currentRound;
 };
 
+/**
+ * "อัตราขาดงานสูง" (absence_rate) is only an advisory/trend signal, not a
+ * lawful basis on its own for formal disciplinary action under Thai labor
+ * law (unlike consecutive/total absence). While a case's issue type is
+ * absence_rate, only the softest action (verbal warning) is allowed; formal
+ * written warnings, suspension, and termination require the case to have
+ * escalated to a stronger issue type (e.g. consecutive/total absence).
+ *
+ * NOTE: absence_rate and monday_friday_pattern are currently also excluded
+ * from being seeded into the follow-up queue at all (they're dashboard-only
+ * watch signals - see EMPLOYEE_FOLLOW_UP_EXCLUDED_ISSUE_KEYS in
+ * ManpowerDashboard.tsx), so this restriction mainly guards against any
+ * future/manual case creation with these issue types.
+ */
+export const WATCH_ONLY_ISSUE_TYPES: readonly RiskRuleKey[] = ["absence_rate", "monday_friday_pattern"];
+
+export const isWatchOnlyIssueType = (issueType?: RiskRuleKey): boolean =>
+  !!issueType && WATCH_ONLY_ISSUE_TYPES.includes(issueType);
+
 export const canSelectFollowUpAction = (
   policy: FollowUpPolicyConfig,
   actionType: FollowUpActionType,
-  currentRound: FollowUpWarningRound
+  currentRound: FollowUpWarningRound,
+  issueType?: RiskRuleKey
 ): boolean => {
   const option = getFollowUpActionOption(policy, actionType);
   if (option && option.enabled === false) return false;
+  if (isWatchOnlyIssueType(issueType) && actionType !== "verbal_warning") return false;
   if (actionType === "written_warning") return currentRound < 3;
   if (actionType === "written_warning_round_1") return currentRound === 0;
   if (actionType === "written_warning_round_2") return currentRound === 1;
