@@ -1114,7 +1114,7 @@ export const EmployeeFollowUpTab = ({
         </span>
       </div>
 
-      <div className="grid gap-3 md:grid-cols-3">
+      <div className="grid gap-2 md:grid-cols-3">
         <PolicyPill
           label="อายุหนังสือเตือน"
           value={`${policyConfig.warningLetterValidityDays} วัน`}
@@ -1219,7 +1219,7 @@ export const EmployeeFollowUpTab = ({
 
       {isBacklogView ? (
         <>
-          <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5">
+          <div className="grid grid-cols-3 gap-2 md:grid-cols-5">
             <SummaryCard label="ทั้งหมดใน Backlog" value={summary.total} tone="slate" />
             <SummaryCard label="ติดตามเสร็จสิ้น" value={summary.closed} tone="emerald" />
             <SummaryCard label="ไม่ต้องดำเนินการ" value={summary.noAction} tone="slate" />
@@ -1227,7 +1227,7 @@ export const EmployeeFollowUpTab = ({
             <SummaryCard label="เคสยกระดับ" value={summary.escalation} tone="rose" />
           </div>
 
-          <div className="grid gap-3 lg:grid-cols-2">
+          <div className="grid gap-2 lg:grid-cols-2 xl:grid-cols-3">
             <CompactGroupSummary
               title="สรุปผลลัพธ์ใน Backlog"
               items={summary.closeMix}
@@ -1261,7 +1261,7 @@ export const EmployeeFollowUpTab = ({
           </div>
         </>
       ) : (
-        <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
+        <div className="grid grid-cols-3 gap-2 md:grid-cols-6">
           <SummaryCard label="ทั้งหมดในคิว" value={summary.total} tone="slate" />
           <SummaryCard
             label="รอดำเนินการ"
@@ -2082,21 +2082,21 @@ const SummaryCard = ({
     <Component
       type={onClick ? "button" : undefined}
       onClick={onClick}
-      className={`rounded-2xl border px-3 py-3 text-left ${toneClass[tone]} ${
+      className={`rounded-xl border px-2 py-1.5 text-left ${toneClass[tone]} ${
         onClick ? "cursor-pointer transition-transform hover:-translate-y-0.5" : ""
       } ${active ? "ring-2 ring-offset-1 ring-current" : ""}`}
     >
-      <div className="text-[11px] font-semibold opacity-80">{label}</div>
-      <div className="mt-1 text-2xl font-black">{value}</div>
+      <div className="text-[10px] font-semibold opacity-80 leading-tight">{label}</div>
+      <div className="mt-0.5 text-base font-black leading-tight">{value}</div>
     </Component>
   );
 };
 
 const PolicyPill = ({ label, value, note }: { label: string; value: string; note: string }) => (
-  <div className="rounded-2xl border border-slate-200 bg-white p-4">
-    <div className="text-[11px] font-semibold text-slate-500">{label}</div>
-    <div className="mt-1 text-sm font-black text-slate-900">{value}</div>
-    <div className="mt-1 text-[11px] text-slate-500">{note}</div>
+  <div className="rounded-xl border border-slate-200 bg-white px-3 py-2">
+    <div className="text-[10px] font-semibold text-slate-500 leading-tight">{label}</div>
+    <div className="mt-0.5 text-xs font-black text-slate-900 leading-tight">{value}</div>
+    <div className="mt-0.5 text-[10px] text-slate-500 leading-tight">{note}</div>
   </div>
 );
 
@@ -2109,14 +2109,14 @@ const CompactGroupSummary = ({
   items: Array<{ key: string; count: number }>;
   emptyText: string;
 }) => (
-  <div className="rounded-2xl border border-slate-200 bg-white p-4">
-    <div className="text-sm font-black text-slate-900">{title}</div>
+  <div className="rounded-xl border border-slate-200 bg-white p-3">
+    <div className="text-xs font-black text-slate-900">{title}</div>
     {items.length === 0 ? (
-      <div className="mt-3 text-sm text-slate-400">{emptyText}</div>
+      <div className="mt-2 text-xs text-slate-400">{emptyText}</div>
     ) : (
-      <div className="mt-3 flex flex-wrap gap-2">
+      <div className="mt-2 flex flex-wrap gap-1.5">
         {items.map((item) => (
-          <div key={item.key} className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-sm text-slate-700">
+          <div key={item.key} className="rounded-full border border-slate-200 bg-slate-50 px-2 py-1 text-[11px] text-slate-700">
             <span className="font-semibold">{item.key}</span> <span className="text-slate-500">{item.count} รายการ</span>
           </div>
         ))}

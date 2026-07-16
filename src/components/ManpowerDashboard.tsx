@@ -432,6 +432,34 @@ const parseProjectList = (value: string | string[] | undefined): string[] => {
   return value ? [value] : [];
 };
 
+/**
+ * Normalize project labels for matching. Employee master / CSV / fix scripts may
+ * store either "PRJ-2026-001" or "PRJ-2026-001 - Head office 2026", while the
+ * dashboard dropdown uses the full "project_no - project_name" form. Matching on
+ * project_no (prefix before " - ") keeps both formats equivalent.
+ */
+const projectMatchKey = (value: string | undefined | null): string => {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  const separator = " - ";
+  const idx = raw.indexOf(separator);
+  return (idx >= 0 ? raw.slice(0, idx) : raw).trim().toLowerCase();
+};
+
+const projectsMatch = (a: string | undefined | null, b: string | undefined | null): boolean => {
+  const keyA = projectMatchKey(a);
+  const keyB = projectMatchKey(b);
+  return !!keyA && !!keyB && keyA === keyB;
+};
+
+const employeeAssignedToProject = (
+  empProjects: string | string[] | undefined,
+  targetProject: string
+): boolean => parseProjectList(empProjects).some((project) => projectsMatch(project, targetProject));
+
+const projectListIncludes = (projects: string[], target: string): boolean =>
+  projects.some((project) => projectsMatch(project, target));
+
 const safeNumber = (value: unknown): number => {
   if (typeof value === "number") return Number.isFinite(value) ? value : 0;
   const parsed = Number(String(value || "").replace(/,/g, ""));
@@ -997,7 +1025,7 @@ export const ManpowerDashboard = ({
   const filteredProjectOptions = useMemo(() => {
     if (canSeeAllProjects) return projectOptions;
     const assignedProjects = userProfile?.assignedProjects || [];
-    return projectOptions.filter((project) => assignedProjects.includes(project));
+    return projectOptions.filter((project) => projectListIncludes(assignedProjects, project));
   }, [projectOptions, userProfile, canSeeAllProjects]);
 
   const followUpCaseCountByEmployee = useMemo(() => {
@@ -1125,7 +1153,9 @@ export const ManpowerDashboard = ({
 
         if (!canSeeAllProjects) {
           const assignedProjects = userProfile?.assignedProjects || [];
-          list = list.filter((emp) => parseProjectList(emp.สถานะโครงการ).some((project) => assignedProjects.includes(project)));
+          list = list.filter((emp) =>
+            parseProjectList(emp.สถานะโครงการ).some((project) => projectListIncludes(assignedProjects, project))
+          );
         }
 
         setEmployees(list);
@@ -1363,7 +1393,7 @@ export const ManpowerDashboard = ({
           assignedProjects.forEach((project) => {
             if (projectDailyStats[project]?.[date]) projectDailyStats[project][date].present++;
           });
-          if (attendance.project && assignedProjects.length > 0 && !assignedProjects.includes(attendance.project)) {
+          if (attendance.project && assignedProjects.length > 0 && !projectListIncludes(assignedProjects, attendance.project)) {
             wrongProject++;
             dayWrongProject++;
             metrics.wrongProjectDays++;
@@ -1483,7 +1513,7 @@ export const ManpowerDashboard = ({
           assignedProjects.forEach((project) => {
             if (followUpProjectDailyStats[project]?.[date]) followUpProjectDailyStats[project][date].present++;
           });
-          if (attendance.project && assignedProjects.length > 0 && !assignedProjects.includes(attendance.project)) {
+          if (attendance.project && assignedProjects.length > 0 && !projectListIncludes(assignedProjects, attendance.project)) {
             metrics.wrongProjectDays++;
             metrics.latestIncidentDate = date;
             assignedProjects.forEach((project) => {
@@ -1771,11 +1801,11 @@ export const ManpowerDashboard = ({
 
   const projectData = useMemo(() => {
     const scopedEmployees = selectedProject
-      ? employees.filter((emp) => parseProjectList(emp.สถานะโครงการ).includes(selectedProject))
+      ? employees.filter((emp) => employeeAssignedToProject(emp.สถานะโครงการ, selectedProject))
       : [];
     const selectedProjectRecord =
       projectRecords.find((project) => formatProjectOption(project) === selectedProject) ||
-      projectRecords.find((project) => String(project.project_no || "").trim() === selectedProject.split(" - ")[0]);
+      projectRecords.find((project) => projectsMatch(String(project.project_no || ""), selectedProject));
     const requiredManpower = Math.max(safeNumber(selectedProjectRecord?.required_manpower), 0);
     const requiredRolePlanBaseline = parseStructuredRolePlanBaseline(
       selectedProjectRecord?.required_role_plan_baseline,
@@ -1917,10 +1947,10 @@ export const ManpowerDashboard = ({
 
         totalSlots++;
 
-        const isWrongProject = attendance?.status === "มา" && !!attendance.project && attendance.project !== selectedProject;
-        const isPresent = attendance?.status === "มา" && (!attendance.project || attendance.project === selectedProject);
+        const isWrongProject = attendance?.status === "มา" && !!attendance.project && !projectsMatch(attendance.project, selectedProject);
+        const isPresent = attendance?.status === "มา" && (!attendance.project || projectsMatch(attendance.project, selectedProject));
         const otHours = safeNumber(overtime?.hours);
-        const otMatchesProject = !overtime?.project || overtime.project === selectedProject;
+        const otMatchesProject = !overtime?.project || projectsMatch(overtime.project, selectedProject);
 
         if (isPresent) {
           present++;
@@ -1985,7 +2015,7 @@ export const ManpowerDashboard = ({
       let dayPresent = 0;
       scopedEmployees.forEach((emp) => {
         const attendance = attendanceByDate[date]?.[emp.id];
-        const isPresent = attendance?.status === "มา" && (!attendance.project || attendance.project === selectedProject);
+        const isPresent = attendance?.status === "มา" && (!attendance.project || projectsMatch(attendance.project, selectedProject));
         if (isPresent) dayPresent++;
       });
       const requiredForDay = getRequiredForDate(date);
@@ -2025,10 +2055,10 @@ export const ManpowerDashboard = ({
           const attendance = attendanceByDate[date]?.[emp.id];
           const overtime = overtimeByDate[date]?.[emp.id];
           const row = localMap[emp.id];
-          const isWrongProject = attendance?.status === "มา" && !!attendance.project && attendance.project !== selectedProject;
-          const isPresent = attendance?.status === "มา" && (!attendance.project || attendance.project === selectedProject);
+          const isWrongProject = attendance?.status === "มา" && !!attendance.project && !projectsMatch(attendance.project, selectedProject);
+          const isPresent = attendance?.status === "มา" && (!attendance.project || projectsMatch(attendance.project, selectedProject));
           const otHours = safeNumber(overtime?.hours);
-          const otMatchesProject = !overtime?.project || overtime.project === selectedProject;
+          const otMatchesProject = !overtime?.project || projectsMatch(overtime.project, selectedProject);
 
           if (isPresent) {
             row.presentDays++;
@@ -2236,7 +2266,7 @@ export const ManpowerDashboard = ({
       otEmployees: otEmployees.size,
       dailyTrend,
       breakdownByType: Object.values(breakdownByType).sort((a, b) => b.employees - a.employees || a.label.localeCompare(b.label, "th")),
-      breakdownByPosition: Object.values(breakdownByPosition).sort((a, b) => b.employees - a.employees || a.label.localeCompare(b.label, "th")).slice(0, 10),
+      breakdownByPosition: Object.values(breakdownByPosition).sort((a, b) => b.employees - a.employees || a.label.localeCompare(b.label, "th")),
       exceptionList,
       followUpExceptionList,
       projectEmployeeStatusRows,
@@ -3049,7 +3079,7 @@ export const ManpowerDashboard = ({
               if (status === "ไม่มา") notes.push("ขาด");
               if (status === "ลา") notes.push("ลา");
               if (!attendance) notes.push("ค้างลงเวลา");
-              if (attendance?.project && activeRisk.projectNames.length > 0 && !activeRisk.projectNames.includes(attendance.project)) {
+              if (attendance?.project && activeRisk.projectNames.length > 0 && !projectListIncludes(activeRisk.projectNames, attendance.project)) {
                 notes.push(`ลง ${attendance.project}`);
               }
               if (lateFlag) notes.push("มาสาย");
@@ -3326,13 +3356,13 @@ export const ManpowerDashboard = ({
             activeTypeEmployees.forEach((emp) => {
               const attendance = attendanceByDate[date]?.[emp.id];
               const overtime = overtimeByDate[date]?.[emp.id];
-              if (attendance?.status === "มา" && (!attendance.project || attendance.project === selectedProject)) present++;
-              else if (attendance?.status === "มา" && attendance.project && attendance.project !== selectedProject) wrongProject++;
+              if (attendance?.status === "มา" && (!attendance.project || projectsMatch(attendance.project, selectedProject))) present++;
+              else if (attendance?.status === "มา" && attendance.project && !projectsMatch(attendance.project, selectedProject)) wrongProject++;
               else if (attendance?.status === "ไม่มา") absent++;
               else if (attendance?.status === "ลา") leave++;
               else notRecorded++;
               const overtimeHours = safeNumber(overtime?.hours);
-              if (overtimeHours > 0 && (!overtime?.project || overtime.project === selectedProject)) otHours += overtimeHours;
+              if (overtimeHours > 0 && (!overtime?.project || projectsMatch(overtime.project, selectedProject))) otHours += overtimeHours;
             });
             return {
               date,
@@ -3505,13 +3535,13 @@ export const ManpowerDashboard = ({
             activeRoleEmployees.forEach((emp) => {
               const attendance = attendanceByDate[date]?.[emp.id];
               const overtime = overtimeByDate[date]?.[emp.id];
-              if (attendance?.status === "มา" && (!attendance.project || attendance.project === selectedProject)) present++;
-              else if (attendance?.status === "มา" && attendance.project && attendance.project !== selectedProject) wrongProject++;
+              if (attendance?.status === "มา" && (!attendance.project || projectsMatch(attendance.project, selectedProject))) present++;
+              else if (attendance?.status === "มา" && attendance.project && !projectsMatch(attendance.project, selectedProject)) wrongProject++;
               else if (attendance?.status === "ไม่มา") absent++;
               else if (attendance?.status === "ลา") leave++;
               else notRecorded++;
               const overtimeHours = safeNumber(overtime?.hours);
-              if (overtimeHours > 0 && (!overtime?.project || overtime.project === selectedProject)) otHours += overtimeHours;
+              if (overtimeHours > 0 && (!overtime?.project || projectsMatch(overtime.project, selectedProject))) otHours += overtimeHours;
             });
             return {
               date,
