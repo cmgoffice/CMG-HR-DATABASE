@@ -21,6 +21,15 @@ import { getPageGuide } from "../config/pageGuides";
 import { InfoTooltip } from "./InfoTooltip";
 import { PageGuideButton, PageGuideModal } from "./PageGuideModal";
 import { DonutChart, RankedBarChart, CoverageCompareChart, CoverageGaugeDonut } from "./DashboardCharts";
+import {
+  EmployeeFollowUpCase,
+  FOLLOW_UP_STATUS_LABELS,
+  FollowUpRiskSeed,
+  RiskRuleKey,
+  RiskSeverity,
+  findFollowUpCase,
+  isFollowUpOpenStatus,
+} from "./employeeFollowUpConfig";
 
 interface Employee {
   id: string;
@@ -112,14 +121,6 @@ interface ProjectExceptionRow {
 
 type TimePreset = "today" | "yesterday" | "month" | "custom";
 type DashboardMode = "hr" | "project";
-type RiskSeverity = "normal" | "watch" | "risk" | "high" | "critical";
-type RiskRuleKey =
-  | "consecutive_absence"
-  | "total_absence"
-  | "absence_rate"
-  | "monday_friday_pattern"
-  | "missing_attendance"
-  | "wrong_project_pattern";
 
 interface RiskRuleResult {
   key: RiskRuleKey;
@@ -587,6 +588,26 @@ const getRecommendedAction = (severity: RiskSeverity): string => {
   }
 };
 
+const buildFollowUpRiskSeed = (risk: EmployeeRiskScore): FollowUpRiskSeed => ({
+  employeeId: risk.employeeId,
+  employeeCode: risk.employeeCode,
+  employeeName: risk.fullName,
+  position: risk.position || "-",
+  employeeType: risk.employeeType || "-",
+  projectName: risk.primaryProject || risk.projectNames[0] || "",
+  projectNames: risk.projectNames,
+  totalScore: risk.totalScore,
+  severity: risk.severity,
+  evaluatedFrom: risk.evaluatedFrom,
+  evaluatedTo: risk.evaluatedTo,
+  latestIncidentDate: risk.metrics.latestIncidentDate,
+  rules: risk.rules.map((rule) => ({
+    key: rule.key,
+    label: rule.label,
+    reason: rule.reason,
+  })),
+});
+
 const maxConsecutiveAbsence = (
   workDates: string[],
   attendanceByDate: Record<string, Record<string, AttendanceEntry>>,
@@ -892,9 +913,15 @@ const MiniTrendChart = ({
 export const ManpowerDashboard = ({
   projectOptions,
   showOnlyRiskMonitoring = false,
+  followUpCases = [],
+  onOpenFollowUp,
+  onFollowUpQueueSeedsChange,
 }: {
   projectOptions: string[];
   showOnlyRiskMonitoring?: boolean;
+  followUpCases?: EmployeeFollowUpCase[];
+  onOpenFollowUp?: (seed: FollowUpRiskSeed, preferredIssueKey?: RiskRuleKey) => void;
+  onFollowUpQueueSeedsChange?: (seeds: FollowUpRiskSeed[]) => void;
 }) => {
   const { userProfile, hasRole } = useAuth();
   const db = getFirestore();
@@ -931,6 +958,16 @@ export const ManpowerDashboard = ({
     const assignedProjects = userProfile?.assignedProjects || [];
     return projectOptions.filter((project) => assignedProjects.includes(project));
   }, [projectOptions, userProfile, canSeeAllProjects]);
+
+  const followUpCaseCountByEmployee = useMemo(() => {
+    const map: Record<string, { total: number; open: number }> = {};
+    followUpCases.forEach((item) => {
+      if (!map[item.employeeId]) map[item.employeeId] = { total: 0, open: 0 };
+      map[item.employeeId].total += 1;
+      if (isFollowUpOpenStatus(item.status)) map[item.employeeId].open += 1;
+    });
+    return map;
+  }, [followUpCases]);
 
   useEffect(() => {
     if (!canSeeHrDashboard) setDashboardMode("project");
@@ -1649,6 +1686,11 @@ export const ManpowerDashboard = ({
       todayAbsentLeaveRows: todayAbsentLeaveRows.sort((a, b) => (a.status === b.status ? a.fullName.localeCompare(b.fullName, "th") : a.status === "ไม่มา" ? -1 : 1)),
     };
   }, [employees, workDates, followUpWorkDates, attendanceByDate, overtimeByDate, followUpStartDate, endDate, todayReferenceDate]);
+
+  useEffect(() => {
+    if (!onFollowUpQueueSeedsChange) return;
+    onFollowUpQueueSeedsChange(hrData.riskEmployees.map((risk) => buildFollowUpRiskSeed(risk)));
+  }, [hrData.riskEmployees, onFollowUpQueueSeedsChange]);
 
   const projectData = useMemo(() => {
     const scopedEmployees = selectedProject
@@ -2996,6 +3038,15 @@ export const ManpowerDashboard = ({
                 <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
                   <div className="text-xs font-semibold text-amber-700">Action Summary</div>
                   <div className="mt-1 font-medium">{activeRisk.recommendedAction || "-"}</div>
+                  {onOpenFollowUp ? (
+                    <button
+                      type="button"
+                      onClick={() => onOpenFollowUp(buildFollowUpRiskSeed(activeRisk))}
+                      className="mt-3 rounded-lg border border-amber-300 bg-white px-3 py-1.5 text-xs font-semibold text-amber-800 hover:bg-amber-100"
+                    >
+                      เปิดในคิวติดตามพนักงาน
+                    </button>
+                  ) : null}
                 </div>
               </div>
 
@@ -3060,6 +3111,57 @@ export const ManpowerDashboard = ({
                   </table>
                 </div>
               </div>
+
+              {onOpenFollowUp ? (
+                <div className="rounded-xl border border-slate-200 p-4">
+                  <div className="text-sm font-black text-slate-900">Follow-up Queue by Issue</div>
+                  <div className="mt-1 text-xs text-slate-500">เปิดรายการติดตามรายประเด็นจาก risk rule ที่ trigger จริง โดยไม่ต้องสร้างเคสเองก่อน</div>
+                  <div className="mt-3 grid gap-2 xl:grid-cols-2">
+                    {activeRisk.rules.map((rule) => {
+                      const existingCase = findFollowUpCase(followUpCases, activeRisk.employeeId, rule.key);
+                      return (
+                        <div key={`${activeRisk.employeeId}-${rule.key}`} className="rounded-xl border border-slate-200 p-3">
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="min-w-0">
+                              <div className="font-semibold text-slate-800">{rule.label}</div>
+                              <div className="mt-1 text-xs text-slate-500">{rule.reason}</div>
+                            </div>
+                            {existingCase ? (
+                              <span className={`shrink-0 rounded-full px-2 py-1 text-[11px] font-semibold ${
+                                existingCase.status === "closed"
+                                  ? "border border-emerald-200 bg-emerald-50 text-emerald-700"
+                                  : existingCase.status === "no_action"
+                                    ? "border border-slate-200 bg-slate-100 text-slate-700"
+                                  : existingCase.status === "in_progress"
+                                    ? "border border-sky-200 bg-sky-50 text-sky-700"
+                                    : "border border-amber-200 bg-amber-50 text-amber-700"
+                              }`}>
+                                {FOLLOW_UP_STATUS_LABELS[existingCase.status]}
+                              </span>
+                            ) : (
+                              <span className="shrink-0 rounded-full border border-slate-200 bg-slate-50 px-2 py-1 text-[11px] font-semibold text-slate-500">
+                                เข้าคิวรอบันทึก
+                              </span>
+                            )}
+                          </div>
+                          <div className="mt-3 flex items-center justify-between gap-2">
+                            <div className="text-[11px] text-slate-500">
+                              {existingCase ? `รอบเตือน ${existingCase.warningRound}` : "1 พนักงาน ต่อ 1 ประเด็น และรอบันทึกสถานะ"}
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => onOpenFollowUp(buildFollowUpRiskSeed(activeRisk), rule.key)}
+                              className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-1.5 text-xs font-semibold text-sky-700 hover:bg-sky-100"
+                            >
+                              {existingCase ? "เปิดรายการ" : "เปิดในคิว"}
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              ) : null}
 
               <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
                 <div className="rounded-xl border border-slate-200 p-4">
@@ -4011,6 +4113,11 @@ export const ManpowerDashboard = ({
                             <td className="px-2 py-2">
                               <div className="font-semibold text-slate-800">{risk.fullName}</div>
                               <div className="text-[11px] text-slate-500">{risk.employeeCode}</div>
+                              {followUpCaseCountByEmployee[risk.employeeId] ? (
+                                <div className="mt-1 text-[11px] text-sky-700">
+                                  เคสติดตาม {followUpCaseCountByEmployee[risk.employeeId].total} · เปิดอยู่ {followUpCaseCountByEmployee[risk.employeeId].open}
+                                </div>
+                              ) : null}
                             </td>
                             <td className="px-2 py-2">
                               <div className="max-w-[180px] truncate text-slate-700" title={risk.projectNames.join(", ")}>
@@ -4041,7 +4148,23 @@ export const ManpowerDashboard = ({
                               </div>
                             </td>
                             <td className="px-2 py-2 text-center text-slate-600">{formatShortThaiDate(risk.metrics.latestIncidentDate)}</td>
-                            <td className="px-2 py-2 text-slate-700">{risk.recommendedAction}</td>
+                            <td className="px-2 py-2 text-slate-700">
+                              <div className="space-y-2">
+                                <div>{risk.recommendedAction}</div>
+                                {onOpenFollowUp ? (
+                                  <button
+                                    type="button"
+                                    onClick={(event) => {
+                                      event.stopPropagation();
+                                      onOpenFollowUp(buildFollowUpRiskSeed(risk));
+                                    }}
+                                    className="rounded-lg border border-sky-200 bg-sky-50 px-2.5 py-1 text-[11px] font-semibold text-sky-700 hover:bg-sky-100"
+                                  >
+                                    {followUpCaseCountByEmployee[risk.employeeId]?.total ? "เปิดการติดตาม" : "เปิดในคิวติดตาม"}
+                                  </button>
+                                ) : null}
+                              </div>
+                            </td>
                           </tr>
                         ))}
                       </tbody>

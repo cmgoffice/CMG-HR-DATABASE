@@ -1,0 +1,534 @@
+export const EMPLOYEE_FOLLOW_UP_COLLECTION = "employee_follow_ups";
+export const FOLLOW_UP_POLICY_COLLECTION = "settings";
+export const FOLLOW_UP_POLICY_DOC_ID = "employee_follow_up_policy";
+
+export type RiskSeverity = "normal" | "watch" | "risk" | "high" | "critical";
+
+export type RiskRuleKey =
+  | "consecutive_absence"
+  | "total_absence"
+  | "absence_rate"
+  | "monday_friday_pattern"
+  | "missing_attendance"
+  | "wrong_project_pattern";
+
+export type FollowUpStatus = "pending" | "in_progress" | "awaiting_hrm_review" | "no_action" | "closed";
+export type FollowUpWarningRound = 0 | 1 | 2 | 3;
+export type FollowUpEscalationState = "none" | "hrm_review_required" | "termination_consideration";
+export type FollowUpCloseState = "resolved" | "monitoring_complete" | "no_action" | "terminated" | "other";
+export type FollowUpHrmReviewStatus = "not_requested" | "pending" | "approved" | "commented";
+
+export type FollowUpActionType =
+  | "status_updated"
+  | "hrm_approved"
+  | "hrm_commented"
+  | "verbal_warning"
+  | "written_warning"
+  | "written_warning_round_1"
+  | "written_warning_round_2"
+  | "written_warning_round_3"
+  | "suspension_3_days"
+  | "suspension_5_days"
+  | "suspension_7_days"
+  | "termination"
+  | "no_action_with_reason"
+  | "closed";
+
+export type FollowUpActionKind = "warning" | "suspension" | "termination";
+
+export interface FollowUpIssueSnapshot {
+  key: RiskRuleKey;
+  label: string;
+  reason: string;
+}
+
+export interface FollowUpRiskSeed {
+  employeeId: string;
+  employeeCode: string;
+  employeeName: string;
+  position: string;
+  employeeType: string;
+  projectName: string;
+  projectNames: string[];
+  totalScore: number;
+  severity: RiskSeverity;
+  evaluatedFrom: string;
+  evaluatedTo: string;
+  latestIncidentDate?: string;
+  rules: FollowUpIssueSnapshot[];
+}
+
+export interface FollowUpActorSnapshot {
+  uid: string;
+  name: string;
+  role: string;
+}
+
+export interface FollowUpActionEvent {
+  id: string;
+  type: FollowUpActionType;
+  label: string;
+  actionKind?: FollowUpActionKind;
+  status?: FollowUpStatus;
+  hrmReviewStatus?: FollowUpHrmReviewStatus;
+  note?: string;
+  reason?: string;
+  warningRound: FollowUpWarningRound;
+  nextFollowUpDate?: string;
+  suspensionDays?: number;
+  warningValidityDays?: number;
+  closeReason?: string;
+  closeState?: FollowUpCloseState;
+  escalationState?: FollowUpEscalationState;
+  actedAt: number;
+  actedByUid: string;
+  actedByName: string;
+  actedByRole: string;
+}
+
+export interface EmployeeFollowUpCase {
+  id: string;
+  employeeId: string;
+  employeeCode: string;
+  employeeName: string;
+  position: string;
+  employeeType: string;
+  projectName: string;
+  projectNames: string[];
+  issueType: RiskRuleKey;
+  issueLabel: string;
+  issueReason: string;
+  sourceRiskRuleKeys: RiskRuleKey[];
+  sourceRiskReasons: string[];
+  riskScoreSnapshot: number;
+  severitySnapshot: RiskSeverity;
+  status: FollowUpStatus;
+  ownerUid?: string;
+  ownerName?: string;
+  ownerRole?: string;
+  warningRound: FollowUpWarningRound;
+  actions: FollowUpActionEvent[];
+  noActionReason?: string;
+  closeReason?: string;
+  closeState?: FollowUpCloseState;
+  escalationState?: FollowUpEscalationState;
+  hrmReviewStatus?: FollowUpHrmReviewStatus;
+  hrmReviewComment?: string;
+  hrmReviewedAt?: number;
+  hrmReviewedByUid?: string;
+  hrmReviewedByName?: string;
+  hrmReviewedByRole?: string;
+  nextFollowUpDate?: string;
+  latestIncidentDate?: string;
+  lastActionAt?: number;
+  createdAt: number;
+  updatedAt: number;
+  createdByUid: string;
+  createdByName: string;
+  createdByRole: string;
+  updatedByUid: string;
+  updatedByName: string;
+  updatedByRole: string;
+}
+
+export interface FollowUpDisciplinaryActionOption {
+  type: FollowUpActionType;
+  label: string;
+  actionKind: FollowUpActionKind;
+  enabled: boolean;
+  suspensionDays?: number;
+  warningRoundIncrement?: 0 | 1;
+  warningValidityDays?: number;
+  defaultEscalationState?: FollowUpEscalationState;
+  notes?: string[];
+}
+
+export interface FollowUpPolicyConfig {
+  primaryLanguage: "th";
+  maxSuspensionDays: number;
+  warningLetterValidityDays: number;
+  allowNonSequentialEscalation: boolean;
+  allowSeriousOffenseFastTrack: boolean;
+  actionOptions: FollowUpDisciplinaryActionOption[];
+  advisoryNotes: string[];
+}
+
+export const FOLLOW_UP_OPERATOR_ROLES = ["HR", "HRM"] as const;
+export const FOLLOW_UP_FIRST_STAGE_ROLES = ["HR"] as const;
+export const FOLLOW_UP_VIEWER_ROLES = ["MasterAdmin", "MD", "GM", "PD", "HR", "HRM"] as const;
+export const FOLLOW_UP_ESCALATION_ROLES = ["HRM"] as const;
+export const FOLLOW_UP_HRM_REVIEW_ROLES = ["HRM"] as const;
+
+const hasAnyFollowUpRole = (roles: readonly string[] | undefined | null, allowedRoles: readonly string[]): boolean =>
+  !!roles && roles.some((role) => allowedRoles.includes(role));
+
+export const canViewFollowUpModule = (roles: readonly string[] | undefined | null): boolean =>
+  hasAnyFollowUpRole(roles, FOLLOW_UP_VIEWER_ROLES);
+
+export const canManageFollowUpModule = (roles: readonly string[] | undefined | null): boolean =>
+  hasAnyFollowUpRole(roles, FOLLOW_UP_OPERATOR_ROLES);
+
+export const canManageFollowUpFirstStage = (roles: readonly string[] | undefined | null): boolean =>
+  hasAnyFollowUpRole(roles, FOLLOW_UP_FIRST_STAGE_ROLES);
+
+export const canInterpretFollowUpEscalation = (roles: readonly string[] | undefined | null): boolean =>
+  hasAnyFollowUpRole(roles, FOLLOW_UP_ESCALATION_ROLES);
+
+export const canReviewFollowUpByHRM = (roles: readonly string[] | undefined | null): boolean =>
+  hasAnyFollowUpRole(roles, FOLLOW_UP_HRM_REVIEW_ROLES);
+
+export const FOLLOW_UP_STATUS_LABELS: Record<FollowUpStatus, string> = {
+  pending: "รอดำเนินการ",
+  in_progress: "กำลังติดตาม",
+  awaiting_hrm_review: "รอ HRM พิจารณา",
+  no_action: "ไม่ต้องดำเนินการ",
+  closed: "ติดตามเสร็จสิ้น",
+};
+
+export const FOLLOW_UP_ACTION_LABELS: Record<FollowUpActionType, string> = {
+  status_updated: "อัปเดตสถานะ",
+  hrm_approved: "HRM อนุมัติ",
+  hrm_commented: "HRM ให้ความเห็น",
+  verbal_warning: "เตือนวาจา",
+  written_warning: "ออกหนังสือเตือน",
+  written_warning_round_1: "หนังสือเตือนครั้งที่ 1",
+  written_warning_round_2: "หนังสือเตือนครั้งที่ 2",
+  written_warning_round_3: "หนังสือเตือนครั้งที่ 3",
+  suspension_3_days: "พักงาน 3 วัน",
+  suspension_5_days: "พักงาน 5 วัน",
+  suspension_7_days: "พักงาน 7 วัน",
+  termination: "พ้นสภาพพนักงาน",
+  no_action_with_reason: "ไม่ดำเนินการ",
+  closed: "ปิดเคส",
+};
+
+export const FOLLOW_UP_CLOSE_STATE_LABELS: Record<FollowUpCloseState, string> = {
+  resolved: "แก้ไขแล้ว",
+  monitoring_complete: "ติดตามครบแล้ว",
+  no_action: "ไม่ดำเนินการ",
+  terminated: "พ้นสภาพพนักงาน",
+  other: "อื่นๆ",
+};
+
+export const FOLLOW_UP_ESCALATION_LABELS: Record<FollowUpEscalationState, string> = {
+  none: "ปกติ",
+  hrm_review_required: "รอ HRM ตีความ",
+  termination_consideration: "พิจารณายุติสัญญา",
+};
+
+export const FOLLOW_UP_HRM_REVIEW_LABELS: Record<FollowUpHrmReviewStatus, string> = {
+  not_requested: "ยังไม่ส่ง HRM",
+  pending: "รอ HRM อนุมัติ/ความเห็น",
+  approved: "HRM อนุมัติแล้ว",
+  commented: "HRM มีความเห็นกลับ",
+};
+
+export const FOLLOW_UP_STATUS_OPTIONS: Array<{ value: FollowUpStatus; label: string }> = [
+  { value: "pending", label: FOLLOW_UP_STATUS_LABELS.pending },
+  { value: "in_progress", label: FOLLOW_UP_STATUS_LABELS.in_progress },
+  { value: "awaiting_hrm_review", label: FOLLOW_UP_STATUS_LABELS.awaiting_hrm_review },
+  { value: "no_action", label: FOLLOW_UP_STATUS_LABELS.no_action },
+  { value: "closed", label: FOLLOW_UP_STATUS_LABELS.closed },
+];
+
+export const FOLLOW_UP_CLOSE_STATE_OPTIONS: Array<{ value: FollowUpCloseState; label: string }> = [
+  { value: "resolved", label: FOLLOW_UP_CLOSE_STATE_LABELS.resolved },
+  { value: "monitoring_complete", label: FOLLOW_UP_CLOSE_STATE_LABELS.monitoring_complete },
+  { value: "terminated", label: FOLLOW_UP_CLOSE_STATE_LABELS.terminated },
+  { value: "other", label: FOLLOW_UP_CLOSE_STATE_LABELS.other },
+];
+
+export const FOLLOW_UP_ESCALATION_OPTIONS: Array<{ value: FollowUpEscalationState; label: string }> = [
+  { value: "none", label: FOLLOW_UP_ESCALATION_LABELS.none },
+  { value: "hrm_review_required", label: FOLLOW_UP_ESCALATION_LABELS.hrm_review_required },
+  { value: "termination_consideration", label: FOLLOW_UP_ESCALATION_LABELS.termination_consideration },
+];
+
+export const FOLLOW_UP_HRM_REVIEW_OPTIONS: Array<{
+  value: Exclude<FollowUpHrmReviewStatus, "not_requested" | "pending">;
+  label: string;
+}> = [
+  { value: "approved", label: FOLLOW_UP_HRM_REVIEW_LABELS.approved },
+  { value: "commented", label: FOLLOW_UP_HRM_REVIEW_LABELS.commented },
+];
+
+export const DEFAULT_FOLLOW_UP_DISCIPLINARY_ACTIONS: FollowUpDisciplinaryActionOption[] = [
+  {
+    type: "verbal_warning",
+    label: FOLLOW_UP_ACTION_LABELS.verbal_warning,
+    actionKind: "warning",
+    enabled: true,
+    warningRoundIncrement: 0,
+    notes: ["ใช้สำหรับกรณีเริ่มต้นหรือพฤติกรรมที่ยังไม่ถึงขั้นออกหนังสือเตือน"],
+  },
+  {
+    type: "written_warning",
+    label: FOLLOW_UP_ACTION_LABELS.written_warning,
+    actionKind: "warning",
+    enabled: true,
+    warningRoundIncrement: 1,
+    warningValidityDays: 365,
+    notes: ["ใช้บันทึกหนังสือเตือน โดยมีผลตามนโยบาย 1 ปี", "ระบบนับรอบเตือนได้สูงสุด 3 ครั้งต่อประเด็น"],
+  },
+  {
+    type: "suspension_3_days",
+    label: FOLLOW_UP_ACTION_LABELS.suspension_3_days,
+    actionKind: "suspension",
+    enabled: true,
+    suspensionDays: 3,
+    defaultEscalationState: "hrm_review_required",
+    notes: ["เป็นการพักงานชั่วคราวภายในเพดานไม่เกิน 7 วัน"],
+  },
+  {
+    type: "suspension_5_days",
+    label: FOLLOW_UP_ACTION_LABELS.suspension_5_days,
+    actionKind: "suspension",
+    enabled: true,
+    suspensionDays: 5,
+    defaultEscalationState: "hrm_review_required",
+    notes: ["เป็นการพักงานชั่วคราวภายในเพดานไม่เกิน 7 วัน"],
+  },
+  {
+    type: "suspension_7_days",
+    label: FOLLOW_UP_ACTION_LABELS.suspension_7_days,
+    actionKind: "suspension",
+    enabled: true,
+    suspensionDays: 7,
+    defaultEscalationState: "hrm_review_required",
+    notes: ["เป็นการพักงานชั่วคราวสูงสุดตามนโยบาย MVP ปัจจุบัน"],
+  },
+  {
+    type: "termination",
+    label: FOLLOW_UP_ACTION_LABELS.termination,
+    actionKind: "termination",
+    enabled: true,
+    defaultEscalationState: "termination_consideration",
+    notes: ["รองรับการบันทึกมาตรการพ้นสภาพพนักงานในข้อมูลกลางและลำดับการดำเนินการ", "กรณีร้ายแรงอาจยกระดับได้โดยไม่ต้องผ่านทุกขั้นแบบลำดับตายตัว"],
+  },
+];
+
+export const DEFAULT_FOLLOW_UP_POLICY_CONFIG: FollowUpPolicyConfig = {
+  primaryLanguage: "th",
+  maxSuspensionDays: 7,
+  warningLetterValidityDays: 365,
+  allowNonSequentialEscalation: true,
+  allowSeriousOffenseFastTrack: true,
+  actionOptions: DEFAULT_FOLLOW_UP_DISCIPLINARY_ACTIONS,
+  advisoryNotes: [
+    "หนังสือเตือนมีผล 1 ปีตามนโยบายที่ใช้เป็นฐานใน MVP นี้",
+    "การพักงานชั่วคราวต้องไม่เกิน 7 วัน",
+    "เส้นทางการยกระดับไม่จำเป็นต้องเรียงลำดับเสมอไป กรณีร้ายแรงอาจข้ามขั้นได้",
+    "MVP นี้ยังไม่สร้างเอกสารหนังสือเตือนหรือหนังสือพ้นสภาพโดยอัตโนมัติ",
+  ],
+};
+
+export const FOLLOW_UP_ISSUE_LABELS: Record<RiskRuleKey, string> = {
+  consecutive_absence: "ขาดงานต่อเนื่อง",
+  total_absence: "ขาดงานสะสม",
+  absence_rate: "อัตราขาดงานสูง",
+  monday_friday_pattern: "รูปแบบขาดวันจันทร์/ศุกร์",
+  missing_attendance: "ค้างลงเวลา",
+  wrong_project_pattern: "ลงผิดโครงการ",
+};
+
+export const getFollowUpDocId = (employeeId: string, issueType: RiskRuleKey): string =>
+  `${sanitizeFollowUpKey(employeeId)}__${issueType}`;
+
+export const sanitizeFollowUpKey = (value: string): string =>
+  String(value || "")
+    .trim()
+    .replace(/[\/\s]+/g, "-")
+    .replace(/__+/g, "-") || "NA";
+
+export const findFollowUpCase = (
+  cases: EmployeeFollowUpCase[],
+  employeeId: string,
+  issueType: RiskRuleKey
+): EmployeeFollowUpCase | undefined => cases.find((item) => item.employeeId === employeeId && item.issueType === issueType);
+
+export const getInitialEscalationState = (
+  warningRound: FollowUpWarningRound,
+  currentState?: FollowUpEscalationState
+): FollowUpEscalationState => {
+  if (currentState === "termination_consideration") return currentState;
+  if (warningRound >= 3) return "hrm_review_required";
+  return "none";
+};
+
+export const issueLabelFromKey = (key: RiskRuleKey): string => FOLLOW_UP_ISSUE_LABELS[key] || key;
+
+export const getFollowUpActionOption = (
+  policy: FollowUpPolicyConfig,
+  actionType: FollowUpActionType
+): FollowUpDisciplinaryActionOption | undefined => policy.actionOptions.find((item) => item.type === actionType);
+
+export const getNextWarningRoundForAction = (
+  actionType: FollowUpActionType,
+  currentRound: FollowUpWarningRound
+): FollowUpWarningRound => {
+  if (actionType === "written_warning") return currentRound < 3 ? ((currentRound + 1) as FollowUpWarningRound) : 3;
+  if (actionType === "written_warning_round_1") return 1;
+  if (actionType === "written_warning_round_2") return 2;
+  if (actionType === "written_warning_round_3") return 3;
+  return currentRound;
+};
+
+export const canSelectFollowUpAction = (
+  policy: FollowUpPolicyConfig,
+  actionType: FollowUpActionType,
+  currentRound: FollowUpWarningRound
+): boolean => {
+  const option = getFollowUpActionOption(policy, actionType);
+  if (option && option.enabled === false) return false;
+  if (actionType === "written_warning") return currentRound < 3;
+  if (actionType === "written_warning_round_1") return currentRound === 0;
+  if (actionType === "written_warning_round_2") return currentRound === 1;
+  if (actionType === "written_warning_round_3") return currentRound === 2;
+  return true;
+};
+
+export const isFollowUpOpenStatus = (status: FollowUpStatus): boolean =>
+  status === "pending" || status === "in_progress" || status === "awaiting_hrm_review";
+
+export const isFollowUpProcessedStatus = (status: FollowUpStatus): boolean =>
+  status === "no_action" || status === "closed";
+
+export const getDefaultHrmReviewStatus = (item: Partial<EmployeeFollowUpCase>): FollowUpHrmReviewStatus => {
+  if (item.hrmReviewStatus && item.hrmReviewStatus !== "not_requested") return item.hrmReviewStatus;
+  if (item.status === "awaiting_hrm_review") return "pending";
+  if (item.status === "closed" || item.status === "no_action") return "approved";
+  const actions = item.actions || [];
+  const explicitReview = [...actions]
+    .reverse()
+    .find((action) => action.hrmReviewStatus === "approved" || action.hrmReviewStatus === "commented");
+  if (explicitReview?.hrmReviewStatus) return explicitReview.hrmReviewStatus;
+  return "not_requested";
+};
+
+export const normalizeFollowUpCase = (item: EmployeeFollowUpCase): EmployeeFollowUpCase => {
+  const normalizedStatus =
+    item.status === "closed" && item.closeState === "no_action" ? "no_action" : item.status;
+  return {
+    ...item,
+    status: normalizedStatus,
+    escalationState: item.escalationState || getInitialEscalationState(item.warningRound),
+    hrmReviewStatus: getDefaultHrmReviewStatus(item),
+    hrmReviewComment: item.hrmReviewComment || "",
+    hrmReviewedAt: Number(item.hrmReviewedAt || 0),
+    hrmReviewedByUid: item.hrmReviewedByUid || "",
+    hrmReviewedByName: item.hrmReviewedByName || "",
+    hrmReviewedByRole: item.hrmReviewedByRole || "",
+  };
+};
+
+export const normalizeFollowUpPolicyConfig = (value: unknown): FollowUpPolicyConfig => {
+  if (!value || typeof value !== "object") return DEFAULT_FOLLOW_UP_POLICY_CONFIG;
+  const source = value as Partial<FollowUpPolicyConfig> & { actionOptions?: unknown; advisoryNotes?: unknown };
+  const rawActionOptions: Partial<FollowUpDisciplinaryActionOption>[] = Array.isArray(source.actionOptions)
+    ? source.actionOptions.filter((item) => !!item && typeof item === "object") as Partial<FollowUpDisciplinaryActionOption>[]
+    : [];
+  const actionOptions = rawActionOptions.length > 0
+    ? DEFAULT_FOLLOW_UP_DISCIPLINARY_ACTIONS.map((defaultOption) => {
+        const matched = rawActionOptions.find((item) => item.type === defaultOption.type);
+        const matchedNotes = matched?.notes;
+        const suspensionDays = Number(matched?.suspensionDays ?? defaultOption.suspensionDays ?? 0);
+        return {
+          ...defaultOption,
+          ...matched,
+          label: String(matched?.label || defaultOption.label),
+          enabled: matched?.enabled ?? defaultOption.enabled,
+          suspensionDays:
+            defaultOption.actionKind === "suspension"
+              ? Math.min(
+                  Number(source.maxSuspensionDays || DEFAULT_FOLLOW_UP_POLICY_CONFIG.maxSuspensionDays),
+                  suspensionDays || defaultOption.suspensionDays || DEFAULT_FOLLOW_UP_POLICY_CONFIG.maxSuspensionDays
+                )
+              : matched?.suspensionDays ?? defaultOption.suspensionDays,
+          warningValidityDays: Number(
+            matched?.warningValidityDays ||
+              defaultOption.warningValidityDays ||
+              source.warningLetterValidityDays ||
+              DEFAULT_FOLLOW_UP_POLICY_CONFIG.warningLetterValidityDays
+          ),
+          notes: Array.isArray(matchedNotes) ? matchedNotes.map((note) => String(note)) : defaultOption.notes,
+        };
+      })
+    : DEFAULT_FOLLOW_UP_DISCIPLINARY_ACTIONS;
+
+  return {
+    primaryLanguage: "th",
+    maxSuspensionDays: Math.min(
+      7,
+      Number(source.maxSuspensionDays || DEFAULT_FOLLOW_UP_POLICY_CONFIG.maxSuspensionDays) || 7
+    ),
+    warningLetterValidityDays:
+      Number(source.warningLetterValidityDays || DEFAULT_FOLLOW_UP_POLICY_CONFIG.warningLetterValidityDays) || 365,
+    allowNonSequentialEscalation:
+      source.allowNonSequentialEscalation ?? DEFAULT_FOLLOW_UP_POLICY_CONFIG.allowNonSequentialEscalation,
+    allowSeriousOffenseFastTrack:
+      source.allowSeriousOffenseFastTrack ?? DEFAULT_FOLLOW_UP_POLICY_CONFIG.allowSeriousOffenseFastTrack,
+    actionOptions,
+    advisoryNotes: Array.isArray(source.advisoryNotes)
+      ? source.advisoryNotes.map((note) => String(note))
+      : DEFAULT_FOLLOW_UP_POLICY_CONFIG.advisoryNotes,
+  };
+};
+
+export const buildFollowUpCaseFromRiskSeed = (
+  seed: FollowUpRiskSeed,
+  issueKey: RiskRuleKey,
+  actor: FollowUpActorSnapshot,
+  now: number,
+  overrides: Partial<EmployeeFollowUpCase> = {}
+): EmployeeFollowUpCase => {
+  const issue = seed.rules.find((item) => item.key === issueKey);
+  if (!issue) {
+    throw new Error(`Follow-up issue "${issueKey}" not found for employee "${seed.employeeId}"`);
+  }
+
+  return {
+    id: getFollowUpDocId(seed.employeeId, issue.key),
+    employeeId: seed.employeeId,
+    employeeCode: seed.employeeCode,
+    employeeName: seed.employeeName,
+    position: seed.position,
+    employeeType: seed.employeeType,
+    projectName: seed.projectName,
+    projectNames: seed.projectNames,
+    issueType: issue.key,
+    issueLabel: issue.label,
+    issueReason: issue.reason,
+    sourceRiskRuleKeys: seed.rules.map((item) => item.key),
+    sourceRiskReasons: seed.rules.map((item) => item.reason),
+    riskScoreSnapshot: seed.totalScore,
+    severitySnapshot: seed.severity,
+    status: "pending",
+    ownerUid: "",
+    ownerName: "",
+    ownerRole: "",
+    warningRound: 0,
+    actions: [],
+    noActionReason: "",
+    closeReason: "",
+    closeState: undefined,
+    escalationState: "none",
+    hrmReviewStatus: "not_requested",
+    hrmReviewComment: "",
+    hrmReviewedAt: 0,
+    hrmReviewedByUid: "",
+    hrmReviewedByName: "",
+    hrmReviewedByRole: "",
+    nextFollowUpDate: "",
+    latestIncidentDate: seed.latestIncidentDate,
+    lastActionAt: 0,
+    createdAt: now,
+    updatedAt: now,
+    createdByUid: actor.uid,
+    createdByName: actor.name,
+    createdByRole: actor.role,
+    updatedByUid: actor.uid,
+    updatedByName: actor.name,
+    updatedByRole: actor.role,
+    ...overrides,
+  };
+};

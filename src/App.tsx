@@ -577,7 +577,7 @@ const Sidebar = ({ activeModule, setActiveModule, dbConnected, sidebarOpen, onTo
   const dfUsers = hasRole(['MasterAdmin']);
   const dfAttendance = hasRole(['MasterAdmin', 'MD', 'GM', 'PD', 'HRM', 'HR', 'Admin Site']);
   const dfDayOff = hasRole(['MasterAdmin', 'MD', 'GM', 'PD', 'HRM', 'HR']);
-  const dfReporting = hasRole(['MasterAdmin', 'MD', 'GM', 'HRM']);
+  const dfReporting = hasRole(['MasterAdmin', 'MD', 'GM', 'PD', 'HRM', 'HR']);
 
   const employeeSubDefs: SidebarSubItem[] = [
     { id: "emp_indirect", label: "Staff Monthly" },

@@ -94,7 +94,7 @@ export const MODULE_DEFAULT_ROLES: Record<string, UserRole[] | "*"> = {
   overtime: ["MasterAdmin", "MD", "GM", "PD", "HRM", "HR", "Admin Site"],
   day_off: ["MasterAdmin", "MD", "GM", "PD", "HRM", "HR"],
   evaluation: ["MasterAdmin", "MD", "GM", "PD", "PM", "CM", "HRM", "HR"],
-  risk_monitoring: ["MasterAdmin", "MD", "GM", "HRM"],
+  risk_monitoring: ["MasterAdmin", "MD", "GM", "PD", "HRM", "HR"],
   activity_logs: ["MasterAdmin", "MD", "GM", "HRM"],
   [ROLE_PERMISSIONS_MODULE_KEY]: ["MasterAdmin"],
 };
