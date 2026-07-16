@@ -16,6 +16,7 @@ export type RiskMetricKey =
   | "consecutiveAbsentDays"
   | "absentDays"
   | "absenceRate"
+  | "payCycleAbsenceRate"
   | "mondayFridayAbsenceCount"
   | "notRecordedDays"
   | "wrongProjectDays";
@@ -24,6 +25,7 @@ export interface RiskMetricSnapshotLike {
   consecutiveAbsentDays: number;
   absentDays: number;
   absenceRate: number;
+  payCycleAbsenceRate: number;
   mondayFridayAbsenceCount: number;
   notRecordedDays: number;
   wrongProjectDays: number;
@@ -130,6 +132,7 @@ const metricLabelMap: Record<RiskMetricKey, string> = {
   consecutiveAbsentDays: "ขาดติดต่อกัน",
   absentDays: "ขาด",
   absenceRate: "อัตราขาด",
+  payCycleAbsenceRate: "อัตราขาด (รอบจ่ายค่าแรง)",
   mondayFridayAbsenceCount: "ขาดวันจันทร์/ศุกร์",
   notRecordedDays: "ค้างลงเวลา",
   wrongProjectDays: "ลงผิดโครงการ",
@@ -166,7 +169,7 @@ const defaultIssueTypes: RiskIssueTypeConfig[] = [
     shortLabel: "อัตราขาดสูง",
     category: "การมาทำงาน",
     description:
-      "เป็นอัตราส่วนที่คำนวณจากวันขาดงานชุดเดียวกับกลุ่มขาดต่อเนื่อง/ขาดสะสม ไม่ใช่หลักฐานผิดวินัยเพิ่มเติมด้วยตัวเอง จึงไม่ถูกส่งเข้าคิวติดตามพนักงานอัตโนมัติ ใช้เป็นสัญญาณเฝ้าระวังบน dashboard เท่านั้น",
+      "คำนวณจากอัตราขาดงานในรอบจ่ายค่าแรงปัจจุบัน (1-15 หรือ 16-สิ้นเดือน) ไม่ใช่ช่วงวันที่ที่เลือกดูรายงาน เพื่อให้สอดคล้องกับรอบจ่ายค่าแรงจริงของพนักงานรายวัน/รายเดือน ไม่ใช่หลักฐานผิดวินัยเพิ่มเติมด้วยตัวเอง จึงไม่ถูกส่งเข้าคิวติดตามพนักงานอัตโนมัติ ใช้เป็นสัญญาณเฝ้าระวังบน dashboard เท่านั้น",
     enabled: true,
   },
   {
@@ -204,13 +207,12 @@ const defaultRiskRules: RiskRuleConfig[] = [
     issueTypeKey: "consecutive_absence",
     metricKey: "consecutiveAbsentDays",
     valueFormat: "days",
-    description: "ให้คะแนนเมื่อพนักงานขาดงานติดกันหลายวัน",
+    description: "ให้คะแนนเมื่อพนักงานขาดงานติดกันตั้งแต่ 3 วันขึ้นไป (2 วันติดกันยังไม่ถือว่าเป็นความเสี่ยงที่ต้องให้คะแนน)",
     enabled: true,
     scoreGroup: "absence_days",
     tiers: [
       { id: "consecutive_absence_4", minValue: 4, score: 55, severityImpact: "critical", enabled: true, note: "เร่งติดตามทันที" },
       { id: "consecutive_absence_3", minValue: 3, score: 40, severityImpact: "critical", enabled: true, note: "ควรเริ่มเปิดเคสติดตาม" },
-      { id: "consecutive_absence_2", minValue: 2, score: 25, severityImpact: "high", enabled: true, note: "เริ่มเฝ้าระวังเข้ม" },
     ],
   },
   {
@@ -230,9 +232,10 @@ const defaultRiskRules: RiskRuleConfig[] = [
   {
     key: "absence_rate",
     issueTypeKey: "absence_rate",
-    metricKey: "absenceRate",
+    metricKey: "payCycleAbsenceRate",
     valueFormat: "percent",
-    description: "ให้คะแนนเมื่ออัตราขาดงานเกินเกณฑ์ของช่วงวิเคราะห์",
+    description:
+      "ให้คะแนนเมื่ออัตราขาดงานในรอบจ่ายค่าแรงปัจจุบัน (1-15 หรือ 16-สิ้นเดือน) เกินเกณฑ์ ใช้รอบจ่ายค่าแรงแทนช่วงวันที่ที่เลือกดูรายงาน เพื่อสะท้อนความเสี่ยงจริงต่อรอบจ่ายเงิน และต้องมีวันทำงานผ่านไปแล้วอย่างน้อย 3 วันในรอบจึงจะเริ่มประเมิน",
     enabled: true,
     scoreGroup: "absence_days",
     tiers: [

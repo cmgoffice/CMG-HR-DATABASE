@@ -159,6 +159,9 @@ interface RiskMetrics {
   absenceRate: number;
   leaveRate: number;
   notRecordedRate: number;
+  payCycleAbsentDays: number;
+  payCycleWorkDays: number;
+  payCycleAbsenceRate: number;
   latestIncidentDate?: string;
 }
 
@@ -536,6 +539,28 @@ const getMonthPresetRange = (referenceDateStr?: string) => {
   };
 };
 
+/**
+ * Daily-wage/monthly employees are commonly paid twice a month (1-15 and
+ * 16-end of month). Returns the pay-cycle window (start/end date strings)
+ * that contains referenceDateStr, used to evaluate absence_rate against a
+ * payroll-relevant window instead of an arbitrary/rolling report range.
+ */
+const getPayCycleRange = (referenceDateStr: string): { start: string; end: string; label: string } => {
+  const ref = new Date(`${referenceDateStr}T00:00:00`);
+  const base = Number.isNaN(ref.getTime()) ? new Date() : ref;
+  const year = base.getFullYear();
+  const month = base.getMonth();
+  const day = base.getDate();
+  if (day <= 15) {
+    const start = new Date(year, month, 1);
+    const end = new Date(year, month, 15);
+    return { start: formatDateInput(start), end: formatDateInput(end), label: `${formatThaiDate(formatDateInput(start))} - ${formatThaiDate(formatDateInput(end))}` };
+  }
+  const start = new Date(year, month, 16);
+  const end = new Date(year, month + 1, 0);
+  return { start: formatDateInput(start), end: formatDateInput(end), label: `${formatThaiDate(formatDateInput(start))} - ${formatThaiDate(formatDateInput(end))}` };
+};
+
 const getTrailingStartDate = (endDateStr: string, days: number) => {
   const end = new Date(`${endDateStr}T00:00:00`);
   if (Number.isNaN(end.getTime())) return endDateStr;
@@ -576,6 +601,17 @@ const formatShortThaiDate = (dateStr?: string): string => {
  * rule (highest score in the group) is used as the case's key/label, while
  * every matched condition is still listed in the combined reason text.
  */
+/**
+ * absence_rate is evaluated against the current pay-cycle window rather than
+ * the dashboard's selected report range. Append the cycle date range to its
+ * reason text so the figure is self-explanatory wherever it's shown (chips,
+ * Rule Breakdown), without requiring the user to open the methodology popup.
+ */
+const annotatePayCycleReason = (rules: RiskRuleResult[], payCycleLabel: string): RiskRuleResult[] =>
+  rules.map((rule) =>
+    rule.key === "absence_rate" ? { ...rule, reason: `${rule.reason} (รอบจ่ายค่าแรง ${payCycleLabel})` } : rule
+  );
+
 const consolidateRulesByScoreGroup = (rules: RiskRuleResult[]): RiskRuleResult[] => {
   const groups = new Map<string, RiskRuleResult[]>();
   rules.forEach((rule) => {
@@ -1171,6 +1207,15 @@ export const ManpowerDashboard = ({
   const coverageTrendDateRange = useMemo(() => enumerateDates(coverageTrendStartDate, endDate), [coverageTrendStartDate, endDate]);
   const coverageTrendWorkDates = useMemo(() => coverageTrendDateRange.filter((date) => !dayOffs[date]), [coverageTrendDateRange, dayOffs]);
   const todayReferenceDate = endDate;
+  // อัตราขาดงานสูงใช้รอบจ่ายค่าแรง (1-15 / 16-สิ้นเดือน) เสมอ ไม่ผูกกับช่วงวันที่ที่เลือกดูรายงาน
+  // เพื่อสะท้อนความเสี่ยงต่อรอบจ่ายค่าแรงจริง แยกต่างหากจากมุมมองรายวัน/รายเดือน/เมื่อวานของ dashboard
+  const payCycleRange = useMemo(() => getPayCycleRange(todayReferenceDate), [todayReferenceDate]);
+  const payCycleDateRange = useMemo(
+    () => enumerateDates(payCycleRange.start, payCycleRange.end < todayReferenceDate ? payCycleRange.end : todayReferenceDate),
+    [payCycleRange, todayReferenceDate]
+  );
+  const payCycleWorkDates = useMemo(() => payCycleDateRange.filter((date) => !dayOffs[date]), [payCycleDateRange, dayOffs]);
+  const PAY_CYCLE_MIN_WORKDAYS = 3;
 
   const employeeTypeCounts = useMemo(() => {
     const counts: Record<string, number> = {};
@@ -1222,6 +1267,9 @@ export const ManpowerDashboard = ({
         absenceRate: 0,
         leaveRate: 0,
         notRecordedRate: 0,
+        payCycleAbsentDays: 0,
+        payCycleWorkDays: payCycleWorkDates.length,
+        payCycleAbsenceRate: 0,
       };
       followUpRiskMetricsByEmployee[emp.id] = {
         scheduledDays: followUpWorkDates.length,
@@ -1239,6 +1287,9 @@ export const ManpowerDashboard = ({
         absenceRate: 0,
         leaveRate: 0,
         notRecordedRate: 0,
+        payCycleAbsentDays: 0,
+        payCycleWorkDays: payCycleWorkDates.length,
+        payCycleAbsenceRate: 0,
       };
     });
 
@@ -1510,11 +1561,32 @@ export const ManpowerDashboard = ({
       metrics.notRecordedRate = followUpWorkDates.length > 0 ? metrics.notRecordedDays / followUpWorkDates.length : 0;
     });
 
+    // อัตราขาดงานสูงใช้รอบจ่ายค่าแรงปัจจุบันเสมอ (ไม่ผูกกับ workDates/followUpWorkDates ของมุมมองที่เลือก)
+    // ต้องมีวันทำงานผ่านไปแล้วอย่างน้อย PAY_CYCLE_MIN_WORKDAYS วันในรอบ เพื่อลดสัญญาณรบกวนช่วงต้นรอบ
+    scopeEmployees.forEach((emp) => {
+      const payCycleAbsentDays = payCycleWorkDates.reduce(
+        (count, date) => (attendanceByDate[date]?.[emp.id]?.status === "ไม่มา" ? count + 1 : count),
+        0
+      );
+      const payCycleAbsenceRate =
+        payCycleWorkDates.length >= PAY_CYCLE_MIN_WORKDAYS ? payCycleAbsentDays / payCycleWorkDates.length : 0;
+      if (riskMetricsByEmployee[emp.id]) {
+        riskMetricsByEmployee[emp.id].payCycleAbsentDays = payCycleAbsentDays;
+        riskMetricsByEmployee[emp.id].payCycleWorkDays = payCycleWorkDates.length;
+        riskMetricsByEmployee[emp.id].payCycleAbsenceRate = payCycleAbsenceRate;
+      }
+      if (followUpRiskMetricsByEmployee[emp.id]) {
+        followUpRiskMetricsByEmployee[emp.id].payCycleAbsentDays = payCycleAbsentDays;
+        followUpRiskMetricsByEmployee[emp.id].payCycleWorkDays = payCycleWorkDates.length;
+        followUpRiskMetricsByEmployee[emp.id].payCycleAbsenceRate = payCycleAbsenceRate;
+      }
+    });
+
     const evaluatedAt = new Date().toISOString();
     const allRiskRows: EmployeeRiskScore[] = scopeEmployees
       .map((emp) => {
         const metrics = followUpRiskMetricsByEmployee[emp.id];
-        const rules = evaluateRiskRules(metrics, riskSettings);
+        const rules = annotatePayCycleReason(evaluateRiskRules(metrics, riskSettings), payCycleRange.label);
         const totalScore = computeRiskTotalScore(rules);
         const severityInfo = deriveSeverity(totalScore, rules, riskSettings);
         return {
@@ -1540,7 +1612,7 @@ export const ManpowerDashboard = ({
 
     const employeeAttendanceRows: EmployeeAttendanceSummaryRow[] = scopeEmployees.map((emp) => {
       const metrics = riskMetricsByEmployee[emp.id];
-      const rules = evaluateRiskRules(metrics, riskSettings);
+      const rules = annotatePayCycleReason(evaluateRiskRules(metrics, riskSettings), payCycleRange.label);
       const totalScore = computeRiskTotalScore(rules);
       const severityInfo = deriveSeverity(totalScore, rules, riskSettings);
       return {
@@ -1690,7 +1762,7 @@ export const ManpowerDashboard = ({
       lateDataAvailable,
       todayAbsentLeaveRows: todayAbsentLeaveRows.sort((a, b) => (a.status === b.status ? a.fullName.localeCompare(b.fullName, "th") : a.status === "ไม่มา" ? -1 : 1)),
     };
-  }, [employees, workDates, followUpWorkDates, attendanceByDate, overtimeByDate, followUpStartDate, endDate, todayReferenceDate]);
+  }, [employees, workDates, followUpWorkDates, payCycleWorkDates, attendanceByDate, overtimeByDate, followUpStartDate, endDate, todayReferenceDate]);
 
   useEffect(() => {
     if (!onFollowUpQueueSeedsChange) return;
@@ -3115,6 +3187,11 @@ export const ManpowerDashboard = ({
                     </tbody>
                   </table>
                 </div>
+                {activeRisk.rules.some((rule) => rule.key === "absence_rate") ? (
+                  <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-800">
+                    หมายเหตุ: "อัตราขาดงานสูง" คำนวณจากรอบจ่ายค่าแรงปัจจุบัน ({payCycleRange.label}) เสมอ ไม่ผูกกับช่วงวันที่ที่เลือกดูรายงานด้านบน
+                  </div>
+                ) : null}
               </div>
 
               {onOpenFollowUp ? (
@@ -5029,6 +5106,10 @@ export const ManpowerDashboard = ({
                   ไม่บวกซ้ำกัน
                 </div>
                 <div className="mt-1">คะแนนสูงสุดถูกจำกัดไว้ที่ 100 คะแนน</div>
+                <div className="mt-2 rounded-lg border border-sky-300 bg-white/60 px-3 py-2 text-xs text-sky-900">
+                  หมายเหตุ: กฎ "อัตราขาดงานสูง" ใช้รอบจ่ายค่าแรงปัจจุบันเสมอ (รอบนี้: {payCycleRange.label}) แยกต่างหากจากช่วงวันที่ที่เลือกดูรายงานด้านบน
+                  (วันนี้/เมื่อวาน/รายเดือน/กำหนดเอง) เพื่อไม่ให้สับสนกับรายงานปกติ
+                </div>
               </div>
 
               <div>
@@ -5071,9 +5152,9 @@ export const ManpowerDashboard = ({
                     <tbody className="divide-y divide-slate-100">
                       <tr>
                         <td className="px-3 py-2 font-medium">ขาดติดต่อกัน</td>
-                        <td className="px-3 py-2">2 วัน = 25, 3 วัน = 40, 4 วันขึ้นไป = 55</td>
-                        <td className="px-3 py-2 text-center font-bold">25 / 40 / 55</td>
-                        <td className="px-3 py-2">High หรือ Critical</td>
+                        <td className="px-3 py-2">3 วัน = 40, 4 วันขึ้นไป = 55 (ขาดติดกันไม่ถึง 3 วัน ไม่ให้คะแนน)</td>
+                        <td className="px-3 py-2 text-center font-bold">40 / 55</td>
+                        <td className="px-3 py-2">Critical</td>
                       </tr>
                       <tr>
                         <td className="px-3 py-2 font-medium">ขาดสะสม</td>
@@ -5082,8 +5163,8 @@ export const ManpowerDashboard = ({
                         <td className="px-3 py-2">Risk, High หรือ Critical</td>
                       </tr>
                       <tr>
-                        <td className="px-3 py-2 font-medium">อัตราขาด</td>
-                        <td className="px-3 py-2">10% = 15, 15% = 25, 20% ขึ้นไป = 35</td>
+                        <td className="px-3 py-2 font-medium">อัตราขาด (รอบจ่ายค่าแรง)</td>
+                        <td className="px-3 py-2">10% = 15, 15% = 25, 20% ขึ้นไป = 35 (คำนวณจากรอบจ่ายค่าแรง 1-15/16-สิ้นเดือน ไม่ใช่ช่วงวันที่เลือกดูรายงาน)</td>
                         <td className="px-3 py-2 text-center font-bold">15 / 25 / 35</td>
                         <td className="px-3 py-2">Risk, High หรือ Critical</td>
                       </tr>
@@ -5117,6 +5198,7 @@ export const ManpowerDashboard = ({
                     <span className="font-semibold text-slate-800">อัตราขาดงานสูง / ขาดจันทร์-ศุกร์:</span>{" "}
                     เป็นเพียงสัญญาณเฝ้าระวังบน dashboard เท่านั้น ไม่ใช่ฐานตามกฎหมายที่จะดำเนินการทางวินัยกับพนักงานได้ด้วยตัวเอง
                     จึงไม่ถูกส่งเข้าคิวติดตามพนักงานโดยอัตโนมัติ ต้องรอให้พบขาดต่อเนื่องหรือขาดสะสมจริงก่อนจึงจะเปิดเคสติดตามได้
+                    (อัตราขาดงานสูงคำนวณจากรอบจ่ายค่าแรง 1-15/16-สิ้นเดือน ไม่ใช่ช่วงวันที่ที่เลือกดูรายงาน)
                   </li>
                   <li>
                     <span className="font-semibold text-slate-800">ค้างลงเวลา + ขาด / ลงผิดโครงการ + ขาด:</span>{" "}
