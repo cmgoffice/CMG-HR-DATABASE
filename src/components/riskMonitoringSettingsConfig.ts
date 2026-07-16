@@ -239,9 +239,9 @@ const defaultRiskRules: RiskRuleConfig[] = [
     enabled: true,
     scoreGroup: "absence_days",
     tiers: [
-      { id: "absence_rate_20", minValue: 0.2, score: 35, severityImpact: "critical", enabled: true },
-      { id: "absence_rate_15", minValue: 0.15, score: 25, severityImpact: "high", enabled: true },
-      { id: "absence_rate_10", minValue: 0.1, score: 15, severityImpact: "risk", enabled: true },
+      { id: "absence_rate_40", minValue: 0.4, score: 35, severityImpact: "critical", enabled: true },
+      { id: "absence_rate_30", minValue: 0.3, score: 25, severityImpact: "high", enabled: true },
+      { id: "absence_rate_20", minValue: 0.2, score: 15, severityImpact: "risk", enabled: true },
     ],
   },
   {
