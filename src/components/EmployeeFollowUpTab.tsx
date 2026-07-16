@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { addDoc, collection, doc, getFirestore, onSnapshot, setDoc } from "firebase/firestore";
+import { addDoc, collection, doc, getFirestore, onSnapshot, setDoc, deleteField } from "firebase/firestore";
 import {
   AlertTriangle,
   Briefcase,
@@ -675,8 +675,27 @@ export const EmployeeFollowUpTab = ({
     }
   };
 
+  // Helper to deep remove undefined values
+  const stripUndefined = (obj: any): any => {
+    if (obj === null || typeof obj !== "object") return obj;
+    if (Array.isArray(obj)) return obj.map(stripUndefined);
+    return Object.fromEntries(
+      Object.entries(obj)
+        .filter(([_, v]) => v !== undefined)
+        .map(([k, v]) => [k, stripUndefined(v)])
+    );
+  };
+
   const persistCase = async (nextCase: EmployeeFollowUpCase, action: string, details: string) => {
-    await setDoc(doc(db, "CMG-HR-Database", "root", EMPLOYEE_FOLLOW_UP_COLLECTION, nextCase.id), nextCase, { merge: true });
+    // Convert undefined values to deleteField() at the root to properly remove fields,
+    // and deep strip undefined from nested objects/arrays to prevent Firestore errors.
+    const firestoreData = Object.fromEntries(
+      Object.entries(nextCase).map(([key, value]) => [
+        key,
+        value === undefined ? deleteField() : stripUndefined(value),
+      ])
+    );
+    await setDoc(doc(db, "CMG-HR-Database", "root", EMPLOYEE_FOLLOW_UP_COLLECTION, nextCase.id), firestoreData, { merge: true });
     await logActivity(action, details);
   };
 
