@@ -30,6 +30,15 @@ import {
   findFollowUpCase,
   isFollowUpOpenStatus,
 } from "./employeeFollowUpConfig";
+import {
+  DEFAULT_RISK_MONITORING_SETTINGS,
+  deriveSeverityFromSettings,
+  evaluateConfiguredRiskRules,
+  getSeverityGuidance,
+  getSeverityHex,
+  getSeverityLabel,
+  RiskMonitoringSettings,
+} from "./riskMonitoringSettingsConfig";
 
 interface Employee {
   id: string;
@@ -541,14 +550,6 @@ const severityRank: Record<RiskSeverity, number> = {
   critical: 4,
 };
 
-const severityLabel: Record<RiskSeverity, string> = {
-  normal: "ปกติ",
-  watch: "เฝ้าระวัง",
-  risk: "เสี่ยง",
-  high: "เสี่ยงสูง",
-  critical: "วิกฤต",
-};
-
 const severityBadgeClass: Record<RiskSeverity, string> = {
   normal: "bg-slate-100 text-slate-700 border border-slate-200",
   watch: "bg-amber-50 text-amber-700 border border-amber-200",
@@ -557,35 +558,12 @@ const severityBadgeClass: Record<RiskSeverity, string> = {
   critical: "bg-fuchsia-50 text-fuchsia-800 border border-fuchsia-200",
 };
 
-const severityHex: Record<RiskSeverity, string> = {
-  normal: "#64748b",
-  watch: "#f59e0b",
-  risk: "#f97316",
-  high: "#f43f5e",
-  critical: "#d946ef",
-};
-
 const formatShortThaiDate = (dateStr?: string): string => {
   if (!dateStr) return "-";
   return new Date(`${dateStr}T00:00:00`).toLocaleDateString("th-TH", {
     month: "short",
     day: "numeric",
   });
-};
-
-const getRecommendedAction = (severity: RiskSeverity): string => {
-  switch (severity) {
-    case "critical":
-      return "ติดตามทันทีร่วมกับหัวหน้างาน";
-    case "high":
-      return "ติดตามภายในวันนี้";
-    case "risk":
-      return "ตรวจสอบสาเหตุและเฝ้าระวัง";
-    case "watch":
-      return "จับตาพฤติกรรมต่อเนื่อง";
-    default:
-      return "ยังไม่ต้องดำเนินการ";
-  }
 };
 
 const buildFollowUpRiskSeed = (risk: EmployeeRiskScore): FollowUpRiskSeed => ({
@@ -626,71 +604,17 @@ const maxConsecutiveAbsence = (
   return maxStreak;
 };
 
-const evaluateRiskRules = (metrics: RiskMetrics): RiskRuleResult[] => {
-  const rules: RiskRuleResult[] = [];
+const evaluateRiskRules = (metrics: RiskMetrics, settings: RiskMonitoringSettings): RiskRuleResult[] =>
+  evaluateConfiguredRiskRules(metrics, settings).map((rule) => ({
+    ...rule,
+    triggered: true,
+  }));
 
-  if (metrics.consecutiveAbsentDays >= 4) {
-    rules.push({ key: "consecutive_absence", label: "ขาดติดต่อกัน", triggered: true, score: 55, severityImpact: "critical", reason: `ขาดติดต่อกัน ${metrics.consecutiveAbsentDays} วัน`, value: metrics.consecutiveAbsentDays });
-  } else if (metrics.consecutiveAbsentDays >= 3) {
-    rules.push({ key: "consecutive_absence", label: "ขาดติดต่อกัน", triggered: true, score: 40, severityImpact: "critical", reason: `ขาดติดต่อกัน ${metrics.consecutiveAbsentDays} วัน`, value: metrics.consecutiveAbsentDays });
-  } else if (metrics.consecutiveAbsentDays >= 2) {
-    rules.push({ key: "consecutive_absence", label: "ขาดติดต่อกัน", triggered: true, score: 25, severityImpact: "high", reason: `ขาดติดต่อกัน ${metrics.consecutiveAbsentDays} วัน`, value: metrics.consecutiveAbsentDays });
-  }
-
-  if (metrics.absentDays >= 5) {
-    rules.push({ key: "total_absence", label: "ขาดสะสม", triggered: true, score: 30, severityImpact: "critical", reason: `ขาดสะสม ${metrics.absentDays} วัน`, value: metrics.absentDays });
-  } else if (metrics.absentDays >= 4) {
-    rules.push({ key: "total_absence", label: "ขาดสะสม", triggered: true, score: 20, severityImpact: "high", reason: `ขาดสะสม ${metrics.absentDays} วัน`, value: metrics.absentDays });
-  } else if (metrics.absentDays >= 3) {
-    rules.push({ key: "total_absence", label: "ขาดสะสม", triggered: true, score: 15, severityImpact: "risk", reason: `ขาดสะสม ${metrics.absentDays} วัน`, value: metrics.absentDays });
-  }
-
-  if (metrics.absenceRate >= 0.2) {
-    rules.push({ key: "absence_rate", label: "อัตราขาด", triggered: true, score: 35, severityImpact: "critical", reason: `อัตราขาด ${Math.round(metrics.absenceRate * 100)}%`, value: metrics.absenceRate });
-  } else if (metrics.absenceRate >= 0.15) {
-    rules.push({ key: "absence_rate", label: "อัตราขาด", triggered: true, score: 25, severityImpact: "high", reason: `อัตราขาด ${Math.round(metrics.absenceRate * 100)}%`, value: metrics.absenceRate });
-  } else if (metrics.absenceRate >= 0.1) {
-    rules.push({ key: "absence_rate", label: "อัตราขาด", triggered: true, score: 15, severityImpact: "risk", reason: `อัตราขาด ${Math.round(metrics.absenceRate * 100)}%`, value: metrics.absenceRate });
-  }
-
-  if (metrics.mondayFridayAbsenceCount >= 3) {
-    rules.push({ key: "monday_friday_pattern", label: "ขาดวันจันทร์/ศุกร์", triggered: true, score: 20, severityImpact: "high", reason: `ขาดวันจันทร์/ศุกร์ ${metrics.mondayFridayAbsenceCount} ครั้ง`, value: metrics.mondayFridayAbsenceCount });
-  } else if (metrics.mondayFridayAbsenceCount >= 2) {
-    rules.push({ key: "monday_friday_pattern", label: "ขาดวันจันทร์/ศุกร์", triggered: true, score: 10, severityImpact: "watch", reason: `ขาดวันจันทร์/ศุกร์ ${metrics.mondayFridayAbsenceCount} ครั้ง`, value: metrics.mondayFridayAbsenceCount });
-  }
-
-  if (metrics.notRecordedDays >= 3 && metrics.absentDays >= 2) {
-    rules.push({ key: "missing_attendance", label: "ค้างลงเวลา + ขาด", triggered: true, score: 18, severityImpact: "high", reason: `ค้างลงเวลา ${metrics.notRecordedDays} ครั้ง และขาด ${metrics.absentDays} วัน`, value: metrics.notRecordedDays });
-  } else if (metrics.notRecordedDays >= 2 && metrics.absentDays >= 1) {
-    rules.push({ key: "missing_attendance", label: "ค้างลงเวลา + ขาด", triggered: true, score: 10, severityImpact: "risk", reason: `ค้างลงเวลา ${metrics.notRecordedDays} ครั้ง และขาด ${metrics.absentDays} วัน`, value: metrics.notRecordedDays });
-  }
-
-  if (metrics.wrongProjectDays >= 3 && metrics.absentDays >= 2) {
-    rules.push({ key: "wrong_project_pattern", label: "ผิดโครงการ + ขาด", triggered: true, score: 18, severityImpact: "high", reason: `ลงผิดโครงการ ${metrics.wrongProjectDays} ครั้ง และขาด ${metrics.absentDays} วัน`, value: metrics.wrongProjectDays });
-  } else if (metrics.wrongProjectDays >= 2 && metrics.absentDays >= 1) {
-    rules.push({ key: "wrong_project_pattern", label: "ผิดโครงการ + ขาด", triggered: true, score: 10, severityImpact: "risk", reason: `ลงผิดโครงการ ${metrics.wrongProjectDays} ครั้ง และขาด ${metrics.absentDays} วัน`, value: metrics.wrongProjectDays });
-  }
-
-  return rules;
-};
-
-const deriveSeverity = (score: number, rules: RiskRuleResult[]): { severity: RiskSeverity; overrideSeverity?: RiskSeverity } => {
-  let severity: RiskSeverity = "normal";
-  if (score >= 80) severity = "critical";
-  else if (score >= 60) severity = "high";
-  else if (score >= 40) severity = "risk";
-  else if (score >= 20) severity = "watch";
-
-  const overrideSeverity = rules.reduce<RiskSeverity | undefined>((current, rule) => {
-    if (!current || severityRank[rule.severityImpact] > severityRank[current]) return rule.severityImpact;
-    return current;
-  }, undefined);
-
-  if (overrideSeverity && severityRank[overrideSeverity] > severityRank[severity]) {
-    return { severity: overrideSeverity, overrideSeverity };
-  }
-  return { severity, overrideSeverity };
-};
+const deriveSeverity = (
+  score: number,
+  rules: RiskRuleResult[],
+  settings: RiskMonitoringSettings
+): { severity: RiskSeverity; overrideSeverity?: RiskSeverity } => deriveSeverityFromSettings(score, rules, settings);
 
 const MetricCard = ({
   title,
@@ -913,12 +837,14 @@ const MiniTrendChart = ({
 export const ManpowerDashboard = ({
   projectOptions,
   showOnlyRiskMonitoring = false,
+  riskSettings = DEFAULT_RISK_MONITORING_SETTINGS,
   followUpCases = [],
   onOpenFollowUp,
   onFollowUpQueueSeedsChange,
 }: {
   projectOptions: string[];
   showOnlyRiskMonitoring?: boolean;
+  riskSettings?: RiskMonitoringSettings;
   followUpCases?: EmployeeFollowUpCase[];
   onOpenFollowUp?: (seed: FollowUpRiskSeed, preferredIssueKey?: RiskRuleKey) => void;
   onFollowUpQueueSeedsChange?: (seeds: FollowUpRiskSeed[]) => void;
@@ -952,6 +878,28 @@ export const ManpowerDashboard = ({
   const [attendanceByDate, setAttendanceByDate] = useState<Record<string, Record<string, AttendanceEntry>>>({});
   const [overtimeByDate, setOvertimeByDate] = useState<Record<string, Record<string, OvertimeEntry>>>({});
   const [dayOffs, setDayOffs] = useState<Record<string, string>>({});
+  const severityLabelMap = useMemo(
+    () =>
+      ({
+        normal: getSeverityLabel("normal", riskSettings),
+        watch: getSeverityLabel("watch", riskSettings),
+        risk: getSeverityLabel("risk", riskSettings),
+        high: getSeverityLabel("high", riskSettings),
+        critical: getSeverityLabel("critical", riskSettings),
+      }) as Record<RiskSeverity, string>,
+    [riskSettings]
+  );
+  const severityHexMap = useMemo(
+    () =>
+      ({
+        normal: getSeverityHex("normal", riskSettings),
+        watch: getSeverityHex("watch", riskSettings),
+        risk: getSeverityHex("risk", riskSettings),
+        high: getSeverityHex("high", riskSettings),
+        critical: getSeverityHex("critical", riskSettings),
+      }) as Record<RiskSeverity, string>,
+    [riskSettings]
+  );
 
   const filteredProjectOptions = useMemo(() => {
     if (canSeeAllProjects) return projectOptions;
@@ -1509,9 +1457,9 @@ export const ManpowerDashboard = ({
     const allRiskRows: EmployeeRiskScore[] = scopeEmployees
       .map((emp) => {
         const metrics = followUpRiskMetricsByEmployee[emp.id];
-        const rules = evaluateRiskRules(metrics);
+        const rules = evaluateRiskRules(metrics, riskSettings);
         const totalScore = Math.min(100, rules.reduce((sum, rule) => sum + rule.score, 0));
-        const severityInfo = deriveSeverity(totalScore, rules);
+        const severityInfo = deriveSeverity(totalScore, rules, riskSettings);
         return {
           employeeId: emp.id,
           employeeCode: String(emp["รหัสพนักงาน"] || emp.id),
@@ -1526,7 +1474,7 @@ export const ManpowerDashboard = ({
           severity: severityInfo.severity,
           overrideSeverity: severityInfo.overrideSeverity,
           topReasons: rules.map((rule) => rule.reason).slice(0, 3),
-          recommendedAction: getRecommendedAction(severityInfo.severity),
+          recommendedAction: getSeverityGuidance(severityInfo.severity, riskSettings),
           evaluatedFrom: followUpStartDate,
           evaluatedTo: endDate,
           evaluatedAt,
@@ -1535,9 +1483,9 @@ export const ManpowerDashboard = ({
 
     const employeeAttendanceRows: EmployeeAttendanceSummaryRow[] = scopeEmployees.map((emp) => {
       const metrics = riskMetricsByEmployee[emp.id];
-      const rules = evaluateRiskRules(metrics);
+      const rules = evaluateRiskRules(metrics, riskSettings);
       const totalScore = Math.min(100, rules.reduce((sum, rule) => sum + rule.score, 0));
-      const severityInfo = deriveSeverity(totalScore, rules);
+      const severityInfo = deriveSeverity(totalScore, rules, riskSettings);
       return {
         employeeId: emp.id,
         employeeCode: String(emp["รหัสพนักงาน"] || emp.id),
@@ -1549,7 +1497,7 @@ export const ManpowerDashboard = ({
         severity: severityInfo.severity,
         totalScore,
         topReasons: rules.map((rule) => rule.reason).slice(0, 3),
-        recommendedAction: getRecommendedAction(severityInfo.severity),
+        recommendedAction: getSeverityGuidance(severityInfo.severity, riskSettings),
       };
     });
 
@@ -1582,7 +1530,7 @@ export const ManpowerDashboard = ({
           100,
           absencePoints + missingPoints + leavePoints + otPoints
         );
-        const severityInfo = deriveSeverity(totalScore, []);
+        const severityInfo = deriveSeverity(totalScore, [], riskSettings);
         const drivers = [
           { label: "ขาด", points: absencePoints, detail: `${Math.round(absenceRate * 100)}% | ${followUpStats.absent} employee-days` },
           { label: "ค้างลงเวลา", points: missingPoints, detail: `${Math.round(missingRate * 100)}% | ${followUpStats.notRecorded} employee-days` },
@@ -2257,11 +2205,11 @@ export const ManpowerDashboard = ({
       counts[risk.severity] = (counts[risk.severity] || 0) + 1;
     });
     return (["critical", "high", "risk", "watch", "normal"] as RiskSeverity[]).map((sev) => ({
-      name: severityLabel[sev],
+      name: severityLabelMap[sev],
       value: counts[sev],
-      color: severityHex[sev],
+      color: severityHexMap[sev],
     }));
-  }, [filteredRiskEmployees]);
+  }, [filteredRiskEmployees, severityHexMap, severityLabelMap]);
 
   const riskyProjectsBarData = useMemo(
     () =>
@@ -2272,9 +2220,9 @@ export const ManpowerDashboard = ({
           name: project.project.length > 18 ? `${project.project.slice(0, 17)}…` : project.project,
           fullName: project.project,
           value: project.totalScore,
-          color: severityHex[project.severity],
+          color: severityHexMap[project.severity],
         })),
-    [filteredRiskProjects]
+    [filteredRiskProjects, severityHexMap]
   );
 
   const shortenLabel = (label: string, max = 16) => (label.length > max ? `${label.slice(0, max - 1)}…` : label);
@@ -2366,7 +2314,7 @@ export const ManpowerDashboard = ({
                     <td className="px-3 py-2 text-center">{row.metrics.consecutiveAbsentDays}</td>
                     <td className="px-3 py-2 text-center">
                       <span className={`inline-flex rounded-full px-2 py-1 text-xs font-medium ${severityBadgeClass[row.severity]}`}>
-                        {severityLabel[row.severity]} | {row.totalScore}
+                        {severityLabelMap[row.severity]} | {row.totalScore}
                       </span>
                     </td>
                     <td className="px-3 py-2 text-slate-700">{row.recommendedAction}</td>
@@ -2767,7 +2715,7 @@ export const ManpowerDashboard = ({
                 </div>
                 <div className="text-right">
                   <span className={`inline-flex rounded-full px-2 py-1 text-xs font-medium ${severityBadgeClass[activeProject.severity]}`}>
-                    {severityLabel[activeProject.severity]} | {activeProject.totalScore}
+                    {severityLabelMap[activeProject.severity]} | {activeProject.totalScore}
                   </span>
                   <button
                     type="button"
@@ -3006,7 +2954,7 @@ export const ManpowerDashboard = ({
                 </div>
                 <div className="text-right">
                   <span className={`inline-flex rounded-full px-2 py-1 text-xs font-medium ${severityBadgeClass[activeRisk.severity]}`}>
-                    {severityLabel[activeRisk.severity]} | {activeRisk.totalScore}
+                    {severityLabelMap[activeRisk.severity]} | {activeRisk.totalScore}
                   </span>
                   {activeRisk.primaryProject ? (
                     <button
@@ -3102,7 +3050,7 @@ export const ManpowerDashboard = ({
                           <td className="px-3 py-2 text-center font-black text-slate-900">{rule.score}</td>
                           <td className="px-3 py-2 text-center">
                             <span className={`inline-flex rounded-full px-2 py-1 font-medium ${severityBadgeClass[rule.severityImpact]}`}>
-                              {severityLabel[rule.severityImpact]}
+                              {severityLabelMap[rule.severityImpact]}
                             </span>
                           </td>
                         </tr>
@@ -4031,7 +3979,7 @@ export const ManpowerDashboard = ({
                     <div className="flex items-center justify-between gap-2">
                       <div className="min-w-0 truncate text-xs font-semibold text-slate-800">{project.project}</div>
                       <span className={`shrink-0 inline-flex rounded-full px-1.5 py-0 text-[10px] font-medium ${severityBadgeClass[project.severity]}`}>
-                        {severityLabel[project.severity]} | {project.totalScore}
+                        {severityLabelMap[project.severity]} | {project.totalScore}
                       </span>
                     </div>
                     <div className="mt-0.5 flex items-center justify-between gap-2 text-[10px]">
@@ -4135,7 +4083,7 @@ export const ManpowerDashboard = ({
                             </td>
                             <td className="px-2 py-2 text-center">
                               <span className={`inline-flex rounded-full px-2 py-1 font-medium ${severityBadgeClass[risk.severity]}`}>
-                                {severityLabel[risk.severity]}
+                                {severityLabelMap[risk.severity]}
                               </span>
                             </td>
                             <td className="px-2 py-2">

@@ -334,6 +334,7 @@ export const EmployeeFollowUpTab = ({
   const [statusFilter, setStatusFilter] = useState<"all" | FollowUpStatus>("all");
   const [ownerFilter, setOwnerFilter] = useState("all");
   const [projectFilter, setProjectFilter] = useState("all");
+  const [employeeTypeFilter, setEmployeeTypeFilter] = useState("all");
   const [selectedCaseId, setSelectedCaseId] = useState<string>("");
   const [isCaseModalOpen, setIsCaseModalOpen] = useState(false);
   const [statusDraft, setStatusDraft] = useState<StatusDraft | null>(null);
@@ -463,6 +464,14 @@ export const EmployeeFollowUpTab = ({
     [queueItems]
   );
 
+  const employeeTypeOptions = useMemo(
+    () =>
+      Array.from(new Set(queueItems.map((item) => item.employeeType).filter(Boolean))).sort((a, b) =>
+        a.localeCompare(b, "th")
+      ),
+    [queueItems]
+  );
+
   const availableStatusOptions = useMemo(() => {
     const allowedValues = canReviewByHrm
       ? FOLLOW_UP_STATUS_OPTIONS.map((option) => option.value)
@@ -490,12 +499,14 @@ export const EmployeeFollowUpTab = ({
       .filter((item) => (statusFilter === "all" ? true : item.status === statusFilter))
       .filter((item) => (ownerFilter === "all" ? true : (item.ownerUid || "") === ownerFilter))
       .filter((item) => (projectFilter === "all" ? true : item.projectName === projectFilter))
+      .filter((item) => (employeeTypeFilter === "all" ? true : (item.employeeType || "") === employeeTypeFilter))
       .filter((item) => {
         if (!q) return true;
         return [
           item.employeeName,
           item.employeeCode,
           item.projectName,
+          item.employeeType,
           item.issueLabel,
           item.ownerName || "",
           item.issueReason,
@@ -513,7 +524,7 @@ export const EmployeeFollowUpTab = ({
           (b.lastActionAt || b.updatedAt || 0) - (a.lastActionAt || a.updatedAt || 0) ||
           b.riskScoreSnapshot - a.riskScoreSnapshot
       );
-  }, [ownerFilter, projectFilter, queueItems, search, statusFilter, view]);
+  }, [employeeTypeFilter, ownerFilter, projectFilter, queueItems, search, statusFilter, view]);
 
   const pendingLaunchPreferredId = useMemo(() => {
     if (!pendingLaunch) return "";
@@ -1231,7 +1242,7 @@ export const EmployeeFollowUpTab = ({
       )}
 
       <div className="rounded-2xl border border-slate-200 bg-white p-3">
-        <div className="grid gap-3 lg:grid-cols-[minmax(0,1.2fr),repeat(3,minmax(0,180px))]">
+        <div className="grid gap-3 lg:grid-cols-[minmax(0,1.2fr),repeat(4,minmax(0,170px))]">
           <div className="relative">
             <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
             <input
@@ -1250,6 +1261,18 @@ export const EmployeeFollowUpTab = ({
             {FOLLOW_UP_STATUS_OPTIONS.map((option) => (
               <option key={option.value} value={option.value}>
                 {option.label}
+              </option>
+            ))}
+          </select>
+          <select
+            value={employeeTypeFilter}
+            onChange={(e) => setEmployeeTypeFilter(e.target.value)}
+            className="h-10 rounded-xl border border-slate-200 px-3 text-sm outline-none focus:ring-2 focus:ring-sky-100"
+          >
+            <option value="all">ทุกประเภทพนักงาน</option>
+            {employeeTypeOptions.map((employeeType) => (
+              <option key={employeeType} value={employeeType}>
+                {employeeType}
               </option>
             ))}
           </select>
