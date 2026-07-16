@@ -457,6 +457,20 @@ const employeeAssignedToProject = (
   targetProject: string
 ): boolean => parseProjectList(empProjects).some((project) => projectsMatch(project, targetProject));
 
+const extractProjectPosition = (
+  empProjects: string | string[] | undefined,
+  targetProject: string,
+  defaultPosition: string
+): string => {
+  const projects = parseProjectList(empProjects);
+  const matched = projects.find((p) => projectsMatch(p, targetProject));
+  if (matched) {
+    const match = matched.match(/\(([^)]+)\)$/);
+    if (match) return match[1].trim();
+  }
+  return defaultPosition;
+};
+
 const projectListIncludes = (projects: string[], target: string): boolean =>
   projects.some((project) => projectsMatch(project, target));
 
@@ -1888,7 +1902,10 @@ export const ManpowerDashboard = ({
         const group = String(emp["ชื่อชุด"] || "").trim();
         if (group) ensureLaborGroup(typeRow, group).employees++;
       }
-      const positionRow = ensureRow(breakdownByPosition, String(emp["ตำแหน่ง"] || "ไม่ระบุ"));
+      const positionStr = selectedProject
+        ? extractProjectPosition(emp.สถานะโครงการ, selectedProject, String(emp["ตำแหน่ง"] || "ไม่ระบุ"))
+        : String(emp["ตำแหน่ง"] || "ไม่ระบุ");
+      const positionRow = ensureRow(breakdownByPosition, positionStr || "ไม่ระบุ");
       typeRow.employees++;
       positionRow.employees++;
       const gender = inferGender(emp);
@@ -1898,7 +1915,7 @@ export const ManpowerDashboard = ({
         employeeId: emp.id,
         employeeCode: String(emp["รหัสพนักงาน"] || emp.id),
         name: getEmployeeName(emp),
-        position: String(emp["ตำแหน่ง"] || "-"),
+        position: positionStr || "-",
         employeeType: normalizeEmployeeType(emp),
         flags: [],
         presentDays: 0,
@@ -1934,7 +1951,10 @@ export const ManpowerDashboard = ({
         const overtime = overtimeByDate[date]?.[emp.id];
         const empType = normalizeEmployeeType(emp);
         const typeRow = ensureRow(breakdownByType, empType);
-        const positionRow = ensureRow(breakdownByPosition, String(emp["ตำแหน่ง"] || "ไม่ระบุ"));
+        const positionStr = selectedProject
+        ? extractProjectPosition(emp.สถานะโครงการ, selectedProject, String(emp["ตำแหน่ง"] || "ไม่ระบุ"))
+        : String(emp["ตำแหน่ง"] || "ไม่ระบุ");
+      const positionRow = ensureRow(breakdownByPosition, positionStr || "ไม่ระบุ");
         const employeeRisk = exceptionMap[emp.id];
         const counts = [typeRow, positionRow];
 
@@ -2032,12 +2052,15 @@ export const ManpowerDashboard = ({
     const buildProjectStatusRowsForDates = (dates: string[]) => {
       const localMap: Record<string, ProjectExceptionRow> = {};
       scopedEmployees.forEach((emp) => {
+        const positionStr = selectedProject
+          ? extractProjectPosition(emp.สถานะโครงการ, selectedProject, String(emp["ตำแหน่ง"] || "ไม่ระบุ"))
+          : String(emp["ตำแหน่ง"] || "ไม่ระบุ");
         localMap[emp.id] = {
           id: emp.id,
           employeeId: emp.id,
           employeeCode: String(emp["รหัสพนักงาน"] || emp.id),
           name: getEmployeeName(emp),
-          position: String(emp["ตำแหน่ง"] || "-"),
+          position: positionStr || "-",
           employeeType: normalizeEmployeeType(emp),
           flags: [],
           presentDays: 0,
@@ -2165,11 +2188,14 @@ export const ManpowerDashboard = ({
       .map((emp) => {
         const attendance = attendanceByDate[todayReferenceDate]?.[emp.id];
         if (attendance?.status !== "ไม่มา" && attendance?.status !== "ลา") return null;
+        const positionStr = selectedProject
+          ? extractProjectPosition(emp.สถานะโครงการ, selectedProject, String(emp["ตำแหน่ง"] || "ไม่ระบุ"))
+          : String(emp["ตำแหน่ง"] || "ไม่ระบุ");
         return {
           employeeId: emp.id,
           employeeCode: String(emp["รหัสพนักงาน"] || emp.id),
           fullName: getEmployeeName(emp),
-          position: String(emp["ตำแหน่ง"] || "-"),
+          position: positionStr || "-",
           employeeType: normalizeEmployeeType(emp),
           status: attendance.status,
         };
@@ -2987,14 +3013,19 @@ export const ManpowerDashboard = ({
       const activeType = sidePanel.selectedKey || "Supply manpower";
       const memberRows = employees
         .filter((emp) => normalizeEmployeeType(emp) === activeType)
-        .map((emp) => ({
-          employeeId: emp.id,
-          employeeCode: String(emp["รหัสพนักงาน"] || emp.id),
-          fullName: getEmployeeName(emp),
-          position: String(emp["ตำแหน่ง"] || "-"),
-          projectNames: parseProjectList(emp.สถานะโครงการ),
-          employeeTypeSource: [String(emp.employee_type || "").trim(), String(emp.สถานะกลุ่มงาน || "").trim()].filter(Boolean).join(" / ") || "-",
-        }))
+        .map((emp) => {
+          const positionStr = selectedProject
+            ? extractProjectPosition(emp.สถานะโครงการ, selectedProject, String(emp["ตำแหน่ง"] || "ไม่ระบุ"))
+            : String(emp["ตำแหน่ง"] || "ไม่ระบุ");
+          return {
+            employeeId: emp.id,
+            employeeCode: String(emp["รหัสพนักงาน"] || emp.id),
+            fullName: getEmployeeName(emp),
+            position: positionStr || "-",
+            projectNames: parseProjectList(emp.สถานะโครงการ),
+            employeeTypeSource: [String(emp.employee_type || "").trim(), String(emp.สถานะกลุ่มงาน || "").trim()].filter(Boolean).join(" / ") || "-",
+          };
+        })
         .sort((a, b) => a.fullName.localeCompare(b.fullName, "th"));
       return (
         <div className="space-y-4">
