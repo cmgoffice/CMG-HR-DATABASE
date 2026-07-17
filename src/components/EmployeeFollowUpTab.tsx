@@ -1168,8 +1168,16 @@ export const EmployeeFollowUpTab = ({
       window.alert("ไม่สามารถบันทึกรายการนี้ได้ เนื่องจากไม่พบข้อมูลความเสี่ยงต้นทาง");
       return;
     }
-    const actionLabel = baseCase.pendingActionType ? FOLLOW_UP_ACTION_LABELS[baseCase.pendingActionType] : "การดำเนินการ";
     const nextCase = executeApprovedAction(baseCase, policyConfig, actor, now);
+    if (nextCase.status !== "document_issued") {
+      window.alert(
+        "ไม่พบข้อเสนอที่รอดำเนินการ และไม่พบประวัติการดำเนินการเดิมที่จะใช้เปิดขั้นออกเอกสารได้ กรุณาย้อนกลับไปเสนอการดำเนินการใหม่อีกครั้ง"
+      );
+      return;
+    }
+    const actionLabel = baseCase.pendingActionType
+      ? FOLLOW_UP_ACTION_LABELS[baseCase.pendingActionType]
+      : lastExecutedEvent(baseCase)?.label || "การดำเนินการ";
 
     setBusy(true);
     try {

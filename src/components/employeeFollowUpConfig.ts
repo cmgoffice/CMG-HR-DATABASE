@@ -541,7 +541,31 @@ export const executeApprovedAction = (
   now: number
 ): EmployeeFollowUpCase => {
   const actionType = baseCase.pendingActionType;
-  if (!actionType) return baseCase;
+  if (!actionType) {
+    // เคสเก่าที่ย้ายมาจาก flow เดิม (สถานะ "in_progress" ที่มี action บันทึกไว้แล้วจริง) จะไม่มี pendingActionType
+    // เพราะไม่เคยผ่านขั้นเสนอ/อนุมัติแบบใหม่ ในกรณีนี้ให้ใช้ผลการดำเนินการล่าสุดที่เคยบันทึกไว้จริงแล้ว
+    // เพื่อเปิดขั้นออกเอกสารต่อได้เลย โดยไม่สร้างรายการดำเนินการซ้ำหรือเพิ่มรอบหนังสือเตือนซ้ำ
+    const legacyEvent = [...(baseCase.actions || [])]
+      .reverse()
+      .find(
+        (event) =>
+          event.type !== "document_issued" &&
+          event.type !== "hrm_approved" &&
+          event.type !== "hrm_commented" &&
+          event.type !== "proposed_action" &&
+          event.type !== "status_updated"
+      );
+    if (!legacyEvent) return baseCase;
+    return {
+      ...baseCase,
+      status: "document_issued",
+      lastActionAt: now,
+      updatedAt: now,
+      updatedByUid: actor.uid,
+      updatedByName: actor.name,
+      updatedByRole: actor.role,
+    };
+  }
   const actionOption = getFollowUpActionOption(policyConfig, actionType);
   const warningRound = getNextWarningRoundForAction(actionType, baseCase.warningRound);
   const isTerminationAction = actionType === "termination";
