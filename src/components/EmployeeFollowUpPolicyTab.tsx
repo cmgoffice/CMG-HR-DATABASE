@@ -39,6 +39,8 @@ const actionKindLabels: Record<FollowUpActionType, string> = {
   status_updated: "อัปเดตสถานะ",
   hrm_approved: "HRM อนุมัติ",
   hrm_commented: "HRM ให้ความเห็น",
+  proposed_action: "เสนอการดำเนินการ",
+  document_issued: "ออกเอกสารประกอบการดำเนินการ",
   verbal_warning: "เตือนวาจา",
   written_warning: "ออกหนังสือเตือน",
   written_warning_round_1: "หนังสือเตือนครั้งที่ 1",

@@ -80,6 +80,7 @@ interface OvertimeEntry {
 interface LaborGroupStats {
   employees: number;
   present: number;
+  late: number;
   absent: number;
   leave: number;
   notRecorded: number;
@@ -1000,6 +1001,7 @@ export const ManpowerDashboard = ({
   const [metricModal, setMetricModal] = useState<null | { key: string; title: string; subtitle?: string }>(null);
   const [sidePanel, setSidePanel] = useState<null | { key: string; title: string; subtitle?: string; selectedKey?: string }>(null);
   const [expandedTypeBreakdown, setExpandedTypeBreakdown] = useState<Set<string>>(new Set());
+  const [expandedDepartmentBreakdown, setExpandedDepartmentBreakdown] = useState<Set<string>>(new Set());
   const [expandedPositionBreakdown, setExpandedPositionBreakdown] = useState<Set<string>>(new Set());
   const dashboardRef = useRef<HTMLDivElement>(null);
   const [exporting, setExporting] = useState(false);
@@ -1835,6 +1837,7 @@ export const ManpowerDashboard = ({
 
     const breakdownByType: Record<string, BreakdownRow> = {};
     const breakdownByPosition: Record<string, BreakdownRow> = {};
+    const breakdownByDepartment: Record<string, BreakdownRow> = {};
     const projectGenderCounts: Record<string, number> = {};
     const exceptionMap: Record<string, ProjectExceptionRow> = {};
     const dailyTrend: DailySummary[] = [];
@@ -1888,7 +1891,7 @@ export const ManpowerDashboard = ({
 
     const ensureLaborGroup = (typeRow: BreakdownRow, groupName: string): LaborGroupStats => {
       if (!typeRow.laborGroupStats[groupName]) {
-        typeRow.laborGroupStats[groupName] = { employees: 0, present: 0, absent: 0, leave: 0, notRecorded: 0, wrongProject: 0, otHours: 0 };
+        typeRow.laborGroupStats[groupName] = { employees: 0, present: 0, late: 0, absent: 0, leave: 0, notRecorded: 0, wrongProject: 0, otHours: 0 };
       }
       return typeRow.laborGroupStats[groupName];
     };
@@ -1906,8 +1909,12 @@ export const ManpowerDashboard = ({
         ? extractProjectPosition(emp.สถานะโครงการ, selectedProject, String(emp["ตำแหน่ง"] || "ไม่ระบุ"))
         : String(emp["ตำแหน่ง"] || "ไม่ระบุ");
       const positionRow = ensureRow(breakdownByPosition, positionStr || "ไม่ระบุ");
+      const deptStr = String(emp["แผนก"] || "ไม่ระบุ");
+      const deptRow = ensureRow(breakdownByDepartment, deptStr);
       typeRow.employees++;
       positionRow.employees++;
+      deptRow.employees++;
+      ensureLaborGroup(deptRow, positionStr || "ไม่ระบุ").employees++;
       const gender = inferGender(emp);
       projectGenderCounts[gender] = (projectGenderCounts[gender] || 0) + 1;
       exceptionMap[emp.id] = {
@@ -1955,11 +1962,14 @@ export const ManpowerDashboard = ({
         ? extractProjectPosition(emp.สถานะโครงการ, selectedProject, String(emp["ตำแหน่ง"] || "ไม่ระบุ"))
         : String(emp["ตำแหน่ง"] || "ไม่ระบุ");
       const positionRow = ensureRow(breakdownByPosition, positionStr || "ไม่ระบุ");
+      const deptStr = String(emp["แผนก"] || "ไม่ระบุ");
+      const deptRow = ensureRow(breakdownByDepartment, deptStr);
         const employeeRisk = exceptionMap[emp.id];
-        const counts = [typeRow, positionRow];
-
+        const counts = [typeRow, positionRow, deptRow];
+        
         const laborGroupName = LABOR_GROUP_TYPES.has(empType) ? String(emp["ชื่อชุด"] || "").trim() : "";
         const groupStats = laborGroupName ? ensureLaborGroup(typeRow, laborGroupName) : null;
+        const posGroupStats = ensureLaborGroup(deptRow, positionStr || "ไม่ระบุ");
 
         if (!!attendance?.checkInTime || attendance?.isLate !== undefined || attendance?.lateMinutes !== undefined) {
           projectHasLateData = true;
@@ -1977,10 +1987,12 @@ export const ManpowerDashboard = ({
           dayPresent++;
           counts.forEach((row) => { row.present++; });
           if (groupStats) groupStats.present++;
+          if (posGroupStats) posGroupStats.present++;
           employeeRisk.presentDays++;
           const lateFlag = !!attendance?.isLate || safeNumber(attendance?.lateMinutes) > 0;
           if (lateFlag) {
             counts.forEach((row) => { row.late++; });
+            if (posGroupStats) posGroupStats.late++;
             employeeRisk.lateDays++;
           }
         } else if (isWrongProject) {
@@ -1989,24 +2001,28 @@ export const ManpowerDashboard = ({
           employeeRisk.wrongProjectDays++;
           counts.forEach((row) => { row.wrongProject++; });
           if (groupStats) groupStats.wrongProject++;
+          if (posGroupStats) posGroupStats.wrongProject++;
         } else if (attendance?.status === "ไม่มา") {
           absent++;
           dayAbsent++;
           employeeRisk.absentDays++;
           counts.forEach((row) => { row.absent++; });
           if (groupStats) groupStats.absent++;
+          if (posGroupStats) posGroupStats.absent++;
         } else if (attendance?.status === "ลา") {
           leave++;
           dayLeave++;
           employeeRisk.leaveDays++;
           counts.forEach((row) => { row.leave++; });
           if (groupStats) groupStats.leave++;
+          if (posGroupStats) posGroupStats.leave++;
         } else {
           notRecorded++;
           dayNotRecorded++;
           employeeRisk.notRecordedDays++;
           counts.forEach((row) => { row.notRecorded++; });
           if (groupStats) groupStats.notRecorded++;
+          if (posGroupStats) posGroupStats.notRecorded++;
         }
 
         if (otHours > 0 && otMatchesProject) {
@@ -2016,6 +2032,7 @@ export const ManpowerDashboard = ({
           otEmployees.add(emp.id);
           counts.forEach((row) => { row.otHours += otHours; });
           if (groupStats) groupStats.otHours += otHours;
+          if (posGroupStats) posGroupStats.otHours += otHours;
         }
       });
 
@@ -2293,6 +2310,7 @@ export const ManpowerDashboard = ({
       dailyTrend,
       breakdownByType: Object.values(breakdownByType).sort((a, b) => b.employees - a.employees || a.label.localeCompare(b.label, "th")),
       breakdownByPosition: Object.values(breakdownByPosition).sort((a, b) => b.employees - a.employees || a.label.localeCompare(b.label, "th")),
+      breakdownByDepartment: Object.values(breakdownByDepartment).sort((a, b) => b.employees - a.employees || a.label.localeCompare(b.label, "th")),
       exceptionList,
       followUpExceptionList,
       projectEmployeeStatusRows,
@@ -4433,6 +4451,12 @@ export const ManpowerDashboard = ({
                 next.has(key) ? next.delete(key) : next.add(key);
                 return next;
               });
+            const toggleDepartment = (key: string) =>
+              setExpandedDepartmentBreakdown((prev) => {
+                const next = new Set(prev);
+                next.has(key) ? next.delete(key) : next.add(key);
+                return next;
+              });
             const togglePosition = (key: string) =>
               setExpandedPositionBreakdown((prev) => {
                 const next = new Set(prev);
@@ -4446,7 +4470,7 @@ export const ManpowerDashboard = ({
                 return { ...row, issueCount, presentRate: row.present / headcount, issueRate: issueCount / headcount };
               })
               .sort((a, b) => b.issueRate - a.issueRate || b.issueCount - a.issueCount || b.otHours - a.otHours || a.label.localeCompare(b.label, "th"));
-            const sortedPositions = [...projectData.breakdownByPosition]
+            const sortedDepartments = [...projectData.breakdownByDepartment]
               .map((row) => {
                 const issueCount = row.absent + row.leave + row.notRecorded + row.wrongProject;
                 const headcount = Math.max(row.employees, 1);
@@ -4458,7 +4482,6 @@ export const ManpowerDashboard = ({
                   presentRate: row.present / headcount,
                   issueRate: issueCount / headcount,
                   slots,
-                  // สัดส่วนต่อจำนวนวันทำงานทั้งหมดของตำแหน่ง (employee-days) — ใช้ในมุมมองรายเดือน
                   presentDayRate: row.present / denomDays,
                   lateDayRate: row.late / denomDays,
                   absentDayRate: row.absent / denomDays,
@@ -4469,7 +4492,7 @@ export const ManpowerDashboard = ({
               })
               .sort((a, b) =>
                 isSingleDayView
-                  ? a.employees - b.employees || a.label.localeCompare(b.label, "th")
+                  ? b.issueRate - a.issueRate || b.issueCount - a.issueCount || a.label.localeCompare(b.label, "th")
                   : b.issueDayRate - a.issueDayRate || b.issueCount - a.issueCount || a.label.localeCompare(b.label, "th")
               );
             const employeesByPosition: Record<string, typeof projectData.projectEmployeeStatusRows> = {};
@@ -4612,7 +4635,7 @@ export const ManpowerDashboard = ({
                         : "มุมมองรายเดือน: % คิดจากจำนวนวันทำงาน (employee-days) ทั้งเดือนของตำแหน่งนั้น เช่น % ขาด = วันที่ขาด / วันทำงานรวมของตำแหน่ง | % สาย ต้องมีข้อมูลเวลาเข้างานจึงจะแสดง | % ปัญหา = (ขาด+ลา+ค้าง+ผิดโครงการ) / วันทำงานรวม"
                     }
                   >
-                    {sortedPositions.length === 0 ? (
+                    {sortedDepartments.length === 0 ? (
                       <div className="text-sm text-slate-500">ยังไม่มีข้อมูลตำแหน่งในโครงการนี้</div>
                     ) : (
                       <div className="-mx-2 overflow-x-auto px-2 sm:mx-0 sm:overflow-visible sm:px-0">
@@ -4620,7 +4643,7 @@ export const ManpowerDashboard = ({
                           <thead>
                             <tr className="bg-slate-50 text-[10px] text-slate-600">
                               <th className="w-4 px-0.5 py-1.5" />
-                              <th className="px-1 py-1.5 text-left font-semibold">ตำแหน่ง</th>
+                              <th className="px-1 py-1.5 text-left font-semibold">แผนก / ตำแหน่ง</th>
                               <th className="w-8 px-1 py-1.5 text-center font-semibold">คน</th>
                               {isSingleDayView ? (
                                 <>
@@ -4644,163 +4667,241 @@ export const ManpowerDashboard = ({
                             </tr>
                           </thead>
                           <tbody>
-                            {sortedPositions.map((row) => {
-                              const isExpanded = expandedPositionBreakdown.has(row.key);
+                            {sortedDepartments.map((deptRow) => {
+                              const isDeptExpanded = expandedDepartmentBreakdown.has(deptRow.key);
                               const isHighRisk = isSingleDayView
-                                ? row.issueRate >= 0.3 || row.issueCount >= 2
-                                : row.issueDayRate >= 0.2;
-                              const isWatch = !isHighRisk && (isSingleDayView ? row.issueRate > 0 || row.issueCount > 0 : row.issueDayRate > 0);
+                                ? deptRow.issueRate >= 0.3 || deptRow.issueCount >= 2
+                                : deptRow.issueDayRate >= 0.2;
+                              const isWatch = !isHighRisk && (isSingleDayView ? deptRow.issueRate > 0 || deptRow.issueCount > 0 : deptRow.issueDayRate > 0);
                               const rowTone = isHighRisk
                                 ? "bg-rose-50/80 border-t border-rose-100"
                                 : isWatch
                                   ? "bg-amber-50/50 border-t border-amber-100"
                                   : "border-t border-slate-100";
-                              const members = employeesByPosition[row.label] || [];
+                              
+                              const positions = Object.entries(deptRow.laborGroupStats).sort((a, b) => b[1].employees - a[1].employees || a[0].localeCompare(b[0], "th"));
+                              const hasPositions = positions.length > 0;
+
                               return (
-                                <React.Fragment key={row.key}>
+                                <React.Fragment key={deptRow.key}>
                                   <tr className={rowTone}>
                                     <td className="px-1 py-1.5 text-center">
-                                      {members.length > 0 ? (
+                                      {hasPositions ? (
                                         <button
                                           type="button"
-                                          onClick={() => togglePosition(row.key)}
+                                          onClick={() => toggleDepartment(deptRow.key)}
                                           className="inline-flex h-4 w-4 items-center justify-center rounded text-slate-400 hover:bg-slate-100 hover:text-slate-700"
-                                          title={isExpanded ? "พับ" : "ขยายดูรายชื่อ"}
+                                          title={isDeptExpanded ? "พับ" : "ขยายดูตำแหน่ง"}
                                         >
-                                          <span className="text-[9px] font-bold">{isExpanded ? "▲" : "▼"}</span>
+                                          <span className="text-[9px] font-bold">{isDeptExpanded ? "▲" : "▼"}</span>
                                         </button>
                                       ) : null}
                                     </td>
                                     <td className="px-1 py-1.5 font-medium text-slate-800">
                                       <div className="flex items-center gap-1">
-                                        <span className="truncate">{row.label}</span>
+                                        <span className="truncate">{deptRow.label}</span>
                                         {isHighRisk && (
                                           <span className="shrink-0 rounded bg-rose-100 px-1 py-0 text-[9px] font-bold text-rose-700">ต้องดู</span>
                                         )}
                                         {isWatch && (
                                           <span className="shrink-0 rounded bg-amber-100 px-1 py-0 text-[9px] font-bold text-amber-700">เฝ้า</span>
                                         )}
+                                        {hasPositions && (
+                                          <span className="shrink-0 text-[9px] text-slate-400">{positions.length} ตำแหน่ง</span>
+                                        )}
                                       </div>
                                     </td>
-                                    <td className="px-1 py-1.5 text-center">{row.employees}</td>
+                                    <td className="px-1 py-1.5 text-center">{deptRow.employees}</td>
                                     {isSingleDayView ? (
                                       <>
-                                        <td className="px-1 py-1.5 text-center text-emerald-700 font-semibold">{row.present}</td>
-                                        <td className={`px-1 py-1.5 text-center font-semibold ${row.presentRate >= 0.9 ? "text-emerald-700" : row.presentRate >= 0.7 ? "text-amber-700" : "text-rose-700"}`}>
-                                          {formatPercent(row.present, Math.max(row.employees, 1))}
+                                        <td className="px-1 py-1.5 text-center text-emerald-700 font-semibold">{deptRow.present}</td>
+                                        <td className={`px-1 py-1.5 text-center font-semibold ${deptRow.presentRate >= 0.9 ? "text-emerald-700" : deptRow.presentRate >= 0.7 ? "text-amber-700" : "text-rose-700"}`}>
+                                          {formatPercent(deptRow.present, Math.max(deptRow.employees, 1))}
                                         </td>
-                                        <td className="px-1 py-1.5 text-center text-rose-700">{row.absent}</td>
-                                        <td className="px-1 py-1.5 text-center text-amber-700">{row.leave}</td>
-                                        <td className="px-1 py-1.5 text-center text-slate-600">{row.notRecorded + row.wrongProject}</td>
+                                        <td className="px-1 py-1.5 text-center text-rose-700">{deptRow.absent}</td>
+                                        <td className="px-1 py-1.5 text-center text-amber-700">{deptRow.leave}</td>
+                                        <td className="px-1 py-1.5 text-center text-slate-600">{deptRow.notRecorded + deptRow.wrongProject}</td>
                                       </>
                                     ) : (
                                       <>
-                                        <td className={`px-1 py-1.5 text-center font-semibold ${row.presentDayRate >= 0.9 ? "text-emerald-700" : row.presentDayRate >= 0.7 ? "text-amber-700" : "text-rose-700"}`}>
-                                          {formatPercent(row.present, Math.max(row.slots, 1))}
+                                        <td className={`px-1 py-1.5 text-center font-semibold ${deptRow.presentDayRate >= 0.9 ? "text-emerald-700" : deptRow.presentDayRate >= 0.7 ? "text-amber-700" : "text-rose-700"}`}>
+                                          {formatPercent(deptRow.present, Math.max(deptRow.slots, 1))}
                                         </td>
-                                        <td className={`px-1 py-1.5 text-center font-semibold ${!projectData.lateDataAvailable ? "text-slate-300" : row.lateDayRate > 0 ? "text-amber-700" : "text-slate-400"}`}>
-                                          {projectData.lateDataAvailable ? formatPercent(row.late, Math.max(row.slots, 1)) : "—"}
+                                        <td className={`px-1 py-1.5 text-center font-semibold ${!projectData.lateDataAvailable ? "text-slate-300" : deptRow.lateDayRate > 0 ? "text-amber-700" : "text-slate-400"}`}>
+                                          {projectData.lateDataAvailable ? formatPercent(deptRow.late, Math.max(deptRow.slots, 1)) : "—"}
                                         </td>
-                                        <td className={`px-1 py-1.5 text-center font-semibold ${row.absentDayRate > 0 ? "text-rose-700" : "text-slate-400"}`}>
-                                          {formatPercent(row.absent, Math.max(row.slots, 1))}
+                                        <td className={`px-1 py-1.5 text-center font-semibold ${deptRow.absentDayRate > 0 ? "text-rose-700" : "text-slate-400"}`}>
+                                          {formatPercent(deptRow.absent, Math.max(deptRow.slots, 1))}
                                         </td>
-                                        <td className={`px-1 py-1.5 text-center font-semibold ${row.leaveDayRate > 0 ? "text-amber-700" : "text-slate-400"}`}>
-                                          {formatPercent(row.leave, Math.max(row.slots, 1))}
+                                        <td className={`px-1 py-1.5 text-center font-semibold ${deptRow.leaveDayRate > 0 ? "text-amber-700" : "text-slate-400"}`}>
+                                          {formatPercent(deptRow.leave, Math.max(deptRow.slots, 1))}
                                         </td>
-                                        <td className={`px-1 py-1.5 text-center font-semibold ${row.pendingDayRate > 0 ? "text-slate-600" : "text-slate-400"}`}>
-                                          {formatPercent(row.notRecorded + row.wrongProject, Math.max(row.slots, 1))}
+                                        <td className={`px-1 py-1.5 text-center font-semibold ${deptRow.pendingDayRate > 0 ? "text-slate-600" : "text-slate-400"}`}>
+                                          {formatPercent(deptRow.notRecorded + deptRow.wrongProject, Math.max(deptRow.slots, 1))}
                                         </td>
                                       </>
                                     )}
                                     <td className={`px-1 py-1.5 text-center font-semibold ${isHighRisk ? "text-rose-700" : isWatch ? "text-amber-700" : "text-slate-600"}`}>
                                       {isSingleDayView
-                                        ? formatPercent(row.issueCount, Math.max(row.employees, 1))
-                                        : formatPercent(row.issueCount, Math.max(row.slots, 1))}
+                                        ? formatPercent(deptRow.issueCount, Math.max(deptRow.employees, 1))
+                                        : formatPercent(deptRow.issueCount, Math.max(deptRow.slots, 1))}
                                     </td>
-                                    <td className="px-1 py-1.5 text-right font-semibold text-sky-700">{row.otHours.toFixed(1)}</td>
+                                    <td className="px-1 py-1.5 text-right font-semibold text-sky-700">{deptRow.otHours.toFixed(1)}</td>
                                   </tr>
-                                  {isExpanded && members.length > 0 && (
-                                    isSingleDayView ? (
-                                      [...members]
-                                        .sort((a, b) => a.fullName.localeCompare(b.fullName, "th"))
-                                        .map((m) => {
-                                          const mIssue = m.absentDays + m.leaveDays + m.notRecordedDays + m.wrongProjectDays;
-                                          const mSlots = m.presentDays + mIssue;
-                                          const mPresRate = mSlots > 0 ? m.presentDays / mSlots : 0;
-                                          const mIssueRate = mSlots > 0 ? mIssue / mSlots : 0;
-                                          const mBad = mIssueRate >= 0.3 || mIssue >= 2;
-                                          const mWatch = !mBad && mIssue > 0;
-                                          const memberTone = mBad ? "bg-rose-50/40" : mWatch ? "bg-amber-50/30" : "bg-slate-50/40";
-                                          return (
-                                            <tr key={`${row.key}-${m.employeeId}`} className={`border-t border-slate-100 text-[10px] ${memberTone}`}>
-                                              <td />
-                                              <td className="py-1 pl-6 pr-1 text-slate-600">
-                                                <div className="flex items-center gap-1">
-                                                  <span className="shrink-0 text-slate-300">└</span>
-                                                  <span className="truncate">
-                                                    <span className="text-slate-400">{m.employeeCode}</span> {m.fullName}
-                                                  </span>
-                                                </div>
+                                  
+                                  {hasPositions && isDeptExpanded && positions.map(([posName, posStats]) => {
+                                    const pIssue = posStats.absent + posStats.leave + posStats.notRecorded + posStats.wrongProject;
+                                    const pSlots = isSingleDayView ? posStats.employees : posStats.present + posStats.absent + posStats.leave + posStats.notRecorded + posStats.wrongProject;
+                                    const pDenomSlots = isSingleDayView ? 0 : posStats.present + posStats.absent + posStats.leave + posStats.notRecorded + posStats.wrongProject;
+                                    const pDenom = isSingleDayView ? Math.max(posStats.employees, 1) : Math.max(pDenomSlots, 1);
+                                    const pPresRate = posStats.present / pDenom;
+                                    const pIssueRate = pIssue / pDenom;
+                                    const pBad = isSingleDayView ? pIssueRate >= 0.3 || pIssue >= 2 : pIssueRate >= 0.2;
+                                    const pWatch = !pBad && pIssue > 0;
+                                    const pTone = pBad ? "bg-rose-50/40 border-t border-rose-50" : pWatch ? "bg-amber-50/30 border-t border-amber-50" : "bg-slate-50/40 border-t border-slate-100";
+                                    
+                                    const members = employeesByPosition[posName] || [];
+                                    const isPosExpanded = expandedPositionBreakdown.has(`${deptRow.key}-${posName}`);
+                                    
+                                    return (
+                                      <React.Fragment key={`${deptRow.key}-${posName}`}>
+                                        <tr className={`text-[10px] ${pTone}`}>
+                                          <td className="px-1 py-1.5 text-center border-r border-slate-100/50">
+                                            {members.length > 0 ? (
+                                              <button
+                                                type="button"
+                                                onClick={() => togglePosition(`${deptRow.key}-${posName}`)}
+                                                className="inline-flex h-4 w-4 items-center justify-center rounded text-slate-400 hover:bg-slate-200 hover:text-slate-700"
+                                                title={isPosExpanded ? "พับ" : "ขยายดูรายชื่อ"}
+                                              >
+                                                <span className="text-[9px] font-bold">{isPosExpanded ? "▲" : "▼"}</span>
+                                              </button>
+                                            ) : null}
+                                          </td>
+                                          <td className="py-1 pl-4 pr-2 text-slate-700">
+                                            <span className="mr-1 text-slate-300">└</span>
+                                            {posName}
+                                          </td>
+                                          <td className="px-2 py-1 text-center text-slate-600">{posStats.employees}</td>
+                                          {isSingleDayView ? (
+                                            <>
+                                              <td className="px-2 py-1 text-center font-semibold text-emerald-700">{posStats.present}</td>
+                                              <td className={`px-2 py-1 text-center font-semibold ${pPresRate >= 0.9 ? "text-emerald-700" : pPresRate >= 0.7 ? "text-amber-700" : "text-rose-700"}`}>
+                                                {formatPercent(posStats.present, pDenom)}
                                               </td>
-                                              <td className="px-1 py-1 text-center text-slate-300">–</td>
-                                              <td className={`px-1 py-1 text-center font-semibold ${m.presentDays > 0 ? "text-emerald-700" : "text-slate-300"}`}>{m.presentDays}</td>
-                                              <td className={`px-1 py-1 text-center font-semibold ${mPresRate >= 0.9 ? "text-emerald-700" : mPresRate >= 0.7 ? "text-amber-700" : "text-rose-700"}`}>
-                                                {formatPercent(m.presentDays, Math.max(mSlots, 1))}
+                                              <td className="px-2 py-1 text-center text-rose-700">{posStats.absent}</td>
+                                              <td className="px-2 py-1 text-center text-amber-700">{posStats.leave}</td>
+                                              <td className="px-2 py-1 text-center text-slate-600">{posStats.notRecorded + posStats.wrongProject}</td>
+                                            </>
+                                          ) : (
+                                            <>
+                                              <td className={`px-2 py-1 text-center font-semibold ${pPresRate >= 0.9 ? "text-emerald-700" : pPresRate >= 0.7 ? "text-amber-700" : "text-rose-700"}`}>
+                                                {formatPercent(posStats.present, pDenom)}
                                               </td>
-                                              <td className={`px-1 py-1 text-center font-semibold ${m.absentDays > 0 ? "text-rose-700" : "text-slate-300"}`}>{m.absentDays}</td>
-                                              <td className={`px-1 py-1 text-center font-semibold ${m.leaveDays > 0 ? "text-amber-700" : "text-slate-300"}`}>{m.leaveDays}</td>
-                                              <td className={`px-1 py-1 text-center font-semibold ${m.notRecordedDays + m.wrongProjectDays > 0 ? "text-slate-600" : "text-slate-300"}`}>{m.notRecordedDays + m.wrongProjectDays}</td>
-                                              <td className={`px-1 py-1 text-center font-semibold ${mBad ? "text-rose-700" : mWatch ? "text-amber-700" : "text-slate-400"}`}>
-                                                {formatPercent(mIssue, Math.max(mSlots, 1))}
+                                              <td className={`px-2 py-1 text-center font-semibold ${!projectData.lateDataAvailable ? "text-slate-300" : posStats.late > 0 ? "text-amber-700" : "text-slate-400"}`}>
+                                                {projectData.lateDataAvailable ? formatPercent(posStats.late, pDenom) : "—"}
                                               </td>
-                                              <td className="px-1 py-1 text-right font-semibold text-sky-700">{m.otHours.toFixed(1)}</td>
-                                            </tr>
-                                          );
-                                        })
-                                    ) : (
-                                      [...members]
-                                        .sort(
-                                          (a, b) =>
-                                            (b.absentDays + b.leaveDays + b.notRecordedDays + b.wrongProjectDays) -
-                                              (a.absentDays + a.leaveDays + a.notRecordedDays + a.wrongProjectDays) ||
-                                            b.presentDays - a.presentDays ||
-                                            a.fullName.localeCompare(b.fullName, "th")
-                                        )
-                                        .map((m) => {
-                                          const mIssue = m.absentDays + m.leaveDays + m.notRecordedDays + m.wrongProjectDays;
-                                          const mSlots = m.presentDays + mIssue;
-                                          const mIssueRate = mSlots > 0 ? mIssue / mSlots : 0;
-                                          const mBad = mIssueRate >= 0.3 || mIssue >= 3;
-                                          const mWatch = !mBad && mIssue > 0;
-                                          const memberTone = mBad ? "bg-rose-50/40" : mWatch ? "bg-amber-50/30" : "bg-slate-50/40";
-                                          return (
-                                            <tr key={`${row.key}-${m.employeeId}`} className={`border-t border-slate-100 text-[10px] ${memberTone}`}>
-                                              <td />
-                                              <td className="py-1 pl-6 pr-1 text-slate-600">
-                                                <div className="flex items-center gap-1">
-                                                  <span className="shrink-0 text-slate-300">└</span>
-                                                  <span className="truncate">
-                                                    <span className="text-slate-400">{m.employeeCode}</span> {m.fullName}
-                                                  </span>
-                                                </div>
+                                              <td className={`px-2 py-1 text-center font-semibold ${posStats.absent > 0 ? "text-rose-700" : "text-slate-400"}`}>
+                                                {formatPercent(posStats.absent, pDenom)}
                                               </td>
-                                              <td className="px-1 py-1 text-center text-slate-300">–</td>
-                                              <td className="px-1 py-1 text-center font-semibold text-emerald-700">{m.presentDays}</td>
-                                              <td className={`px-1 py-1 text-center font-semibold ${!projectData.lateDataAvailable ? "text-slate-300" : m.lateDays > 0 ? "text-amber-700" : "text-slate-400"}`}>
-                                                {projectData.lateDataAvailable ? m.lateDays : "—"}
+                                              <td className={`px-2 py-1 text-center font-semibold ${posStats.leave > 0 ? "text-amber-700" : "text-slate-400"}`}>
+                                                {formatPercent(posStats.leave, pDenom)}
                                               </td>
-                                              <td className={`px-1 py-1 text-center font-semibold ${m.absentDays > 0 ? "text-rose-700" : "text-slate-300"}`}>{m.absentDays}</td>
-                                              <td className={`px-1 py-1 text-center font-semibold ${m.leaveDays > 0 ? "text-amber-700" : "text-slate-300"}`}>{m.leaveDays}</td>
-                                              <td className={`px-1 py-1 text-center font-semibold ${m.notRecordedDays + m.wrongProjectDays > 0 ? "text-slate-600" : "text-slate-300"}`}>{m.notRecordedDays + m.wrongProjectDays}</td>
-                                              <td className={`px-1 py-1 text-center font-semibold ${mBad ? "text-rose-700" : mWatch ? "text-amber-700" : "text-slate-400"}`}>
-                                                {formatPercent(mIssue, Math.max(mSlots, 1))}
+                                              <td className={`px-2 py-1 text-center font-semibold ${posStats.notRecorded + posStats.wrongProject > 0 ? "text-slate-600" : "text-slate-400"}`}>
+                                                {formatPercent(posStats.notRecorded + posStats.wrongProject, pDenom)}
                                               </td>
-                                              <td className="px-1 py-1 text-right font-semibold text-sky-700">{m.otHours.toFixed(1)}</td>
-                                            </tr>
-                                          );
-                                        })
-                                    )
-                                  )}
+                                            </>
+                                          )}
+                                          <td className={`px-2 py-1 text-center font-semibold ${pBad ? "text-rose-700" : pWatch ? "text-amber-700" : "text-slate-500"}`}>
+                                            {formatPercent(pIssue, pDenom)}
+                                          </td>
+                                          <td className="px-2 py-1 text-right font-semibold text-sky-700">{posStats.otHours.toFixed(1)}</td>
+                                        </tr>
+                                        {isPosExpanded && members.length > 0 && (
+                                          isSingleDayView ? (
+                                            [...members]
+                                              .sort((a, b) => a.fullName.localeCompare(b.fullName, "th"))
+                                              .map((m) => {
+                                                const mIssue = m.absentDays + m.leaveDays + m.notRecordedDays + m.wrongProjectDays;
+                                                const mSlots = m.presentDays + mIssue;
+                                                const mPresRate = mSlots > 0 ? m.presentDays / mSlots : 0;
+                                                const mIssueRate = mSlots > 0 ? mIssue / mSlots : 0;
+                                                const mBad = mIssueRate >= 0.3 || mIssue >= 2;
+                                                const mWatch = !mBad && mIssue > 0;
+                                                const memberTone = mBad ? "bg-rose-50/40" : mWatch ? "bg-amber-50/30" : "bg-slate-50/40";
+                                                return (
+                                                  <tr key={`${deptRow.key}-${posName}-${m.employeeId}`} className={`border-t border-slate-100 text-[10px] ${memberTone}`}>
+                                                    <td className="border-r border-slate-100/50" />
+                                                    <td className="py-1 pl-8 pr-1 text-slate-600">
+                                                      <div className="flex items-center gap-1">
+                                                        <span className="shrink-0 text-slate-300">└</span>
+                                                        <span className="truncate">
+                                                          <span className="text-slate-400">{m.employeeCode}</span> {m.fullName}
+                                                        </span>
+                                                      </div>
+                                                    </td>
+                                                    <td className="px-1 py-1 text-center text-slate-300">–</td>
+                                                    <td className={`px-1 py-1 text-center font-semibold ${m.presentDays > 0 ? "text-emerald-700" : "text-slate-300"}`}>{m.presentDays}</td>
+                                                    <td className={`px-1 py-1 text-center font-semibold ${mPresRate >= 0.9 ? "text-emerald-700" : mPresRate >= 0.7 ? "text-amber-700" : "text-rose-700"}`}>
+                                                      {formatPercent(m.presentDays, Math.max(mSlots, 1))}
+                                                    </td>
+                                                    <td className={`px-1 py-1 text-center font-semibold ${m.absentDays > 0 ? "text-rose-700" : "text-slate-300"}`}>{m.absentDays}</td>
+                                                    <td className={`px-1 py-1 text-center font-semibold ${m.leaveDays > 0 ? "text-amber-700" : "text-slate-300"}`}>{m.leaveDays}</td>
+                                                    <td className={`px-1 py-1 text-center font-semibold ${m.notRecordedDays + m.wrongProjectDays > 0 ? "text-slate-600" : "text-slate-300"}`}>{m.notRecordedDays + m.wrongProjectDays}</td>
+                                                    <td className={`px-1 py-1 text-center font-semibold ${mBad ? "text-rose-700" : mWatch ? "text-amber-700" : "text-slate-400"}`}>
+                                                      {formatPercent(mIssue, Math.max(mSlots, 1))}
+                                                    </td>
+                                                    <td className="px-1 py-1 text-right font-semibold text-sky-700">{m.otHours.toFixed(1)}</td>
+                                                  </tr>
+                                                );
+                                              })
+                                          ) : (
+                                            [...members]
+                                              .sort(
+                                                (a, b) =>
+                                                  (b.absentDays + b.leaveDays + b.notRecordedDays + b.wrongProjectDays) -
+                                                    (a.absentDays + a.leaveDays + a.notRecordedDays + a.wrongProjectDays) ||
+                                                  b.presentDays - a.presentDays ||
+                                                  a.fullName.localeCompare(b.fullName, "th")
+                                              )
+                                              .map((m) => {
+                                                const mIssue = m.absentDays + m.leaveDays + m.notRecordedDays + m.wrongProjectDays;
+                                                const mSlots = m.presentDays + mIssue;
+                                                const mIssueRate = mSlots > 0 ? mIssue / mSlots : 0;
+                                                const mBad = mIssueRate >= 0.3 || mIssue >= 3;
+                                                const mWatch = !mBad && mIssue > 0;
+                                                const memberTone = mBad ? "bg-rose-50/40" : mWatch ? "bg-amber-50/30" : "bg-slate-50/40";
+                                                return (
+                                                  <tr key={`${deptRow.key}-${posName}-${m.employeeId}`} className={`border-t border-slate-100 text-[10px] ${memberTone}`}>
+                                                    <td className="border-r border-slate-100/50" />
+                                                    <td className="py-1 pl-8 pr-1 text-slate-600">
+                                                      <div className="flex items-center gap-1">
+                                                        <span className="shrink-0 text-slate-300">└</span>
+                                                        <span className="truncate">
+                                                          <span className="text-slate-400">{m.employeeCode}</span> {m.fullName}
+                                                        </span>
+                                                      </div>
+                                                    </td>
+                                                    <td className="px-1 py-1 text-center text-slate-300">–</td>
+                                                    <td className="px-1 py-1 text-center font-semibold text-emerald-700">{m.presentDays}</td>
+                                                    <td className={`px-1 py-1 text-center font-semibold ${!projectData.lateDataAvailable ? "text-slate-300" : m.lateDays > 0 ? "text-amber-700" : "text-slate-400"}`}>
+                                                      {projectData.lateDataAvailable ? m.lateDays : "—"}
+                                                    </td>
+                                                    <td className={`px-1 py-1 text-center font-semibold ${m.absentDays > 0 ? "text-rose-700" : "text-slate-300"}`}>{m.absentDays}</td>
+                                                    <td className={`px-1 py-1 text-center font-semibold ${m.leaveDays > 0 ? "text-amber-700" : "text-slate-300"}`}>{m.leaveDays}</td>
+                                                    <td className={`px-1 py-1 text-center font-semibold ${m.notRecordedDays + m.wrongProjectDays > 0 ? "text-slate-600" : "text-slate-300"}`}>{m.notRecordedDays + m.wrongProjectDays}</td>
+                                                    <td className={`px-1 py-1 text-center font-semibold ${mBad ? "text-rose-700" : mWatch ? "text-amber-700" : "text-slate-400"}`}>
+                                                      {formatPercent(mIssue, Math.max(mSlots, 1))}
+                                                    </td>
+                                                    <td className="px-1 py-1 text-right font-semibold text-sky-700">{m.otHours.toFixed(1)}</td>
+                                                  </tr>
+                                                );
+                                              })
+                                          )
+                                        )}
+                                      </React.Fragment>
+                                    );
+                                  })}
                                 </React.Fragment>
                               );
                             })}

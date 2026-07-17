@@ -12,7 +12,15 @@ export type RiskRuleKey =
   | "missing_attendance"
   | "wrong_project_pattern";
 
-export type FollowUpStatus = "pending" | "in_progress" | "awaiting_hrm_review" | "no_action" | "closed";
+export type FollowUpStatus =
+  | "pending"
+  | "proposed"
+  | "in_progress"
+  | "awaiting_hrm_review"
+  | "approved_pending_execution"
+  | "document_issued"
+  | "no_action"
+  | "closed";
 export type FollowUpWarningRound = 0 | 1 | 2 | 3;
 export type FollowUpEscalationState = "none" | "hrm_review_required" | "termination_consideration";
 export type FollowUpCloseState = "resolved" | "monitoring_complete" | "no_action" | "terminated" | "other";
@@ -22,6 +30,8 @@ export type FollowUpActionType =
   | "status_updated"
   | "hrm_approved"
   | "hrm_commented"
+  | "proposed_action"
+  | "document_issued"
   | "verbal_warning"
   | "written_warning"
   | "written_warning_round_1"
@@ -35,6 +45,19 @@ export type FollowUpActionType =
   | "closed";
 
 export type FollowUpActionKind = "warning" | "suspension" | "termination";
+
+export type FollowUpRequesterRole = "HR" | "Admin Site";
+
+export interface FollowUpDocumentRecord {
+  id: string;
+  templateKey: "warning_memo" | "warning_letter" | "termination_notice";
+  templateLabel: string;
+  generatedAt: number;
+  generatedByUid: string;
+  generatedByName: string;
+  usedSignatureOfUid?: string;
+  usedSignatureOfName?: string;
+}
 
 export interface FollowUpIssueSnapshot {
   key: RiskRuleKey;
@@ -118,6 +141,22 @@ export interface EmployeeFollowUpCase {
   hrmReviewedByUid?: string;
   hrmReviewedByName?: string;
   hrmReviewedByRole?: string;
+  // ข้อเสนอที่ยังไม่ได้ดำเนินการจริง (proposed -> รอ HRM อนุมัติ -> HR ดำเนินการจริงใน executeApprovedAction)
+  pendingActionType?: FollowUpActionType;
+  pendingActionNote?: string;
+  pendingActionNextFollowUpDate?: string;
+  pendingActionProposedAt?: number;
+  pendingActionProposedByUid?: string;
+  pendingActionProposedByName?: string;
+  pendingActionProposedByRole?: string;
+  // ผู้ขอ/ผู้รับเรื่องเดิม (รองรับช่องทางคู่ขนานจาก Admin Site)
+  requestedByRole?: FollowUpRequesterRole;
+  requestedProject?: string;
+  claimedByUid?: string;
+  claimedByName?: string;
+  claimedByRole?: FollowUpRequesterRole;
+  claimedProject?: string;
+  documents?: FollowUpDocumentRecord[];
   nextFollowUpDate?: string;
   latestIncidentDate?: string;
   lastActionAt?: number;
@@ -158,6 +197,9 @@ export const FOLLOW_UP_FIRST_STAGE_ROLES = ["HR"] as const;
 export const FOLLOW_UP_VIEWER_ROLES = ["MasterAdmin", "MD", "GM", "PD", "HR", "HRM"] as const;
 export const FOLLOW_UP_ESCALATION_ROLES = ["HRM"] as const;
 export const FOLLOW_UP_HRM_REVIEW_ROLES = ["HRM"] as const;
+// Admin Site เห็นแท็บ "การติดตามพนักงาน" ได้แบบจำกัดขอบเขตเฉพาะโครงการของตัวเอง
+// และเสนอ (propose) การดำเนินการได้เหมือน HR แต่ไม่สามารถอนุมัติ/ดำเนินการจริง/ออกเอกสารได้
+export const FOLLOW_UP_ADMIN_SITE_ROLES = ["Admin Site"] as const;
 
 const hasAnyFollowUpRole = (roles: readonly string[] | undefined | null, allowedRoles: readonly string[]): boolean =>
   !!roles && roles.some((role) => allowedRoles.includes(role));
@@ -177,10 +219,20 @@ export const canInterpretFollowUpEscalation = (roles: readonly string[] | undefi
 export const canReviewFollowUpByHRM = (roles: readonly string[] | undefined | null): boolean =>
   hasAnyFollowUpRole(roles, FOLLOW_UP_HRM_REVIEW_ROLES);
 
+export const canRequestFollowUpAsAdminSite = (roles: readonly string[] | undefined | null): boolean =>
+  hasAnyFollowUpRole(roles, FOLLOW_UP_ADMIN_SITE_ROLES);
+
+// ผู้ที่ "เสนอการดำเนินการ" ได้ (ขั้นแรกสุดของ Flow ใหม่) คือ HR หรือ Admin Site (ภายในโครงการของตน)
+export const canProposeFollowUpAction = (roles: readonly string[] | undefined | null): boolean =>
+  canManageFollowUpFirstStage(roles) || canRequestFollowUpAsAdminSite(roles);
+
 export const FOLLOW_UP_STATUS_LABELS: Record<FollowUpStatus, string> = {
   pending: "รอดำเนินการ",
-  in_progress: "กำลังติดตาม",
+  proposed: "HR เสนอการดำเนินการ",
+  in_progress: "กำลังติดตาม (ค่าเดิม)",
   awaiting_hrm_review: "รอ HRM พิจารณา",
+  approved_pending_execution: "HRM อนุมัติแล้ว รอ HR ดำเนินการ",
+  document_issued: "ออกเอกสารแล้ว รอปิดเคส",
   no_action: "ไม่ต้องดำเนินการ",
   closed: "ติดตามเสร็จสิ้น",
 };
@@ -189,6 +241,8 @@ export const FOLLOW_UP_ACTION_LABELS: Record<FollowUpActionType, string> = {
   status_updated: "อัปเดตสถานะ",
   hrm_approved: "HRM อนุมัติ",
   hrm_commented: "HRM ให้ความเห็น",
+  proposed_action: "เสนอการดำเนินการ",
+  document_issued: "ออกเอกสารประกอบการดำเนินการ",
   verbal_warning: "เตือนวาจา",
   written_warning: "ออกหนังสือเตือน",
   written_warning_round_1: "หนังสือเตือนครั้งที่ 1",
@@ -225,8 +279,10 @@ export const FOLLOW_UP_HRM_REVIEW_LABELS: Record<FollowUpHrmReviewStatus, string
 
 export const FOLLOW_UP_STATUS_OPTIONS: Array<{ value: FollowUpStatus; label: string }> = [
   { value: "pending", label: FOLLOW_UP_STATUS_LABELS.pending },
-  { value: "in_progress", label: FOLLOW_UP_STATUS_LABELS.in_progress },
+  { value: "proposed", label: FOLLOW_UP_STATUS_LABELS.proposed },
   { value: "awaiting_hrm_review", label: FOLLOW_UP_STATUS_LABELS.awaiting_hrm_review },
+  { value: "approved_pending_execution", label: FOLLOW_UP_STATUS_LABELS.approved_pending_execution },
+  { value: "document_issued", label: FOLLOW_UP_STATUS_LABELS.document_issued },
   { value: "no_action", label: FOLLOW_UP_STATUS_LABELS.no_action },
   { value: "closed", label: FOLLOW_UP_STATUS_LABELS.closed },
 ];
@@ -409,15 +465,145 @@ export const canSelectFollowUpAction = (
 };
 
 export const isFollowUpOpenStatus = (status: FollowUpStatus): boolean =>
-  status === "pending" || status === "in_progress" || status === "awaiting_hrm_review";
+  status === "pending" ||
+  status === "proposed" ||
+  status === "in_progress" ||
+  status === "awaiting_hrm_review" ||
+  status === "approved_pending_execution" ||
+  status === "document_issued";
 
 export const isFollowUpProcessedStatus = (status: FollowUpStatus): boolean =>
   status === "no_action" || status === "closed";
 
+/**
+ * ขั้นที่ 1 ของ Flow ใหม่: HR หรือ Admin Site "เสนอ" การดำเนินการ (ยังไม่มีผลจริง เช่น ยังไม่นับรอบหนังสือเตือน)
+ * แล้วส่งตรงเข้าสู่ "รอ HRM พิจารณา" ทันที
+ */
+export const proposeAction = (
+  baseCase: EmployeeFollowUpCase,
+  actionType: FollowUpActionType,
+  note: string,
+  nextFollowUpDate: string,
+  actor: FollowUpActorSnapshot,
+  now: number,
+  requestContext?: { requestedByRole: FollowUpRequesterRole; requestedProject?: string }
+): EmployeeFollowUpCase => {
+  const event: FollowUpActionEvent = {
+    id: `${baseCase.id}-${now}`,
+    type: "proposed_action",
+    label: `เสนอ: ${FOLLOW_UP_ACTION_LABELS[actionType]}`,
+    status: "awaiting_hrm_review",
+    hrmReviewStatus: "pending",
+    note: note.trim() || undefined,
+    warningRound: baseCase.warningRound,
+    nextFollowUpDate: nextFollowUpDate || undefined,
+    actedAt: now,
+    actedByUid: actor.uid,
+    actedByName: actor.name,
+    actedByRole: actor.role,
+  };
+  return {
+    ...baseCase,
+    status: "awaiting_hrm_review",
+    pendingActionType: actionType,
+    pendingActionNote: note.trim(),
+    pendingActionNextFollowUpDate: nextFollowUpDate || "",
+    pendingActionProposedAt: now,
+    pendingActionProposedByUid: actor.uid,
+    pendingActionProposedByName: actor.name,
+    pendingActionProposedByRole: actor.role,
+    requestedByRole: requestContext?.requestedByRole || baseCase.requestedByRole || "HR",
+    requestedProject: requestContext?.requestedProject || baseCase.requestedProject,
+    claimedByUid: requestContext ? actor.uid : baseCase.claimedByUid,
+    claimedByName: requestContext ? actor.name : baseCase.claimedByName,
+    claimedByRole: requestContext?.requestedByRole || baseCase.claimedByRole,
+    claimedProject: requestContext?.requestedProject || baseCase.claimedProject,
+    hrmReviewStatus: "pending",
+    hrmReviewComment: "",
+    actions: [...(baseCase.actions || []), event],
+    lastActionAt: now,
+    updatedAt: now,
+    updatedByUid: actor.uid,
+    updatedByName: actor.name,
+    updatedByRole: actor.role,
+  };
+};
+
+/**
+ * ขั้นที่ 3 ของ Flow ใหม่ (หลัง HRM อนุมัติแล้ว): HR ดำเนินการจริงตามข้อเสนอที่อนุมัติ
+ * เป็นจุดที่ warningRound / escalationState / suspensionDays ฯลฯ ถูกบันทึกผลจริง
+ * (ย้ายมาจากตรรกะเดิมของ applyAction) แล้วเปลี่ยนสถานะเป็น document_issued เพื่อรอออกเอกสาร/ปิดเคส
+ */
+export const executeApprovedAction = (
+  baseCase: EmployeeFollowUpCase,
+  policyConfig: FollowUpPolicyConfig,
+  actor: FollowUpActorSnapshot,
+  now: number
+): EmployeeFollowUpCase => {
+  const actionType = baseCase.pendingActionType;
+  if (!actionType) return baseCase;
+  const actionOption = getFollowUpActionOption(policyConfig, actionType);
+  const warningRound = getNextWarningRoundForAction(actionType, baseCase.warningRound);
+  const isTerminationAction = actionType === "termination";
+  const escalationState =
+    actionOption?.defaultEscalationState ||
+    (warningRound >= 3 ? getInitialEscalationState(warningRound, baseCase.escalationState) : "none");
+  const closeState: FollowUpCloseState | undefined = isTerminationAction ? "terminated" : undefined;
+
+  const event: FollowUpActionEvent = {
+    id: `${baseCase.id}-${now}`,
+    type: actionType,
+    label: FOLLOW_UP_ACTION_LABELS[actionType],
+    actionKind: actionOption?.actionKind,
+    status: "document_issued",
+    note: baseCase.pendingActionNote || undefined,
+    warningRound,
+    nextFollowUpDate: isTerminationAction ? undefined : baseCase.pendingActionNextFollowUpDate || undefined,
+    suspensionDays: actionOption?.suspensionDays,
+    warningValidityDays: actionOption?.warningValidityDays,
+    closeState,
+    escalationState,
+    actedAt: now,
+    actedByUid: actor.uid,
+    actedByName: actor.name,
+    actedByRole: actor.role,
+  };
+
+  return {
+    ...baseCase,
+    status: "document_issued",
+    warningRound,
+    noActionReason: "",
+    closeReason: "",
+    closeState: undefined,
+    escalationState,
+    nextFollowUpDate: isTerminationAction ? "" : baseCase.pendingActionNextFollowUpDate || baseCase.nextFollowUpDate || "",
+    pendingActionType: undefined,
+    pendingActionNote: undefined,
+    pendingActionNextFollowUpDate: undefined,
+    pendingActionProposedAt: undefined,
+    pendingActionProposedByUid: undefined,
+    pendingActionProposedByName: undefined,
+    pendingActionProposedByRole: undefined,
+    actions: [...(baseCase.actions || []), event],
+    lastActionAt: now,
+    updatedAt: now,
+    updatedByUid: actor.uid,
+    updatedByName: actor.name,
+    updatedByRole: actor.role,
+  };
+};
+
 export const getDefaultHrmReviewStatus = (item: Partial<EmployeeFollowUpCase>): FollowUpHrmReviewStatus => {
   if (item.hrmReviewStatus && item.hrmReviewStatus !== "not_requested") return item.hrmReviewStatus;
   if (item.status === "awaiting_hrm_review") return "pending";
-  if (item.status === "closed" || item.status === "no_action") return "approved";
+  if (
+    item.status === "closed" ||
+    item.status === "no_action" ||
+    item.status === "approved_pending_execution" ||
+    item.status === "document_issued"
+  )
+    return "approved";
   const actions = item.actions || [];
   const explicitReview = [...actions]
     .reverse()
@@ -426,9 +612,25 @@ export const getDefaultHrmReviewStatus = (item: Partial<EmployeeFollowUpCase>): 
   return "not_requested";
 };
 
+/**
+ * Migration (ทำเป็น runtime normalization ครั้งเดียว ไม่ backfill ข้อมูลจริงใน Firestore):
+ * เคสเก่าที่ค้างอยู่สถานะ "in_progress" (มาจาก Flow เดิมที่ HR กด "ดำเนินการ" ครั้งเดียวจบ ไม่มีขั้นเสนอ/อนุมัติ)
+ * จะถูกแปลงเป็นสถานะใหม่ดังนี้:
+ *  - ถ้ามีการบันทึก action มาก่อนแล้ว (เคยดำเนินการจริง) -> "approved_pending_execution" เพื่อให้ HR
+ *    กลับมาเดินหน้าต่อที่ขั้นออกเอกสารป็นทางการ (เอกสารยังไม่เคยถูกสร้างในระบบเดิม)
+ *  - ถ้ายังไม่มี action ใดๆ -> "proposed" (เทียบเท่ากับเพิ่งเริ่มเสนอการดำเนินการ)
+ * สถานะ "awaiting_hrm_review" คงเดิมตามที่ตกลงไว้ในแผน
+ */
+const migrateLegacyStatus = (item: EmployeeFollowUpCase): FollowUpStatus => {
+  if (item.status === "closed" && item.closeState === "no_action") return "no_action";
+  if ((item.status as string) === "in_progress") {
+    return (item.actions || []).length > 0 ? "approved_pending_execution" : "proposed";
+  }
+  return item.status;
+};
+
 export const normalizeFollowUpCase = (item: EmployeeFollowUpCase): EmployeeFollowUpCase => {
-  const normalizedStatus =
-    item.status === "closed" && item.closeState === "no_action" ? "no_action" : item.status;
+  const normalizedStatus = migrateLegacyStatus(item);
   return {
     ...item,
     status: normalizedStatus,
@@ -439,6 +641,8 @@ export const normalizeFollowUpCase = (item: EmployeeFollowUpCase): EmployeeFollo
     hrmReviewedByUid: item.hrmReviewedByUid || "",
     hrmReviewedByName: item.hrmReviewedByName || "",
     hrmReviewedByRole: item.hrmReviewedByRole || "",
+    requestedByRole: item.requestedByRole || "HR",
+    documents: item.documents || [],
   };
 };
 

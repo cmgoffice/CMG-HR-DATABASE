@@ -508,6 +508,13 @@ export const canViewRiskMonitoringSettings = (roles: readonly string[] | undefin
 export const canEditRiskMonitoringSettings = (roles: readonly string[] | undefined | null): boolean =>
   !!roles && roles.some((role) => role === "MasterAdmin" || role === "HRM");
 
+/**
+ * Admin Site เห็นแท็บ "การติดตามพนักงาน" ได้ (แบบจำกัดขอบเขตเฉพาะโครงการของตน ดูใน
+ * EmployeeFollowUpTab.tsx) แต่ไม่เห็นแท็บ Backlog/ตั้งค่า Risk Monitoring ซึ่งเป็นภาพรวมระดับองค์กร
+ */
+export const canViewFollowUpQueueTab = (roles: readonly string[] | undefined | null): boolean =>
+  canViewRiskMonitoringSettings(roles) || (!!roles && roles.includes("Admin Site"));
+
 export const getRiskIssueTypeMap = (
   settings: RiskMonitoringSettings
 ): Record<RiskRuleKey, RiskIssueTypeConfig> =>

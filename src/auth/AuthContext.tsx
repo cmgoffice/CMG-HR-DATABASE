@@ -37,6 +37,9 @@ export interface UserProfile {
   photoURL?: string;
   isFirstUser: boolean;
   columnPreferences?: Record<string, string[]>; // เก็บคอลัมน์ที่ซ่อนของแต่ละ module
+  // ลายเซ็นดิจิทัล (ใช้แปะอัตโนมัติในเอกสารที่ผู้ใช้เป็นผู้อนุมัติ/จัดทำเอง เช่น หนังสือเตือน)
+  signatureImageUrl?: string;
+  signatureUpdatedAt?: number;
 }
 
 interface AuthContextType {

@@ -584,7 +584,7 @@ const Sidebar = ({ activeModule, setActiveModule, dbConnected, sidebarOpen, onTo
     { id: "emp_direct_leader", label: "DC Daily" },
     { id: "emp_direct_supply", label: "Supply manpower" },
     { id: "emp_direct_sub", label: "Sub contractor" },
-    { id: "position_labor", label: "Position Labor" },
+          { id: "position_labor", label: "Position Labor" },
   ];
   const visibleEmployeeSubs = employeeSubDefs.filter((s) => canSee(s.id, dfManagement));
 
@@ -625,8 +625,9 @@ const Sidebar = ({ activeModule, setActiveModule, dbConnected, sidebarOpen, onTo
     ? [{ id: "evaluation", label: "ประเมินผลพนักงาน", icon: ClipboardList } as SidebarLinkItem]
     : [];
 
+  // Admin Site เห็น Risk Monitoring ได้เช่นกัน แต่ถูกจำกัดขอบเขตเฉพาะโครงการของตนภายในหน้านั้น
   const reportingItems: SidebarMenuItem[] = [
-    ...(canSee("risk_monitoring", dfReporting)
+    ...(canSee("risk_monitoring", dfReporting || hasRole(["Admin Site"]))
       ? [{ id: "risk_monitoring", label: "Risk Monitoring", icon: AlertCircle } as SidebarLinkItem]
       : []),
     ...(canSee("activity_logs", dfReporting)
@@ -860,7 +861,7 @@ const Sidebar = ({ activeModule, setActiveModule, dbConnected, sidebarOpen, onTo
             : "z-10 translate-x-0"
         }`}
         style={{ width: isMobile ? SIDEBAR_WIDTH : sidebarOpen ? SIDEBAR_WIDTH : SIDEBAR_COLLAPSED_WIDTH }}
-      >
+    >
       {/* Header */}
       <div className={`border-b border-slate-700 flex items-center gap-3 shrink-0 ${expanded ? "p-4" : "p-3 justify-center"}`}>
         <div className="relative shrink-0">
@@ -934,7 +935,7 @@ const Sidebar = ({ activeModule, setActiveModule, dbConnected, sidebarOpen, onTo
           )
         )}
       </div>
-      </div>
+    </div>
     </>
   );
 };
@@ -3366,9 +3367,9 @@ function MasterDatabaseApp() {
                         if (activeModule === "projects") {
                           openProjectEditor(null);
                         } else {
-                          setEditingItem(null);
-                          setFormData({});
-                          setIsAddModalOpen(true);
+                      setEditingItem(null);
+                      setFormData({});
+                      setIsAddModalOpen(true);
                         }
                     }}
                     className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 text-white rounded-lg shadow-sm hover:bg-blue-700 text-xs font-bold whitespace-nowrap shrink-0"
@@ -3451,7 +3452,7 @@ function MasterDatabaseApp() {
             ) : activeModule === "projects" ? (
               <div className="p-6 h-full overflow-y-auto">
                 <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-                  {filteredData.length > 0 ? (
+                {filteredData.length > 0 ? (
                     <div className="overflow-x-auto">
                       <table className="w-full min-w-[920px] border-collapse">
                         <thead className="bg-slate-50 border-b border-gray-200">
@@ -3482,7 +3483,7 @@ function MasterDatabaseApp() {
                                   <div className="flex items-center gap-3 min-w-0">
                                     <div className="w-10 h-10 rounded-lg bg-blue-50 border border-blue-100 text-blue-600 flex items-center justify-center shrink-0">
                                       <Briefcase size={18} />
-                                    </div>
+                      </div>
                                     <div className="min-w-0">
                                       <div className="font-semibold text-gray-900 truncate" title={projectNo}>{projectNo}</div>
                                       <div className="text-xs text-gray-500">{formatProjectNo(projectNo)}</div>
@@ -3495,7 +3496,7 @@ function MasterDatabaseApp() {
                                 <td className="px-4 py-3 align-top">
                                   <span className="inline-flex px-2.5 py-1 rounded-full bg-amber-50 text-amber-700 border border-amber-100 text-xs font-medium">
                                     {projectPeriod}
-                                  </span>
+                        </span>
                                 </td>
                                 <td className="px-4 py-3 align-top">
                                   <div className="text-sm text-gray-700 break-words">{projectManager}</div>
@@ -3519,7 +3520,7 @@ function MasterDatabaseApp() {
                                       <Trash2 size={14} />
                                       ลบ
                                     </button>
-                                  </div>
+                      </div>
                                 </td>
                               </tr>
                             );
@@ -3527,9 +3528,9 @@ function MasterDatabaseApp() {
                         </tbody>
                       </table>
                     </div>
-                  ) : (
+                ) : (
                     <div className="p-12 text-center text-gray-400">ยังไม่มีข้อมูลโครงการ</div>
-                  )}
+                )}
                 </div>
               </div>
             ) : (
@@ -3654,9 +3655,9 @@ function MasterDatabaseApp() {
                                 if (activeModule === "projects") {
                                   openProjectEditor(row);
                                 } else {
-                                  setEditingItem(row);
-                                  setFormData(row);
-                                  setIsAddModalOpen(true);
+                                setEditingItem(row);
+                                setFormData(row);
+                                setIsAddModalOpen(true);
                                 }
                               }}
                               className="p-1 text-blue-600 hover:bg-blue-100 rounded"
@@ -3841,113 +3842,113 @@ function MasterDatabaseApp() {
 
               {(!isProjectModule || projectFormTab === "general") && (
                 <>
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                    {normalFields.map((field) => {
-                      const isClientAuto =
-                        activeModule === "client_list" && field.id === "Customer_ID";
-                      const isContractorAuto =
-                        activeModule === "contractors" && field.id === "con_id";
-                      if ((isClientAuto || isContractorAuto) && !editingItem) return null;
-                      return (
-                        <div key={field.id} className="space-y-1">
-                          <label className="text-sm font-medium text-gray-700">
-                            {field.label}
-                          </label>
-                          <DynamicInput
-                            field={field}
-                            value={(formData[field.id] as string | boolean) ?? ""}
-                            onChange={(val) => setFormData({ ...formData, [field.id]: val })}
-                            disabled={isClientAuto || isContractorAuto}
-                          />
-                        </div>
-                      );
-                    })}
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {normalFields.map((field) => {
+                  const isClientAuto =
+                    activeModule === "client_list" && field.id === "Customer_ID";
+                  const isContractorAuto =
+                    activeModule === "contractors" && field.id === "con_id";
+                  if ((isClientAuto || isContractorAuto) && !editingItem) return null;
+                  return (
+                    <div key={field.id} className="space-y-1">
+                      <label className="text-sm font-medium text-gray-700">
+                        {field.label}
+                      </label>
+                      <DynamicInput
+                        field={field}
+                        value={(formData[field.id] as string | boolean) ?? ""}
+                        onChange={(val) => setFormData({ ...formData, [field.id]: val })}
+                        disabled={isClientAuto || isContractorAuto}
+                      />
+                    </div>
+                  );
+                })}
+              </div>
+
+              {statusFields.length > 0 && (
+                <div className="rounded-xl border border-gray-100 overflow-hidden shadow-sm">
+                  <div className="px-4 py-2 bg-gray-50 border-b border-gray-100">
+                    <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">สถานะ</span>
                   </div>
-
-                  {statusFields.length > 0 && (
-                    <div className="rounded-xl border border-gray-100 overflow-hidden shadow-sm">
-                      <div className="px-4 py-2 bg-gray-50 border-b border-gray-100">
-                        <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">สถานะ</span>
+                  <div className="grid grid-cols-1 md:grid-cols-3">
+                    {empStatusField && (
+                      <div className="p-4 bg-rose-50/70 border-r border-rose-100 space-y-1">
+                        <label className="text-sm font-semibold text-rose-700 flex items-center gap-1">
+                          <span className="w-2 h-2 rounded-full bg-rose-400 inline-block"></span>
+                          {empStatusField.label}
+                        </label>
+                        <select
+                          className="w-full px-3 py-2 border border-rose-200 rounded-md focus:ring-2 focus:ring-rose-400 focus:border-transparent outline-none transition-all text-sm bg-white text-rose-800"
+                          value={(formData[empStatusField.id] as string) ?? ""}
+                          onChange={(e) => setFormData({ ...formData, [empStatusField.id]: e.target.value })}
+                        >
+                          <option value="">-- กรุณาเลือก --</option>
+                          {empStatusField.options?.map((opt, i) => (
+                            <option key={i} value={opt}>{opt}</option>
+                          ))}
+                        </select>
                       </div>
-                      <div className="grid grid-cols-1 md:grid-cols-3">
-                        {empStatusField && (
-                          <div className="p-4 bg-rose-50/70 border-r border-rose-100 space-y-1">
-                            <label className="text-sm font-semibold text-rose-700 flex items-center gap-1">
-                              <span className="w-2 h-2 rounded-full bg-rose-400 inline-block"></span>
-                              {empStatusField.label}
-                            </label>
-                            <select
-                              className="w-full px-3 py-2 border border-rose-200 rounded-md focus:ring-2 focus:ring-rose-400 focus:border-transparent outline-none transition-all text-sm bg-white text-rose-800"
-                              value={(formData[empStatusField.id] as string) ?? ""}
-                              onChange={(e) => setFormData({ ...formData, [empStatusField.id]: e.target.value })}
-                            >
-                              <option value="">-- กรุณาเลือก --</option>
-                              {empStatusField.options?.map((opt, i) => (
-                                <option key={i} value={opt}>{opt}</option>
-                              ))}
-                            </select>
-                          </div>
-                        )}
+                    )}
 
-                        {grpStatusField && (
-                          <div className="p-4 bg-sky-50/70 border-r border-sky-100 space-y-1">
-                            <label className="text-sm font-semibold text-sky-700 flex items-center gap-1">
-                              <span className="w-2 h-2 rounded-full bg-sky-400 inline-block"></span>
-                              {grpStatusField.label}
-                            </label>
-                            <select
-                              className="w-full px-3 py-2 border border-sky-200 rounded-md focus:ring-2 focus:ring-sky-400 focus:border-transparent outline-none transition-all text-sm bg-white text-sky-800"
-                              value={(formData[grpStatusField.id] as string) ?? ""}
-                              onChange={(e) => setFormData({ ...formData, [grpStatusField.id]: e.target.value })}
-                            >
-                              <option value="">-- กรุณาเลือก --</option>
-                              {grpStatusField.options?.map((opt, i) => (
-                                <option key={i} value={opt}>{opt}</option>
-                              ))}
-                            </select>
-                          </div>
-                        )}
+                    {grpStatusField && (
+                      <div className="p-4 bg-sky-50/70 border-r border-sky-100 space-y-1">
+                        <label className="text-sm font-semibold text-sky-700 flex items-center gap-1">
+                          <span className="w-2 h-2 rounded-full bg-sky-400 inline-block"></span>
+                          {grpStatusField.label}
+                        </label>
+                        <select
+                          className="w-full px-3 py-2 border border-sky-200 rounded-md focus:ring-2 focus:ring-sky-400 focus:border-transparent outline-none transition-all text-sm bg-white text-sky-800"
+                          value={(formData[grpStatusField.id] as string) ?? ""}
+                          onChange={(e) => setFormData({ ...formData, [grpStatusField.id]: e.target.value })}
+                        >
+                          <option value="">-- กรุณาเลือก --</option>
+                          {grpStatusField.options?.map((opt, i) => (
+                            <option key={i} value={opt}>{opt}</option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
 
-                        {projStatusField && (
-                          <div className="p-4 bg-emerald-50/70 space-y-2">
-                            <label className="text-sm font-semibold text-emerald-700 flex items-center gap-1">
-                              <span className="w-2 h-2 rounded-full bg-emerald-400 inline-block"></span>
-                              {projStatusField.label}
-                              <span className="text-xs font-normal text-emerald-500 ml-1">(เลือกได้หลายโครงการ)</span>
-                            </label>
-                            <div className="flex flex-wrap gap-2">
-                              {projectStatusOptions.map((opt) => {
-                                const selected: string[] = Array.isArray(formData[projStatusField.id])
-                                  ? (formData[projStatusField.id] as string[])
-                                  : formData[projStatusField.id]
-                                    ? [String(formData[projStatusField.id])]
-                                    : [];
-                                const isChecked = selected.includes(opt);
-                                const toggle = () => {
-                                  const next = isChecked
-                                    ? selected.filter((s) => s !== opt)
-                                    : [...selected, opt];
-                                  setFormData({ ...formData, [projStatusField.id]: next });
-                                };
-                                return (
-                                  <button
-                                    key={opt}
-                                    type="button"
-                                    onClick={toggle}
-                                    className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border transition-all ${
-                                      isChecked
-                                        ? "bg-emerald-500 text-white border-emerald-500 shadow-sm"
-                                        : "bg-white text-emerald-700 border-emerald-300 hover:bg-emerald-100"
-                                    }`}
+                    {projStatusField && (
+                      <div className="p-4 bg-emerald-50/70 space-y-2">
+                        <label className="text-sm font-semibold text-emerald-700 flex items-center gap-1">
+                          <span className="w-2 h-2 rounded-full bg-emerald-400 inline-block"></span>
+                          {projStatusField.label}
+                          <span className="text-xs font-normal text-emerald-500 ml-1">(เลือกได้หลายโครงการ)</span>
+                        </label>
+                        <div className="flex flex-wrap gap-2">
+                          {projectStatusOptions.map((opt) => {
+                            const selected: string[] = Array.isArray(formData[projStatusField.id])
+                              ? (formData[projStatusField.id] as string[])
+                              : formData[projStatusField.id]
+                                ? [String(formData[projStatusField.id])]
+                                : [];
+                            const isChecked = selected.includes(opt);
+                            const toggle = () => {
+                              const next = isChecked
+                                ? selected.filter((s) => s !== opt)
+                                : [...selected, opt];
+                              setFormData({ ...formData, [projStatusField.id]: next });
+                            };
+                            return (
+                              <button
+                                key={opt}
+                                type="button"
+                                onClick={toggle}
+                                className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border transition-all ${
+                                  isChecked
+                                    ? "bg-emerald-500 text-white border-emerald-500 shadow-sm"
+                                    : "bg-white text-emerald-700 border-emerald-300 hover:bg-emerald-100"
+                                }`}
                                     title={opt}
-                                  >
-                                    {isChecked && <Check size={11} />}
-                                    {formatProjectNo(opt)}
-                                  </button>
-                                );
-                              })}
-                            </div>
-                          </div>
+                              >
+                                {isChecked && <Check size={11} />}
+                                {formatProjectNo(opt)}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
                         )}
                       </div>
                     </div>

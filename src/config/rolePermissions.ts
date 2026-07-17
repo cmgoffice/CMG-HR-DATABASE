@@ -94,7 +94,8 @@ export const MODULE_DEFAULT_ROLES: Record<string, UserRole[] | "*"> = {
   overtime: ["MasterAdmin", "MD", "GM", "PD", "HRM", "HR", "Admin Site"],
   day_off: ["MasterAdmin", "MD", "GM", "PD", "HRM", "HR"],
   evaluation: ["MasterAdmin", "MD", "GM", "PD", "PM", "CM", "HRM", "HR"],
-  risk_monitoring: ["MasterAdmin", "MD", "GM", "PD", "HRM", "HR"],
+  // Admin Site เห็นได้แบบจำกัดขอบเขตเฉพาะโครงการของตัวเอง (ดูการกรองใน ManpowerDashboard.tsx / EmployeeFollowUpTab.tsx)
+  risk_monitoring: ["MasterAdmin", "MD", "GM", "PD", "HRM", "HR", "Admin Site"],
   activity_logs: ["MasterAdmin", "MD", "GM", "HRM"],
   [ROLE_PERMISSIONS_MODULE_KEY]: ["MasterAdmin"],
 };

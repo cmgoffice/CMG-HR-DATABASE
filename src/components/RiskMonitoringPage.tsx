@@ -21,6 +21,7 @@ import {
 } from "./employeeFollowUpConfig";
 import {
   canEditRiskMonitoringSettings,
+  canViewFollowUpQueueTab,
   canViewRiskMonitoringSettings,
   DEFAULT_RISK_MONITORING_SETTINGS,
   normalizeRiskMonitoringSettings,
@@ -46,7 +47,9 @@ export const RiskMonitoringPage = ({ projectOptions }: { projectOptions: string[
   }>(null);
 
   const roles = userProfile?.role || [];
-  const canViewFollowUp = canViewRiskMonitoringSettings(roles);
+  const canViewFollowUp = canViewFollowUpQueueTab(roles);
+  // Backlog / นโยบายเป็นภาพรวมระดับองค์กร ไม่เปิดให้ Admin Site ที่เห็นได้เฉพาะแท็บ "การติดตามพนักงาน" แบบจำกัดขอบเขต
+  const canViewOrgWideTabs = canViewRiskMonitoringSettings(roles);
   const canEditSettings = canEditRiskMonitoringSettings(roles);
   const riskSettings = useMemo<RiskMonitoringSettings>(
     () => normalizeRiskMonitoringSettings(settingsDoc, legacyPolicyDoc),
@@ -201,12 +204,14 @@ export const RiskMonitoringPage = ({ projectOptions }: { projectOptions: string[
         <div className="flex items-center gap-1">
           <TabButton active={tab === "risk"} onClick={() => setTab("risk")} label="ความเสี่ยง" />
           {canViewFollowUp && (
+            <TabButton
+              active={tab === "follow_up"}
+              onClick={() => setTab("follow_up")}
+              label={`การติดตามพนักงาน${queueCount > 0 ? ` (${queueCount})` : ""}`}
+            />
+          )}
+          {canViewOrgWideTabs && (
             <>
-              <TabButton
-                active={tab === "follow_up"}
-                onClick={() => setTab("follow_up")}
-                label={`การติดตามพนักงาน${queueCount > 0 ? ` (${queueCount})` : ""}`}
-              />
               <TabButton
                 active={tab === "backlog"}
                 onClick={() => setTab("backlog")}
