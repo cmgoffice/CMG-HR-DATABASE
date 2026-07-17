@@ -57,6 +57,7 @@ import {
   isWatchOnlyIssueType,
   normalizeFollowUpCase,
   proposeAction,
+  resetFollowUpToPending,
 } from "./employeeFollowUpConfig";
 import {
   FOLLOW_UP_TEMPLATE_LABELS,
@@ -1194,6 +1195,39 @@ export const EmployeeFollowUpTab = ({
     }
   };
 
+  // ทางออกฉุกเฉินสำหรับเคสที่ข้อมูลไม่ครบ/ค้างกลาง Flow (เช่น ย้ายมาจากระบบเดิมไม่ครบ) ให้เริ่มเสนอการดำเนินการใหม่ได้
+  const resetProcess = async () => {
+    if (!selectedCase || !actor || (!canManageFirstStage && !canReviewByHrm)) return;
+    if (selectedCase.status === "pending") return;
+    if (
+      !window.confirm(
+        "ยืนยันรีเซ็ตกระบวนการของเคสนี้กลับไปที่ 'รอเสนอการดำเนินการ'? ข้อเสนอ/ผลการพิจารณา HRM ที่ค้างอยู่จะถูกล้าง แต่ประวัติเดิมจะยังถูกเก็บไว้"
+      )
+    ) {
+      return;
+    }
+    const now = Date.now();
+    const baseCase = materializeSelectedCase(selectedCase, now);
+    if (!baseCase) {
+      window.alert("ไม่สามารถบันทึกรายการนี้ได้ เนื่องจากไม่พบข้อมูลความเสี่ยงต้นทาง");
+      return;
+    }
+    const nextCase = resetFollowUpToPending(baseCase, actor, now);
+    setBusy(true);
+    try {
+      await persistCase(
+        nextCase,
+        "รีเซ็ตกระบวนการ",
+        `${selectedCase.employeeName} (${selectedCase.employeeCode}) · ${selectedCase.issueLabel}`
+      );
+      showToast("รีเซ็ตกระบวนการกลับไปเริ่มต้นใหม่แล้ว");
+    } catch (error) {
+      window.alert(`บันทึกไม่สำเร็จ: ${error instanceof Error ? error.message : "เกิดข้อผิดพลาดที่ไม่คาดคิด"}`);
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const findSigner = (uid?: string, name?: string): { uid: string; name: string; signatureImageUrl?: string } => {
     const match = uid ? users.find((user) => user.uid === uid) : undefined;
     return {
@@ -1709,6 +1743,17 @@ export const EmployeeFollowUpTab = ({
                       <span className="rounded-full border border-fuchsia-200 bg-fuchsia-50 px-2 py-1 text-[11px] font-semibold text-fuchsia-700">
                         ตรวจพบจาก Risk ปัจจุบัน
                       </span>
+                    )}
+                    {(canManageFirstStage || canReviewByHrm) && selectedCase.status !== "pending" && (
+                      <button
+                        type="button"
+                        disabled={busy}
+                        onClick={() => void resetProcess()}
+                        title="ใช้เมื่อเคสค้างกลางทาง ข้อมูลไม่ครบ หรือกดผิดขั้นตอน จะล้างข้อเสนอ/ผลพิจารณาที่ค้างอยู่แล้วกลับไปเริ่มเสนอใหม่"
+                        className="rounded-full border border-amber-200 bg-amber-50 px-2 py-1 text-[11px] font-semibold text-amber-700 hover:bg-amber-100 disabled:opacity-50"
+                      >
+                        แก้ไข/เริ่มกระบวนการใหม่
+                      </button>
                     )}
                   </div>
                   <button

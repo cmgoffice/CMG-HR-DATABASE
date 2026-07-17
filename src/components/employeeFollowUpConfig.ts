@@ -618,6 +618,55 @@ export const executeApprovedAction = (
   };
 };
 
+/**
+ * ทางออกฉุกเฉินสำหรับเคสที่ค้างอยู่กลาง Flow (เช่น ข้อมูลเก่าที่ย้ายมาไม่ครบ หรือกดผิดขั้นตอน)
+ * รีเซ็ตกลับไปที่ "รอเสนอการดำเนินการ" (pending) ล้างข้อเสนอ/ผลการพิจารณา HRM ที่ค้างอยู่ทั้งหมด
+ * แต่ยังเก็บประวัติการดำเนินการเดิมไว้ในบันทึก ไม่ลบทิ้ง เพื่อให้เริ่มกระบวนการเสนอใหม่ได้สะอาด
+ */
+export const resetFollowUpToPending = (
+  baseCase: EmployeeFollowUpCase,
+  actor: FollowUpActorSnapshot,
+  now: number
+): EmployeeFollowUpCase => {
+  const event: FollowUpActionEvent = {
+    id: `${baseCase.id}-${now}`,
+    type: "status_updated",
+    label: "รีเซ็ตกระบวนการกลับไปเริ่มต้นใหม่",
+    status: "pending",
+    warningRound: baseCase.warningRound,
+    actedAt: now,
+    actedByUid: actor.uid,
+    actedByName: actor.name,
+    actedByRole: actor.role,
+  };
+  return {
+    ...baseCase,
+    status: "pending",
+    pendingActionType: undefined,
+    pendingActionNote: undefined,
+    pendingActionNextFollowUpDate: undefined,
+    pendingActionProposedAt: undefined,
+    pendingActionProposedByUid: undefined,
+    pendingActionProposedByName: undefined,
+    pendingActionProposedByRole: undefined,
+    hrmReviewStatus: "not_requested",
+    hrmReviewComment: "",
+    hrmReviewedAt: 0,
+    hrmReviewedByUid: "",
+    hrmReviewedByName: "",
+    hrmReviewedByRole: "",
+    noActionReason: "",
+    closeReason: "",
+    closeState: undefined,
+    actions: [...(baseCase.actions || []), event],
+    lastActionAt: now,
+    updatedAt: now,
+    updatedByUid: actor.uid,
+    updatedByName: actor.name,
+    updatedByRole: actor.role,
+  };
+};
+
 export const getDefaultHrmReviewStatus = (item: Partial<EmployeeFollowUpCase>): FollowUpHrmReviewStatus => {
   if (item.hrmReviewStatus && item.hrmReviewStatus !== "not_requested") return item.hrmReviewStatus;
   if (item.status === "awaiting_hrm_review") return "pending";
