@@ -44,6 +44,8 @@ interface AttendanceEntry {
   status: string;       // "มา" | "ไม่มา" | "ลา"
   recordedAt: number;   // Unix timestamp (ms) ตอนที่กรอก
   project?: string;     // โครงการที่ลงเวลา (เฉพาะเมื่อ status = "มา")
+  editstatus?: string;  // "donotEdit" = ล็อคช่องนี้จากฐานข้อมูล
+  color?: string;       // "red" = บังคับพื้นหลังสีแดง ตัวอักษรสีขาว
 }
 
 interface AttendanceDayData {
@@ -358,19 +360,24 @@ export const AttendancePage = ({ projectOptions }: { projectOptions: string[] })
     });
   }, [currentMonth]);
 
-  // ── ตรวจสอบว่าช่องนั้นล็อคหรือไม่ ───────────────────────────────────────
-  // ล็อค = มีสถานะแล้ว AND ผ่านมาเกิน 24 ชั่วโมงจาก recordedAt
-  const isLocked = (entry: AttendanceEntry | undefined): boolean => {
+  // ── ตรวจสอบว่าช่องนั้นล็อคตามเวลา/ถูกสั่งห้ามแก้ไขหรือไม่ ───────────────
+  // แยกสองเงื่อนไขออกจากกัน เพื่อให้ editstatus ไม่ทำให้ "ไม่มา" กลายเป็น
+  // "ขาดงาน" ก่อนครบ 24 ชั่วโมง
+  const isTimeLocked = (entry: AttendanceEntry | undefined): boolean => {
     if (!entry || !entry.status) return false; // ยังไม่มีสถานะ → ไม่ล็อค
     const now = Date.now();
     const recorded = entry.recordedAt || 0;
     return now - recorded > 24 * 60 * 60 * 1000; // > 24h
   };
 
+  const isEditDisabled = (entry: AttendanceEntry | undefined): boolean => {
+    return entry?.editstatus === "donotEdit";
+  };
+
   // ── แปลง "ไม่มา" → "ขาดงาน" เมื่อล็อคแล้ว ───────────────────────────────
   const getDisplayStatus = (entry: AttendanceEntry | undefined): AttendanceStatus => {
     if (!entry || !entry.status) return "";
-    if (entry.status === "ไม่มา" && isLocked(entry)) return "ขาดงาน";
+    if (entry.status === "ไม่มา" && isTimeLocked(entry)) return "ขาดงาน";
     return entry.status as AttendanceStatus;
   };
 
@@ -386,6 +393,9 @@ export const AttendancePage = ({ projectOptions }: { projectOptions: string[] })
       if (isOtherProject) return prevData;
 
       const currentEntry = prevData[dateStr]?.[employeeId];
+
+      // ฟิลด์นี้มีสิทธิ์เหนือกฎ today และการแก้ไขแบบรายช่องทั้งหมด
+      if (isEditDisabled(currentEntry)) return prevData;
       
       // ตรวจสอบว่าเป็นวันในอนาคตหรือไม่
       const today = new Date();
@@ -423,14 +433,27 @@ export const AttendancePage = ({ projectOptions }: { projectOptions: string[] })
       
       if (newStatus !== "") {
         newEntry = {
+          ...currentEntry,
           status: newStatus,
           recordedAt: now
         };
+
+        // project ใช้เฉพาะสถานะ "มา" เท่านั้น ส่วน metadata เช่น color และ
+        // editstatus ยังคงถูกเก็บไว้เมื่อเปลี่ยนสถานะ
+        delete newEntry.project;
         
         // เพิ่ม project field เฉพาะเมื่อเป็น "มา" และกรองโครงการอยู่
         if (newStatus === "มา" && selectedProject !== "all") {
           newEntry.project = selectedProject;
         }
+      } else if (currentEntry?.color !== undefined || currentEntry?.editstatus !== undefined) {
+        // ล้างเฉพาะสถานะ แต่ไม่ลบ metadata ที่กำหนดสี/สิทธิ์จากฐานข้อมูล
+        newEntry = {
+          ...currentEntry,
+          status: "",
+          recordedAt: now
+        };
+        delete newEntry.project;
       }
 
       // อัพเดท state
@@ -499,7 +522,7 @@ export const AttendancePage = ({ projectOptions }: { projectOptions: string[] })
     // หาสถานะส่วนใหญ่ของวันนั้น (ที่ไม่ล็อค)
     const statuses = filteredEmployees
       .map(emp => currentDayRecords[emp.id])
-      .filter(entry => !isLocked(entry))
+      .filter(entry => !isTimeLocked(entry) && !isEditDisabled(entry))
       .map(entry => entry?.status || "");
     
     // นับสถานะ
@@ -533,7 +556,7 @@ export const AttendancePage = ({ projectOptions }: { projectOptions: string[] })
     
     filteredEmployees.forEach(emp => {
       const currentEntry = currentDayRecords[emp.id];
-      if (isLocked(currentEntry)) return;
+      if (isTimeLocked(currentEntry) || isEditDisabled(currentEntry)) return;
 
       // ข้ามพนักงานที่ลงเวลา "มา" ในโครงการอื่นแล้ว
       if (selectedProject !== "all") {
@@ -547,12 +570,24 @@ export const AttendancePage = ({ projectOptions }: { projectOptions: string[] })
       }
 
       if (newStatus === "") {
-        delete updatedRecords[emp.id];
+        if (currentEntry?.color !== undefined || currentEntry?.editstatus !== undefined) {
+          updatedRecords[emp.id] = {
+            ...currentEntry,
+            status: "",
+            recordedAt: now,
+          };
+          delete updatedRecords[emp.id].project;
+        } else {
+          delete updatedRecords[emp.id];
+        }
       } else {
         const newEntry: AttendanceEntry = {
+          ...currentEntry,
           status: newStatus,
           recordedAt: now
         };
+
+        delete newEntry.project;
         
         // เพิ่ม project field เฉพาะเมื่อเป็น "มา" และกรองโครงการอยู่
         if (newStatus === "มา" && selectedProject !== "all") {
@@ -673,7 +708,9 @@ export const AttendancePage = ({ projectOptions }: { projectOptions: string[] })
   // ── Render cell สถานะ ─────────────────────────────────────────────────────
   const renderStatusCell = (employeeId: string, dateStr: string, isWeekend: boolean, isToday: boolean, employee: Employee) => {
     const entry = attendanceData[dateStr]?.[employeeId];
-    const locked = isLocked(entry);
+    const locked = isTimeLocked(entry);
+    const editDisabled = isEditDisabled(entry);
+    const forceRed = entry?.color === "red";
     const dayOffName = dayOffs[dateStr];
 
     // ตรวจสอบว่าเป็นวันในอนาคตหรือไม่
@@ -703,7 +740,7 @@ export const AttendancePage = ({ projectOptions }: { projectOptions: string[] })
                            displayStatus === "มา");
 
     // สามารถแก้ไขได้ถ้า: ไม่ใช่วันในอนาคต และ ไม่ล็อค และ มีสิทธิ์แก้ไข และ ไม่ได้ลงเวลาที่โครงการอื่น
-    const canEdit = !isFuture && !locked && canEditAttendance && !isOtherProject;
+    const canEdit = !isFuture && !locked && !editDisabled && canEditAttendance && !isOtherProject;
 
     let bg = dayOffName ? "bg-fuchsia-50 hover:bg-fuchsia-100" : (isWeekend ? "bg-gray-100" : "bg-white hover:bg-gray-50");
     let text = "";
@@ -749,12 +786,25 @@ export const AttendancePage = ({ projectOptions }: { projectOptions: string[] })
       if (isToday) bg = "bg-red-300 border border-gray-300";
     }
 
+    // color จากฐานข้อมูลมีสิทธิ์เหนือสีของ status, today, weekend และวันหยุด
+    const forcedColorStyle: React.CSSProperties | undefined = forceRed
+      ? { backgroundColor: "#dc2626", color: "#ffffff", opacity: 1 }
+      : undefined;
+
     // คำนวณเวลาที่เหลือก่อนล็อค (สำหรับ tooltip)
     let tooltipExtra = "";
     if (isFuture) {
       tooltipExtra = entry?.status
         ? " ⏭️ ข้อมูลล่วงหน้า • อ่านอย่างเดียว"
         : " ⏭️ ไม่สามารถลงล่วงหน้าได้";
+    } else if (editDisabled) {
+      tooltipExtra = " 🔒 ถูกกำหนดห้ามแก้ไข";
+      if (entry?.status && !locked) {
+        const remaining = Math.max(0, 24 * 60 * 60 * 1000 - (Date.now() - (entry.recordedAt || 0)));
+        const hrs = Math.floor(remaining / 3_600_000);
+        const mins = Math.floor((remaining % 3_600_000) / 60_000);
+        tooltipExtra += ` • ครบ 24 ชม.ใน ${hrs}ชม. ${mins}น.`;
+      }
     } else if (isOtherProject) {
       tooltipExtra = ` 📍 ลงเวลาที่โครงการ: ${attendedProject}`;
       if (!locked) {
@@ -788,7 +838,7 @@ export const AttendancePage = ({ projectOptions }: { projectOptions: string[] })
         data-date={dateStr}
         tabIndex={canEdit ? 0 : undefined}
         className={`border border-gray-200 text-center transition-colors select-none focus:outline-none focus:ring-2 focus:ring-inset focus:ring-blue-500 ${bg} ${textCls} ${canEdit ? "cursor-pointer" : "cursor-not-allowed opacity-60"}`}
-        style={{ minWidth: 40, maxWidth: 40, width: 40, padding: "1px 0", fontSize: 10, height: 24 }}
+        style={{ minWidth: 40, maxWidth: 40, width: 40, padding: "1px 0", fontSize: 10, height: 24, ...forcedColorStyle }}
         onDoubleClick={(e) => {
           e.stopPropagation(); // ป้องกัน event bubble ไปที่ scroll container
           if (canEdit) handleAttendanceClick(employeeId, dateStr, isOtherProject);
