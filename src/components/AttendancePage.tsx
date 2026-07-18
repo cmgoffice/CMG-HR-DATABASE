@@ -673,7 +673,6 @@ export const AttendancePage = ({ projectOptions }: { projectOptions: string[] })
   // ── Render cell สถานะ ─────────────────────────────────────────────────────
   const renderStatusCell = (employeeId: string, dateStr: string, isWeekend: boolean, isToday: boolean, employee: Employee) => {
     const entry = attendanceData[dateStr]?.[employeeId];
-    const displayStatus = getDisplayStatus(entry);
     const locked = isLocked(entry);
     const dayOffName = dayOffs[dateStr];
 
@@ -683,6 +682,12 @@ export const AttendancePage = ({ projectOptions }: { projectOptions: string[] })
     const targetDate = new Date(dateStr);
     targetDate.setHours(0, 0, 0, 0);
     const isFuture = targetDate > today;
+
+    // ข้อมูลที่เพิ่มล่วงหน้าจาก Database ต้องแสดงสถานะจริงแบบอ่านอย่างเดียว
+    // และยังไม่แปลง "ไม่มา" เป็น "ขาดงาน" จนกว่าจะถึงวันดังกล่าว
+    const displayStatus = isFuture
+      ? (entry?.status as AttendanceStatus) || ""
+      : getDisplayStatus(entry);
 
     // ตรวจสอบว่าพนักงานอยู่หลายโครงการหรือไม่
     const empProjects = employee.สถานะโครงการ;
@@ -709,8 +714,9 @@ export const AttendancePage = ({ projectOptions }: { projectOptions: string[] })
       bg = "bg-blue-100 hover:bg-blue-200 border border-gray-300";
     }
 
-    // ถ้าเป็นวันในอนาคต แสดงเป็นสีเทาและ disable
-    if (isFuture) {
+    // วันอนาคตที่ไม่มีข้อมูลยังคงเป็นช่องว่าง ส่วน record ที่มีอยู่ให้แสดง
+    // ด้วยเงื่อนไขสถานะด้านล่าง โดย canEdit ยังคงเป็น false
+    if (isFuture && !displayStatus) {
       bg = "bg-gray-50";
       textCls = "text-gray-300";
       text = "";
@@ -746,7 +752,9 @@ export const AttendancePage = ({ projectOptions }: { projectOptions: string[] })
     // คำนวณเวลาที่เหลือก่อนล็อค (สำหรับ tooltip)
     let tooltipExtra = "";
     if (isFuture) {
-      tooltipExtra = " ⏭️ ไม่สามารถลงล่วงหน้าได้";
+      tooltipExtra = entry?.status
+        ? " ⏭️ ข้อมูลล่วงหน้า • อ่านอย่างเดียว"
+        : " ⏭️ ไม่สามารถลงล่วงหน้าได้";
     } else if (isOtherProject) {
       tooltipExtra = ` 📍 ลงเวลาที่โครงการ: ${attendedProject}`;
       if (!locked) {
