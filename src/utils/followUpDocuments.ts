@@ -1,6 +1,8 @@
 import { PDFDocument, PDFFont, PDFPage, rgb } from "pdf-lib";
 // @ts-ignore - @pdf-lib/fontkit has no bundled types matching this pdf-lib version
 import fontkit from "@pdf-lib/fontkit";
+import sarabunLatinRegularUrl from "@fontsource/sarabun/files/sarabun-latin-400-normal.woff";
+import sarabunLatinBoldUrl from "@fontsource/sarabun/files/sarabun-latin-600-normal.woff";
 import type { EmployeeFollowUpCase, FollowUpActionType, FollowUpDocumentRecord } from "../components/employeeFollowUpConfig";
 
 const asset = (path: string): string => `${process.env.PUBLIC_URL || ""}${path}`;
@@ -13,6 +15,8 @@ const TEMPLATE_URLS = {
 
 const FONT_REGULAR_URL = asset("/fonts/sarabun-thai-400-normal.woff");
 const FONT_BOLD_URL = asset("/fonts/sarabun-thai-600-normal.woff");
+const FONT_LATIN_REGULAR_URL = sarabunLatinRegularUrl;
+const FONT_LATIN_BOLD_URL = sarabunLatinBoldUrl;
 
 export type FollowUpTemplateKey = keyof typeof TEMPLATE_URLS;
 
@@ -77,20 +81,66 @@ interface FieldSpec {
   size?: number;
 }
 
+interface PdfFontSet {
+  thai: PDFFont;
+  latin: PDFFont;
+}
+
+const fontForCharacter = (fonts: PdfFontSet, character: string): PDFFont =>
+  /[\u0E00-\u0E7F]/.test(character) ? fonts.thai : fonts.latin;
+
+const textWidth = (fonts: PdfFontSet, text: string, size: number): number =>
+  Array.from(text).reduce(
+    (width, character) => width + fontForCharacter(fonts, character).widthOfTextAtSize(character, size),
+    0
+  );
+
+const drawTextWithFallback = (
+  page: PDFPage,
+  fonts: PdfFontSet,
+  text: string,
+  options: { x: number; y: number; size: number }
+) => {
+  let x = options.x;
+  let run = "";
+  let runFont: PDFFont | undefined;
+
+  const flush = () => {
+    if (!run || !runFont) return;
+    page.drawText(run, {
+      x,
+      y: options.y,
+      size: options.size,
+      font: runFont,
+      color: rgb(0.05, 0.05, 0.15),
+    });
+    x += runFont.widthOfTextAtSize(run, options.size);
+    run = "";
+  };
+
+  for (const character of Array.from(text)) {
+    const characterFont = fontForCharacter(fonts, character);
+    if (runFont && characterFont !== runFont) flush();
+    runFont = characterFont;
+    run += character;
+  }
+  flush();
+};
+
 /** วาดข้อความให้พอดีกับความกว้างที่กำหนด (ลดขนาดฟอนต์ลงหากยาวเกิน) โดยวางไว้เหนือเส้นประของฟอร์มเดิมเล็กน้อย */
-const drawFitted = (page: PDFPage, font: PDFFont, text: string, spec: FieldSpec, baseSize = 10) => {
+const drawFitted = (page: PDFPage, fonts: PdfFontSet, text: string, spec: FieldSpec, baseSize = 10) => {
   const value = (text || "").trim();
   if (!value) return;
   let size = spec.size || baseSize;
   const minSize = 6.5;
-  while (size > minSize && font.widthOfTextAtSize(value, size) > spec.maxWidth) {
+  while (size > minSize && textWidth(fonts, value, size) > spec.maxWidth) {
     size -= 0.5;
   }
-  page.drawText(value, { x: spec.x, y: spec.y + 2, size, font, color: rgb(0.05, 0.05, 0.15) });
+  drawTextWithFallback(page, fonts, value, { x: spec.x, y: spec.y + 2, size });
 };
 
-const drawMark = (page: PDFPage, font: PDFFont, spec: { x: number; y: number }) => {
-  page.drawText("X", { x: spec.x, y: spec.y, size: 10, font, color: rgb(0.75, 0, 0) });
+const drawMark = (page: PDFPage, fonts: PdfFontSet, spec: { x: number; y: number }) => {
+  page.drawText("X", { x: spec.x, y: spec.y, size: 10, font: fonts.latin, color: rgb(0.75, 0, 0) });
 };
 
 const embedSignature = async (
@@ -177,16 +227,24 @@ const downloadBlob = (bytes: Uint8Array, filename: string) => {
 
 const loadPdfWithFonts = async (
   templateKey: FollowUpTemplateKey
-): Promise<{ pdfDoc: PDFDocument; page: PDFPage; regular: PDFFont; bold: PDFFont }> => {
-  const [templateBytes, regularBytes, boldBytes] = await Promise.all([
+): Promise<{ pdfDoc: PDFDocument; page: PDFPage; regular: PdfFontSet; bold: PdfFontSet }> => {
+  const [templateBytes, regularBytes, boldBytes, latinRegularBytes, latinBoldBytes] = await Promise.all([
     fetchBytes(TEMPLATE_URLS[templateKey]),
     loadFontBytes(FONT_REGULAR_URL),
     loadFontBytes(FONT_BOLD_URL),
+    loadFontBytes(FONT_LATIN_REGULAR_URL),
+    loadFontBytes(FONT_LATIN_BOLD_URL),
   ]);
   const pdfDoc = await PDFDocument.load(templateBytes);
   pdfDoc.registerFontkit(fontkit as any);
-  const regular = await pdfDoc.embedFont(regularBytes, { subset: true });
-  const bold = await pdfDoc.embedFont(boldBytes, { subset: true });
+  const regular = {
+    thai: await pdfDoc.embedFont(regularBytes, { subset: true }),
+    latin: await pdfDoc.embedFont(latinRegularBytes, { subset: true }),
+  };
+  const bold = {
+    thai: await pdfDoc.embedFont(boldBytes, { subset: true }),
+    latin: await pdfDoc.embedFont(latinBoldBytes, { subset: true }),
+  };
   const page = pdfDoc.getPages()[0];
   return { pdfDoc, page, regular, bold };
 };
