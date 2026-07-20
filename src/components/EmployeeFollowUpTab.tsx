@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { useAuth } from "../auth/AuthContext";
+import { createNotifications } from "../utils/notifications";
 import {
   canInterpretFollowUpEscalation,
   canManageFollowUpFirstStage,
@@ -210,6 +211,46 @@ const hrmReviewBadgeClass: Record<FollowUpHrmReviewStatus, string> = {
   commented: "border-orange-200 bg-orange-50 text-orange-700",
 };
 
+// สีของแต่ละเหตุการณ์ในลำดับการดำเนินการ ให้เห็นชัดตั้งแต่แวบแรกว่าเป็นขั้นตอนไหน
+// (ก่อนหน้านี้ใช้ badge สีเดียวกันหมดซ้ำๆ ทำให้ข้อเสนอ/ผลอนุมัติที่สำคัญจมไปกับข้อมูลอื่น)
+const historyEventTone: Record<
+  FollowUpActionType,
+  { bg: string; border: string; chip: string }
+> = {
+  proposed_action: {
+    bg: "bg-sky-50/60",
+    border: "border-l-sky-500",
+    chip: "bg-sky-600 text-white",
+  },
+  hrm_approved: {
+    bg: "bg-emerald-50/60",
+    border: "border-l-emerald-500",
+    chip: "bg-emerald-600 text-white",
+  },
+  hrm_commented: {
+    bg: "bg-amber-50/60",
+    border: "border-l-amber-500",
+    chip: "bg-amber-600 text-white",
+  },
+  document_issued: {
+    bg: "bg-teal-50/60",
+    border: "border-l-teal-500",
+    chip: "bg-teal-600 text-white",
+  },
+  verbal_warning: { bg: "bg-indigo-50/60", border: "border-l-indigo-500", chip: "bg-indigo-600 text-white" },
+  written_warning: { bg: "bg-indigo-50/60", border: "border-l-indigo-500", chip: "bg-indigo-600 text-white" },
+  written_warning_round_1: { bg: "bg-indigo-50/60", border: "border-l-indigo-500", chip: "bg-indigo-600 text-white" },
+  written_warning_round_2: { bg: "bg-indigo-50/60", border: "border-l-indigo-500", chip: "bg-indigo-600 text-white" },
+  written_warning_round_3: { bg: "bg-indigo-50/60", border: "border-l-indigo-500", chip: "bg-indigo-600 text-white" },
+  suspension_3_days: { bg: "bg-orange-50/60", border: "border-l-orange-500", chip: "bg-orange-600 text-white" },
+  suspension_5_days: { bg: "bg-orange-50/60", border: "border-l-orange-500", chip: "bg-orange-600 text-white" },
+  suspension_7_days: { bg: "bg-orange-50/60", border: "border-l-orange-500", chip: "bg-orange-600 text-white" },
+  termination: { bg: "bg-rose-50/60", border: "border-l-rose-500", chip: "bg-rose-600 text-white" },
+  no_action_with_reason: { bg: "bg-slate-50", border: "border-l-slate-400", chip: "bg-slate-500 text-white" },
+  closed: { bg: "bg-emerald-50/60", border: "border-l-emerald-500", chip: "bg-emerald-700 text-white" },
+  status_updated: { bg: "bg-slate-50", border: "border-l-slate-400", chip: "bg-slate-500 text-white" },
+};
+
 const getWorkflowLabel = (item: Pick<FollowUpQueueItem, "hrmReviewStatus" | "status">): string => {
   if (item.hrmReviewStatus === "commented") return "HRM ส่งความเห็นกลับ ให้ผู้เสนอทบทวนใหม่";
   if (item.status === "awaiting_hrm_review") return "รอ HRM พิจารณา";
@@ -367,6 +408,8 @@ export const EmployeeFollowUpTab = ({
   policyConfig = DEFAULT_FOLLOW_UP_POLICY_CONFIG,
   pendingLaunch,
   onPendingLaunchHandled,
+  openCaseId,
+  onOpenCaseHandled,
 }: {
   view?: "queue" | "backlog";
   cases: EmployeeFollowUpCase[];
@@ -374,6 +417,8 @@ export const EmployeeFollowUpTab = ({
   policyConfig?: FollowUpPolicyConfig;
   pendingLaunch: FollowUpLaunchContext | null;
   onPendingLaunchHandled: () => void;
+  openCaseId?: string;
+  onOpenCaseHandled?: () => void;
 }) => {
   const { firebaseUser, userProfile } = useAuth();
   const db = getFirestore();
@@ -440,6 +485,15 @@ export const EmployeeFollowUpTab = ({
         .filter((user) => user.status === "approved")
         .filter((user) => (user.role || []).some((role) => role === "HR" || role === "HRM"))
         .sort((a, b) => userName(a).localeCompare(userName(b), "th")),
+    [users]
+  );
+
+  // ผู้ใช้ role HRM ที่ผ่านการอนุมัติแล้ว ใช้สำหรับแจ้งเตือนเมื่อมีข้อเสนอใหม่รอพิจารณา/เคสพร้อมออกเอกสาร
+  const hrmUsers = useMemo(
+    () =>
+      users
+        .filter((user) => user.status === "approved")
+        .filter((user) => (user.role || []).some((role) => role === "HRM")),
     [users]
   );
 
@@ -822,6 +876,17 @@ export const EmployeeFollowUpTab = ({
           nextCase.ownerName || "ยังไม่ระบุ"
         }`
       );
+      if (owner?.uid) {
+        void createNotifications(db, [owner.uid], {
+          module: "follow_up",
+          type: "owner_assigned",
+          title: "คุณได้รับมอบหมายเคสนี้",
+          message: `${selectedCase.employeeName} (${selectedCase.employeeCode}) · ${selectedCase.issueLabel}`,
+          caseId: selectedCase.id,
+          createdByUid: actor.uid,
+          createdByName: actor.name,
+        });
+      }
       showToast("บันทึกผู้รับผิดชอบแล้ว");
     } catch (error) {
       window.alert(`บันทึกไม่สำเร็จ: ${error instanceof Error ? error.message : "เกิดข้อผิดพลาดที่ไม่คาดคิด"}`);
@@ -948,6 +1013,17 @@ export const EmployeeFollowUpTab = ({
           FOLLOW_UP_STATUS_LABELS[nextStatus]
         }`
       );
+      if (nextStatus === "closed" || nextStatus === "no_action") {
+        void createNotifications(db, [baseCase.ownerUid, baseCase.pendingActionProposedByUid], {
+          module: "follow_up",
+          type: nextStatus === "closed" ? "case_closed" : "no_action",
+          title: nextStatus === "closed" ? "เคสถูกปิดแล้ว" : "ไม่ต้องดำเนินการ",
+          message: `${selectedCase.employeeName} (${selectedCase.employeeCode}) · ${selectedCase.issueLabel}`,
+          caseId: selectedCase.id,
+          createdByUid: actor.uid,
+          createdByName: actor.name,
+        });
+      }
       showToast("บันทึกสถานะแล้ว");
     } catch (error) {
       window.alert(`บันทึกไม่สำเร็จ: ${error instanceof Error ? error.message : "เกิดข้อผิดพลาดที่ไม่คาดคิด"}`);
@@ -1088,6 +1164,18 @@ export const EmployeeFollowUpTab = ({
           FOLLOW_UP_HRM_REVIEW_LABELS[hrmReviewDraft.status]
         }`
       );
+      void createNotifications(db, [baseCase.pendingActionProposedByUid], {
+        module: "follow_up",
+        type: hrmReviewDraft.status === "approved" ? "hrm_approved" : "hrm_commented",
+        title:
+          hrmReviewDraft.status === "approved"
+            ? "HRM อนุมัติข้อเสนอแล้ว พร้อมดำเนินการ"
+            : "HRM ส่งความเห็นกลับ กรุณาทบทวน",
+        message: `${selectedCase.employeeName} (${selectedCase.employeeCode}) · ${selectedCase.issueLabel}`,
+        caseId: selectedCase.id,
+        createdByUid: actor.uid,
+        createdByName: actor.name,
+      });
       showToast(
         hrmReviewDraft.status === "approved" ? "HRM อนุมัติแล้ว" : "ส่งความเห็นกลับให้ HR แล้ว"
       );
@@ -1114,6 +1202,15 @@ export const EmployeeFollowUpTab = ({
     setIsCaseModalOpen(true);
     setShowHistory(false);
   };
+
+  // เปิดเคสตามลิงก์จากการแจ้งเตือน (คลิกที่กระดิ่งแจ้งเตือน)
+  useEffect(() => {
+    if (!openCaseId) return;
+    setSelectedCaseId(openCaseId);
+    setIsCaseModalOpen(true);
+    setShowHistory(false);
+    onOpenCaseHandled?.();
+  }, [openCaseId, onOpenCaseHandled]);
 
   const closeCaseModal = () => {
     setActionDraft(null);
@@ -1149,6 +1246,19 @@ export const EmployeeFollowUpTab = ({
         nextCase,
         `เสนอการดำเนินการ: ${FOLLOW_UP_ACTION_LABELS[actionDraft.type]}`,
         `${selectedCase.employeeName} (${selectedCase.employeeCode}) · ${selectedCase.issueLabel}`
+      );
+      void createNotifications(
+        db,
+        hrmUsers.map((user) => user.uid),
+        {
+          module: "follow_up",
+          type: "proposal_submitted",
+          title: "มีข้อเสนอใหม่รอพิจารณา",
+          message: `${selectedCase.employeeName} (${selectedCase.employeeCode}) · ${FOLLOW_UP_ACTION_LABELS[actionDraft.type]}`,
+          caseId: selectedCase.id,
+          createdByUid: actor.uid,
+          createdByName: actor.name,
+        }
       );
       showToast(`ส่งข้อเสนอ "${FOLLOW_UP_ACTION_LABELS[actionDraft.type]}" ให้ HRM พิจารณาแล้ว`);
       setActionDraft(null);
@@ -1187,6 +1297,19 @@ export const EmployeeFollowUpTab = ({
         `ดำเนินการตามที่อนุมัติ: ${actionLabel}`,
         `${selectedCase.employeeName} (${selectedCase.employeeCode}) · ${selectedCase.issueLabel}`
       );
+      void createNotifications(
+        db,
+        hrmUsers.map((user) => user.uid),
+        {
+          module: "follow_up",
+          type: "ready_to_close",
+          title: "เคสพร้อมออกเอกสาร รอปิดเคสหลังพนักงานเซ็นรับทราบ",
+          message: `${selectedCase.employeeName} (${selectedCase.employeeCode}) · ${actionLabel}`,
+          caseId: selectedCase.id,
+          createdByUid: actor.uid,
+          createdByName: actor.name,
+        }
+      );
       showToast(`ดำเนินการ "${actionLabel}" แล้ว พร้อมออกเอกสาร`);
     } catch (error) {
       window.alert(`บันทึกไม่สำเร็จ: ${error instanceof Error ? error.message : "เกิดข้อผิดพลาดที่ไม่คาดคิด"}`);
@@ -1220,6 +1343,15 @@ export const EmployeeFollowUpTab = ({
         "รีเซ็ตกระบวนการ",
         `${selectedCase.employeeName} (${selectedCase.employeeCode}) · ${selectedCase.issueLabel}`
       );
+      void createNotifications(db, [baseCase.ownerUid, baseCase.pendingActionProposedByUid], {
+        module: "follow_up",
+        type: "case_reset",
+        title: "กระบวนการถูกรีเซ็ต กรุณาเสนอใหม่",
+        message: `${selectedCase.employeeName} (${selectedCase.employeeCode}) · ${selectedCase.issueLabel}`,
+        caseId: selectedCase.id,
+        createdByUid: actor.uid,
+        createdByName: actor.name,
+      });
       showToast("รีเซ็ตกระบวนการกลับไปเริ่มต้นใหม่แล้ว");
     } catch (error) {
       window.alert(`บันทึกไม่สำเร็จ: ${error instanceof Error ? error.message : "เกิดข้อผิดพลาดที่ไม่คาดคิด"}`);
@@ -2044,39 +2176,20 @@ export const EmployeeFollowUpTab = ({
                         : "ยังไม่มีการบันทึกการดำเนินการในรายการนี้"}
                     </div>
                   ) : (
-                    <div className="mt-3 space-y-3">
-                    {[...selectedCase.actions].sort((a, b) => b.actedAt - a.actedAt).map((event) => (
-                      <div key={event.id} className="rounded-xl border border-slate-200 p-3">
+                    <div className="mt-3 space-y-2">
+                    {[...selectedCase.actions].sort((a, b) => b.actedAt - a.actedAt).map((event) => {
+                      const tone = historyEventTone[event.type] || historyEventTone.status_updated;
+                      return (
+                      <div key={event.id} className={`rounded-xl border-l-4 border border-slate-200 p-3 ${tone.bg} ${tone.border}`}>
                         <div className="flex flex-wrap items-start justify-between gap-2">
-                          <div>
-                            <div className="text-sm font-semibold text-slate-800">{event.label}</div>
-                            <div className="mt-1 text-[11px] text-slate-500">
-                              {event.actedByName} ({event.actedByRole}) · {formatDateTime(event.actedAt)}
-                            </div>
-                          </div>
-                          <div className="flex flex-wrap justify-end gap-2">
-                            {event.status && (
-                              <span
-                                className={`rounded-full border px-2 py-0.5 text-[11px] font-semibold ${
-                                  statusBadgeClass[event.status]
-                                }`}
-                              >
-                                {FOLLOW_UP_STATUS_LABELS[event.status]}
-                              </span>
-                            )}
-                            {event.hrmReviewStatus && event.hrmReviewStatus !== "not_requested" && (
-                              <span
-                                className={`rounded-full border px-2 py-0.5 text-[11px] font-semibold ${
-                                  hrmReviewBadgeClass[event.hrmReviewStatus]
-                                }`}
-                              >
-                                {FOLLOW_UP_HRM_REVIEW_LABELS[event.hrmReviewStatus]}
-                              </span>
-                            )}
-                            <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[11px] font-semibold text-slate-600">
-                              {warningRoundLabel(event.warningRound)}
+                          <span className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-bold ${tone.chip}`}>
+                            {event.label}
+                          </span>
+                          {event.hrmReviewStatus === "commented" && event.type !== "hrm_commented" && (
+                            <span className="rounded-full border border-amber-200 bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-800">
+                              HRM มีความเห็นกลับ
                             </span>
-                          </div>
+                          )}
                         </div>
                         {(
                           event.note ||
@@ -2087,7 +2200,7 @@ export const EmployeeFollowUpTab = ({
                           event.suspensionDays ||
                           event.warningValidityDays
                         ) && (
-                          <div className="mt-3 space-y-1 text-sm text-slate-700">
+                          <div className="mt-2 space-y-1 text-sm text-slate-700">
                             {event.note && <div>{event.note}</div>}
                             {event.reason && <div>เหตุผล: {event.reason}</div>}
                             {event.suspensionDays && <div>ระยะเวลาพักงาน: {event.suspensionDays} วัน</div>}
@@ -2097,8 +2210,12 @@ export const EmployeeFollowUpTab = ({
                             {event.nextFollowUpDate && <div>ติดตามถัดไป: {formatDate(event.nextFollowUpDate)}</div>}
                           </div>
                         )}
+                        <div className="mt-2 text-[11px] text-slate-500">
+                          {event.actedByName} ({event.actedByRole}) · {formatDateTime(event.actedAt)}
+                        </div>
                       </div>
-                    ))}
+                      );
+                    })}
                     </div>
                   ))}
               </div>

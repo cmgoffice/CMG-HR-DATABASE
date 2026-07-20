@@ -456,6 +456,8 @@ import { RegisterPage } from './auth/RegisterPage';
 import { PendingApprovalPage } from './auth/PendingApprovalPage';
 import { ProtectedRoute } from './auth/ProtectedRoute';
 import { UserManagement } from './components/UserManagement';
+import { NotificationBell } from './components/NotificationBell';
+import { WhatsNewModal } from './components/WhatsNewModal';
 import { AttendancePage } from './components/AttendancePage';
 import { OvertimePage } from './components/OvertimePage';
 import { ManpowerDashboard } from './components/ManpowerDashboard';
@@ -841,7 +843,7 @@ const Sidebar = ({ activeModule, setActiveModule, dbConnected, sidebarOpen, onTo
             <Database className="text-blue-400" size={20} />
             <div className={`absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full border-2 border-slate-900 ${isConnected ? "bg-green-500" : "bg-red-500"}`} />
           </div>
-          <span className="font-semibold text-sm truncate">CMG Master Database</span>
+          <span className="font-semibold text-sm truncate flex-1">CMG Master Database</span>
         </div>
       )}
 
@@ -873,7 +875,7 @@ const Sidebar = ({ activeModule, setActiveModule, dbConnected, sidebarOpen, onTo
           />
         </div>
         {expanded && (
-          <div className="min-w-0">
+          <div className="min-w-0 flex-1">
             <h1 className="font-bold text-base leading-tight">
               Master Database
               <br />
@@ -924,15 +926,19 @@ const Sidebar = ({ activeModule, setActiveModule, dbConnected, sidebarOpen, onTo
               <p className="text-white text-sm font-semibold truncate">{userProfile?.firstName} {userProfile?.lastName}</p>
               <p className="text-[10px] text-blue-400 font-medium truncate">{userProfile?.role?.join(', ')}</p>
             </div>
+            <NotificationBell setActiveModule={setActiveModule} />
           </div>
         ) : (
-          userProfile?.photoURL ? (
-            <img src={userProfile.photoURL} alt="Profile" className="w-10 h-10 rounded-full object-cover border border-slate-700" />
-          ) : (
-            <div className="w-10 h-10 rounded-full bg-blue-900 flex items-center justify-center text-blue-200 font-bold text-sm">
-              {userProfile?.firstName?.charAt(0) || firebaseUser?.email?.charAt(0).toUpperCase() || "A"}
-            </div>
-          )
+          <div className="flex flex-col items-center gap-2">
+            {userProfile?.photoURL ? (
+              <img src={userProfile.photoURL} alt="Profile" className="w-10 h-10 rounded-full object-cover border border-slate-700" />
+            ) : (
+              <div className="w-10 h-10 rounded-full bg-blue-900 flex items-center justify-center text-blue-200 font-bold text-sm">
+                {userProfile?.firstName?.charAt(0) || firebaseUser?.email?.charAt(0).toUpperCase() || "A"}
+              </div>
+            )}
+            <NotificationBell setActiveModule={setActiveModule} />
+          </div>
         )}
       </div>
     </div>
@@ -4415,7 +4421,10 @@ export default function App() {
       } />
       <Route path="/dashboard" element={
         <ProtectedRoute>
-          <MasterDatabaseApp />
+          <>
+            <WhatsNewModal />
+            <MasterDatabaseApp />
+          </>
         </ProtectedRoute>
       } />
       <Route path="*" element={<Navigate to="/dashboard" replace />} />

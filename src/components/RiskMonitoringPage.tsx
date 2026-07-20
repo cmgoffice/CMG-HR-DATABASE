@@ -30,6 +30,8 @@ import {
   RiskMonitoringSettings,
 } from "./riskMonitoringSettingsConfig";
 
+const OPEN_FOLLOW_UP_CASE_STORAGE_KEY = "cmg_open_follow_up_case";
+
 export const RiskMonitoringPage = ({ projectOptions }: { projectOptions: string[] }) => {
   const { firebaseUser, userProfile } = useAuth();
   const db = getFirestore();
@@ -45,6 +47,16 @@ export const RiskMonitoringPage = ({ projectOptions }: { projectOptions: string[
     preferredIssueKey?: RiskRuleKey;
     requestedAt: number;
   }>(null);
+  const [openCaseId, setOpenCaseId] = useState<string | undefined>(undefined);
+
+  useEffect(() => {
+    const storedCaseId = sessionStorage.getItem(OPEN_FOLLOW_UP_CASE_STORAGE_KEY);
+    if (storedCaseId) {
+      setTab("follow_up");
+      setOpenCaseId(storedCaseId);
+      sessionStorage.removeItem(OPEN_FOLLOW_UP_CASE_STORAGE_KEY);
+    }
+  }, []);
 
   const roles = userProfile?.role || [];
   const canViewFollowUp = canViewFollowUpQueueTab(roles);
@@ -247,6 +259,8 @@ export const RiskMonitoringPage = ({ projectOptions }: { projectOptions: string[
           policyConfig={riskSettings.followUpPolicy}
           pendingLaunch={pendingLaunch}
           onPendingLaunchHandled={() => setPendingLaunch(null)}
+          openCaseId={openCaseId}
+          onOpenCaseHandled={() => setOpenCaseId(undefined)}
         />
       )}
     </div>

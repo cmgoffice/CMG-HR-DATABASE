@@ -151,6 +151,7 @@ interface RiskMetrics {
   leaveDays: number;
   notRecordedDays: number;
   wrongProjectDays: number;
+  dayOffDays: number;
   lateDays: number;
   otHours: number;
   consecutiveAbsentDays: number;
@@ -1304,6 +1305,7 @@ export const ManpowerDashboard = ({
         leaveDays: 0,
         notRecordedDays: 0,
         wrongProjectDays: 0,
+        dayOffDays: 0,
         lateDays: 0,
         otHours: 0,
         consecutiveAbsentDays: 0,
@@ -1324,6 +1326,7 @@ export const ManpowerDashboard = ({
         leaveDays: 0,
         notRecordedDays: 0,
         wrongProjectDays: 0,
+        dayOffDays: 0,
         lateDays: 0,
         otHours: 0,
         consecutiveAbsentDays: 0,
@@ -1358,14 +1361,14 @@ export const ManpowerDashboard = ({
       projectNames: string[];
     }> = [];
 
-    const projectRiskMap: Record<string, { headcount: number; absent: number; leave: number; notRecorded: number; wrongProject: number; otHours: number }> = {};
+    const projectRiskMap: Record<string, { headcount: number; absent: number; leave: number; notRecorded: number; wrongProject: number; otHours: number; dayOff: number }> = {};
     const projectDailyStats: Record<string, Record<string, DailySummary>> = {};
-    const followUpProjectRiskMap: Record<string, { headcount: number; absent: number; leave: number; notRecorded: number; wrongProject: number; otHours: number }> = {};
+    const followUpProjectRiskMap: Record<string, { headcount: number; absent: number; leave: number; notRecorded: number; wrongProject: number; otHours: number; dayOff: number }> = {};
     const followUpProjectDailyStats: Record<string, Record<string, DailySummary>> = {};
     Object.entries(projectCounts).forEach(([project, headcount]) => {
-      projectRiskMap[project] = { headcount, absent: 0, leave: 0, notRecorded: 0, wrongProject: 0, otHours: 0 };
+      projectRiskMap[project] = { headcount, absent: 0, leave: 0, notRecorded: 0, wrongProject: 0, otHours: 0, dayOff: 0 };
       projectDailyStats[project] = {};
-      followUpProjectRiskMap[project] = { headcount, absent: 0, leave: 0, notRecorded: 0, wrongProject: 0, otHours: 0 };
+      followUpProjectRiskMap[project] = { headcount, absent: 0, leave: 0, notRecorded: 0, wrongProject: 0, otHours: 0, dayOff: 0 };
       followUpProjectDailyStats[project] = {};
     });
 
@@ -1465,6 +1468,12 @@ export const ManpowerDashboard = ({
             if (projectRiskMap[project]) projectRiskMap[project].leave++;
             if (projectDailyStats[project]?.[date]) projectDailyStats[project][date].leave++;
           });
+        } else if (attendance?.status === "H") {
+          // วันหยุดพนักงาน (รายบุคคล) — ไม่นับขาด ไม่นับค้างลงเวลา และตัดออกจากตัวหารของอัตราต่างๆ
+          metrics.dayOffDays++;
+          assignedProjects.forEach((project) => {
+            if (projectRiskMap[project]) projectRiskMap[project].dayOff++;
+          });
         } else {
           notRecorded++;
           dayNotRecorded++;
@@ -1556,6 +1565,12 @@ export const ManpowerDashboard = ({
             if (followUpProjectRiskMap[project]) followUpProjectRiskMap[project].leave++;
             if (followUpProjectDailyStats[project]?.[date]) followUpProjectDailyStats[project][date].leave++;
           });
+        } else if (attendance?.status === "H") {
+          // วันหยุดพนักงาน (รายบุคคล) — ไม่นับขาด ไม่นับค้างลงเวลา และตัดออกจากตัวหารของอัตราต่างๆ
+          metrics.dayOffDays++;
+          assignedProjects.forEach((project) => {
+            if (followUpProjectRiskMap[project]) followUpProjectRiskMap[project].dayOff++;
+          });
         } else {
           metrics.notRecordedDays++;
           metrics.latestIncidentDate = date;
@@ -1586,9 +1601,11 @@ export const ManpowerDashboard = ({
         }
       });
       metrics.mondayFridayAbsenceCount = metrics.mondayAbsenceCount + metrics.fridayAbsenceCount;
-      metrics.absenceRate = workDates.length > 0 ? metrics.absentDays / workDates.length : 0;
-      metrics.leaveRate = workDates.length > 0 ? metrics.leaveDays / workDates.length : 0;
-      metrics.notRecordedRate = workDates.length > 0 ? metrics.notRecordedDays / workDates.length : 0;
+      // หักวันหยุดพนักงาน (H) ออกจากตัวหาร เพื่อไม่ให้อัตราขาด/ค้างลงเวลาถูกเจือจางด้วยวันที่ไม่ต้องมาทำงานอยู่แล้ว
+      metrics.scheduledDays = Math.max(workDates.length - metrics.dayOffDays, 0);
+      metrics.absenceRate = metrics.scheduledDays > 0 ? metrics.absentDays / metrics.scheduledDays : 0;
+      metrics.leaveRate = metrics.scheduledDays > 0 ? metrics.leaveDays / metrics.scheduledDays : 0;
+      metrics.notRecordedRate = metrics.scheduledDays > 0 ? metrics.notRecordedDays / metrics.scheduledDays : 0;
     });
 
     scopeEmployees.forEach((emp) => {
@@ -1602,9 +1619,11 @@ export const ManpowerDashboard = ({
         }
       });
       metrics.mondayFridayAbsenceCount = metrics.mondayAbsenceCount + metrics.fridayAbsenceCount;
-      metrics.absenceRate = followUpWorkDates.length > 0 ? metrics.absentDays / followUpWorkDates.length : 0;
-      metrics.leaveRate = followUpWorkDates.length > 0 ? metrics.leaveDays / followUpWorkDates.length : 0;
-      metrics.notRecordedRate = followUpWorkDates.length > 0 ? metrics.notRecordedDays / followUpWorkDates.length : 0;
+      // หักวันหยุดพนักงาน (H) ออกจากตัวหาร เพื่อไม่ให้อัตราขาด/ค้างลงเวลาถูกเจือจางด้วยวันที่ไม่ต้องมาทำงานอยู่แล้ว
+      metrics.scheduledDays = Math.max(followUpWorkDates.length - metrics.dayOffDays, 0);
+      metrics.absenceRate = metrics.scheduledDays > 0 ? metrics.absentDays / metrics.scheduledDays : 0;
+      metrics.leaveRate = metrics.scheduledDays > 0 ? metrics.leaveDays / metrics.scheduledDays : 0;
+      metrics.notRecordedRate = metrics.scheduledDays > 0 ? metrics.notRecordedDays / metrics.scheduledDays : 0;
     });
 
     // อัตราขาดงานสูงใช้รอบจ่ายค่าแรงปัจจุบันเสมอ (ไม่ผูกกับ workDates/followUpWorkDates ของมุมมองที่เลือก)
@@ -1614,8 +1633,16 @@ export const ManpowerDashboard = ({
         (count, date) => (attendanceByDate[date]?.[emp.id]?.status === "ไม่มา" ? count + 1 : count),
         0
       );
+      // วันที่เป็น "H" (วันหยุดพนักงาน) ในรอบจ่ายค่าแรง ให้ตัดออกจากตัวหารด้วยเช่นกัน
+      const payCycleDayOffDays = payCycleWorkDates.reduce(
+        (count, date) => (attendanceByDate[date]?.[emp.id]?.status === "H" ? count + 1 : count),
+        0
+      );
+      const payCycleEffectiveWorkDays = Math.max(payCycleWorkDates.length - payCycleDayOffDays, 0);
       const payCycleAbsenceRate =
-        payCycleWorkDates.length >= PAY_CYCLE_MIN_WORKDAYS ? payCycleAbsentDays / payCycleWorkDates.length : 0;
+        payCycleWorkDates.length >= PAY_CYCLE_MIN_WORKDAYS && payCycleEffectiveWorkDays > 0
+          ? payCycleAbsentDays / payCycleEffectiveWorkDays
+          : 0;
       if (riskMetricsByEmployee[emp.id]) {
         riskMetricsByEmployee[emp.id].payCycleAbsentDays = payCycleAbsentDays;
         riskMetricsByEmployee[emp.id].payCycleWorkDays = payCycleWorkDates.length;
@@ -1693,7 +1720,8 @@ export const ManpowerDashboard = ({
     const riskyProjects: ProjectRiskItem[] = Object.entries(projectRiskMap)
       .map(([project, stats]) => {
         const followUpStats = followUpProjectRiskMap[project] || stats;
-        const slots = followUpStats.headcount * Math.max(followUpWorkDates.length, 1);
+        // หักวัน "H" (วันหยุดพนักงานรายบุคคล) สะสมของทุกคนในโครงการออกจากตัวหาร
+        const slots = Math.max(followUpStats.headcount * Math.max(followUpWorkDates.length, 1) - followUpStats.dayOff, 0);
         const absenceRate = slots > 0 ? followUpStats.absent / slots : 0;
         const leaveRate = slots > 0 ? followUpStats.leave / slots : 0;
         const missingRate = slots > 0 ? followUpStats.notRecorded / slots : 0;
@@ -2016,6 +2044,8 @@ export const ManpowerDashboard = ({
           counts.forEach((row) => { row.leave++; });
           if (groupStats) groupStats.leave++;
           if (posGroupStats) posGroupStats.leave++;
+        } else if (attendance?.status === "H") {
+          // วันหยุดพนักงาน (รายบุคคล) — ไม่นับในบัคเก็ตไหนเลย ทำให้ตัดออกจากตัวหาร (slots) ของตารางนี้โดยอัตโนมัติ
         } else {
           notRecorded++;
           dayNotRecorded++;
@@ -2106,6 +2136,7 @@ export const ManpowerDashboard = ({
           } else if (isWrongProject) row.wrongProjectDays++;
           else if (attendance?.status === "ไม่มา") row.absentDays++;
           else if (attendance?.status === "ลา") row.leaveDays++;
+          else if (attendance?.status === "H") { /* วันหยุดพนักงาน — ไม่นับเป็นบัคเก็ตไหน */ }
           else row.notRecordedDays++;
 
           if (otHours > 0 && otMatchesProject) row.otHours += otHours;
@@ -3140,7 +3171,8 @@ export const ManpowerDashboard = ({
                 notes,
               };
             })
-            .filter((row) => row.status !== "มา" || row.notes.length > 0)
+            // "มา" ปกติและ "H" (วันหยุดพนักงาน) ไม่ใช่ incident จะถูกซ่อนถ้าไม่มี note พิเศษอื่น (เช่น สาย/OT/ลงผิดโครงการ)
+            .filter((row) => (row.status !== "มา" && row.status !== "H") || row.notes.length > 0)
             .slice(-8)
             .reverse()
         : [];
@@ -3409,6 +3441,7 @@ export const ManpowerDashboard = ({
               else if (attendance?.status === "มา" && attendance.project && !projectsMatch(attendance.project, selectedProject)) wrongProject++;
               else if (attendance?.status === "ไม่มา") absent++;
               else if (attendance?.status === "ลา") leave++;
+              else if (attendance?.status === "H") { /* วันหยุดพนักงาน — ไม่นับเป็นบัคเก็ตไหน */ }
               else notRecorded++;
               const overtimeHours = safeNumber(overtime?.hours);
               if (overtimeHours > 0 && (!overtime?.project || projectsMatch(overtime.project, selectedProject))) otHours += overtimeHours;
@@ -3588,6 +3621,7 @@ export const ManpowerDashboard = ({
               else if (attendance?.status === "มา" && attendance.project && !projectsMatch(attendance.project, selectedProject)) wrongProject++;
               else if (attendance?.status === "ไม่มา") absent++;
               else if (attendance?.status === "ลา") leave++;
+              else if (attendance?.status === "H") { /* วันหยุดพนักงาน — ไม่นับเป็นบัคเก็ตไหน */ }
               else notRecorded++;
               const overtimeHours = safeNumber(overtime?.hours);
               if (overtimeHours > 0 && (!overtime?.project || projectsMatch(overtime.project, selectedProject))) otHours += overtimeHours;

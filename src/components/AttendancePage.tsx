@@ -55,7 +55,8 @@ interface AttendanceDayData {
   lastUpdatedAt: number;
 }
 
-type AttendanceStatus = "มา" | "ไม่มา" | "ลา" | "ขาดงาน" | "";
+// "H" = วันหยุดพนักงาน (รายบุคคล) ไม่นับเป็นขาดงานและไม่นับเป็นค้างลงเวลา
+type AttendanceStatus = "มา" | "ไม่มา" | "ลา" | "ขาดงาน" | "H" | "";
 
 interface ColumnConfig {
   id: string;
@@ -784,6 +785,11 @@ export const AttendancePage = ({ projectOptions }: { projectOptions: string[] })
       textCls = "text-red-900 font-bold";
       text = "ขาด";
       if (isToday) bg = "bg-red-300 border border-gray-300";
+    } else if (displayStatus === "H") {
+      bg = locked ? "bg-purple-100" : "bg-purple-100 hover:bg-purple-200";
+      textCls = "text-purple-700 font-semibold";
+      text = "H";
+      if (isToday) bg = locked ? "bg-purple-200 border border-gray-300" : "bg-purple-200 hover:bg-purple-300 border border-gray-300";
     }
 
     // color จากฐานข้อมูลมีสิทธิ์เหนือสีของ status, today, weekend และวันหยุด
@@ -854,6 +860,9 @@ export const AttendancePage = ({ projectOptions }: { projectOptions: string[] })
           } else if (e.key === "3") {
             e.preventDefault();
             handleAttendanceClick(employeeId, dateStr, isOtherProject, "ลา");
+          } else if (e.key === "4") {
+            e.preventDefault();
+            handleAttendanceClick(employeeId, dateStr, isOtherProject, "H");
           } else if (e.key === "Enter") {
             e.preventDefault();
             const cells = Array.from(document.querySelectorAll(`td[data-date="${dateStr}"]`)) as HTMLElement[];
@@ -1008,6 +1017,7 @@ export const AttendancePage = ({ projectOptions }: { projectOptions: string[] })
           { bg: "bg-red-100 border-red-300",     text: "text-red-700",   label: "ไม่มา", desc: "= ไม่มา" },
           { bg: "bg-orange-100 border-orange-300",text: "text-orange-700",label: "ลา",   desc: "= ลา" },
           { bg: "bg-red-200 border-red-400",      text: "text-red-900 font-bold", label: "ขาด", desc: "= ขาดงาน 🔒" },
+          { bg: "bg-purple-100 border-purple-300",text: "text-purple-700 font-semibold", label: "H",    desc: "= วันหยุดพนักงาน (ไม่นับขาด/ค้างลงเวลา)" },
           { bg: "bg-gray-100 border-gray-300",    text: "",              label: "",     desc: "= วันหยุด" },
         ].map((item) => (
           <div key={item.label} className="flex items-center gap-1">
@@ -1017,7 +1027,7 @@ export const AttendancePage = ({ projectOptions }: { projectOptions: string[] })
             <span className="text-gray-600">{item.desc}</span>
           </div>
         ))}
-        <span className="text-gray-400 ml-auto">🔒 = ล็อคหลังกรอก 24 ชม.</span>
+        <span className="text-gray-400 ml-auto">🔒 = ล็อคหลังกรอก 24 ชม. | คีย์ลัด: 1=มา 2=ไม่มา 3=ลา 4=H</span>
       </div>
 
       {/* ── Tables ── */}
