@@ -2,9 +2,11 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { addDoc, collection, doc, getFirestore, onSnapshot, setDoc, deleteField } from "firebase/firestore";
 import {
   AlertTriangle,
+  ArrowRight,
   Briefcase,
   CheckCircle2,
   ClipboardList,
+  Download,
   FileText,
   Loader2,
   Search,
@@ -14,8 +16,20 @@ import {
   X,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
+import {
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Cell,
+  LabelList,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
 import { useAuth } from "../auth/AuthContext";
 import { createNotifications } from "../utils/notifications";
+import { DonutChart, RankedBarChart } from "./DashboardCharts";
 import {
   canInterpretFollowUpEscalation,
   canManageFollowUpFirstStage,
@@ -34,7 +48,6 @@ import {
   FOLLOW_UP_ESCALATION_LABELS,
   FOLLOW_UP_ESCALATION_OPTIONS,
   FOLLOW_UP_HRM_REVIEW_LABELS,
-  FOLLOW_UP_HRM_REVIEW_OPTIONS,
   FOLLOW_UP_STATUS_LABELS,
   FOLLOW_UP_STATUS_OPTIONS,
   FollowUpActionEvent,
@@ -43,6 +56,7 @@ import {
   FollowUpCloseState,
   FollowUpDisciplinaryActionOption,
   FollowUpDocumentRecord,
+  FollowUpDocumentDraft,
   FollowUpEscalationState,
   FollowUpHrmReviewStatus,
   FollowUpPolicyConfig,
@@ -64,6 +78,7 @@ import {
   FOLLOW_UP_TEMPLATE_LABELS,
   FollowUpTemplateKey,
   generateAndDownloadFollowUpDocument,
+  generateAndPreviewFollowUpDocument,
   resolveFollowUpTemplateKeys,
 } from "../utils/followUpDocuments";
 import { uploadUserSignature } from "../utils/signatureStorage";
@@ -115,6 +130,19 @@ interface HrmReviewDraft {
   comment: string;
 }
 
+interface DocumentDraftForm {
+  incidentDate: string;
+  incidentTime: string;
+  facts: string;
+  violatedRule: string;
+  suspensionStartDate: string;
+  suspensionEndDate: string;
+  terminationDate: string;
+  employmentStartDate: string;
+  lastWorkDate: string;
+  absenceStartDate: string;
+}
+
 interface FollowUpQueueItem extends EmployeeFollowUpCase {
   source: "persisted" | "detected";
   isSynthetic: boolean;
@@ -132,6 +160,19 @@ const emptyWarningActionDraft = (type: FollowUpDisciplinaryActionOption["type"])
   type,
   note: "",
   nextFollowUpDate: "",
+});
+
+const buildDocumentDraftForm = (item?: EmployeeFollowUpCase): DocumentDraftForm => ({
+  incidentDate: item?.documentDraft?.incidentDate || item?.latestIncidentDate || "",
+  incidentTime: item?.documentDraft?.incidentTime || "",
+  facts: item?.documentDraft?.facts || item?.pendingActionNote || item?.issueReason || "",
+  violatedRule: item?.documentDraft?.violatedRule || "",
+  suspensionStartDate: item?.documentDraft?.suspensionStartDate || "",
+  suspensionEndDate: item?.documentDraft?.suspensionEndDate || "",
+  terminationDate: item?.documentDraft?.terminationDate || "",
+  employmentStartDate: item?.documentDraft?.employmentStartDate || "",
+  lastWorkDate: item?.documentDraft?.lastWorkDate || "",
+  absenceStartDate: item?.documentDraft?.absenceStartDate || item?.latestIncidentDate || "",
 });
 
 const buildStatusDraft = (item: FollowUpQueueItem): StatusDraft => ({
@@ -171,6 +212,8 @@ const statusBadgeClass: Record<FollowUpStatus, string> = {
   in_progress: "border-sky-200 bg-sky-50 text-sky-700",
   awaiting_hrm_review: "border-violet-200 bg-violet-50 text-violet-700",
   approved_pending_execution: "border-indigo-200 bg-indigo-50 text-indigo-700",
+  awaiting_document_review: "border-violet-200 bg-violet-50 text-violet-700",
+  approved_pending_issue: "border-emerald-200 bg-emerald-50 text-emerald-700",
   document_issued: "border-teal-200 bg-teal-50 text-teal-700",
   no_action: "border-slate-200 bg-slate-100 text-slate-700",
   closed: "border-emerald-200 bg-emerald-50 text-emerald-700",
@@ -198,10 +241,12 @@ const queueStatusRank: Record<FollowUpStatus, number> = {
   proposed: 1,
   awaiting_hrm_review: 2,
   approved_pending_execution: 3,
-  document_issued: 4,
+  awaiting_document_review: 4,
+  approved_pending_issue: 5,
+  document_issued: 6,
   in_progress: 2,
-  no_action: 5,
-  closed: 6,
+  no_action: 7,
+  closed: 8,
 };
 
 const hrmReviewBadgeClass: Record<FollowUpHrmReviewStatus, string> = {
@@ -232,6 +277,9 @@ const historyEventTone: Record<
     border: "border-l-amber-500",
     chip: "bg-amber-600 text-white",
   },
+  document_submitted: { bg: "bg-violet-50/60", border: "border-l-violet-500", chip: "bg-violet-600 text-white" },
+  document_approved: { bg: "bg-emerald-50/60", border: "border-l-emerald-500", chip: "bg-emerald-600 text-white" },
+  document_commented: { bg: "bg-amber-50/60", border: "border-l-amber-500", chip: "bg-amber-600 text-white" },
   document_issued: {
     bg: "bg-teal-50/60",
     border: "border-l-teal-500",
@@ -251,10 +299,28 @@ const historyEventTone: Record<
   status_updated: { bg: "bg-slate-50", border: "border-l-slate-400", chip: "bg-slate-500 text-white" },
 };
 
-const getWorkflowLabel = (item: Pick<FollowUpQueueItem, "hrmReviewStatus" | "status">): string => {
+const lastExecutedEvent = (item: EmployeeFollowUpCase) =>
+  [...(item.actions || [])].reverse().find((event) =>
+    event.type !== "document_issued" &&
+    event.type !== "document_submitted" &&
+    event.type !== "document_approved" &&
+    event.type !== "document_commented" &&
+    event.type !== "hrm_approved" &&
+    event.type !== "hrm_commented" &&
+    event.type !== "proposed_action" &&
+    event.type !== "status_updated"
+  );
+
+const getCaseActionType = (item: EmployeeFollowUpCase): FollowUpActionType | undefined =>
+  item.pendingActionType || (lastExecutedEvent(item)?.type as FollowUpActionType | undefined);
+
+const getWorkflowLabel = (item: Pick<FollowUpQueueItem, "documentReviewStatus" | "hrmReviewStatus" | "status">): string => {
+  if (item.documentReviewStatus === "commented" && item.status === "approved_pending_execution") return "HRM ส่งร่างเอกสารกลับให้แก้ไข";
   if (item.hrmReviewStatus === "commented") return "HRM ส่งความเห็นกลับ ให้ผู้เสนอทบทวนใหม่";
   if (item.status === "awaiting_hrm_review") return "รอ HRM พิจารณา";
-  if (item.status === "approved_pending_execution") return "HRM อนุมัติแล้ว รอ HR ดำเนินการ+ออกเอกสาร";
+  if (item.status === "approved_pending_execution") return "รอ HR เตรียมรายละเอียดเอกสาร";
+  if (item.status === "awaiting_document_review") return "รอ HRM ตรวจร่างเอกสาร";
+  if (item.status === "approved_pending_issue") return "เอกสารอนุมัติแล้ว รอ HR ออกจริง";
   if (item.status === "document_issued") return "ออกเอกสารแล้ว รอ HRM ปิดเคส";
   if (item.status === "closed") return "ปิดเคสแล้ว";
   if (item.status === "no_action") return "ไม่ต้องดำเนินการ";
@@ -263,14 +329,46 @@ const getWorkflowLabel = (item: Pick<FollowUpQueueItem, "hrmReviewStatus" | "sta
   return "รอเสนอการดำเนินการ";
 };
 
-// แท็บตามขั้นตอนของ Flow ใหม่ (เสนอ → HRM พิจารณา → ดำเนินการ → ออกเอกสาร) เพื่อให้แต่ละบทบาทหาเคสของตัวเองได้ง่ายขึ้น
-type StageFilter = "all" | "to_propose" | "hrm_review" | "to_execute" | "to_document";
+// แยกมุมมองตามผู้รับผิดชอบ (ไม่ใช่แค่ตามขั้นตอน) เพื่อให้ HR/HRM เห็นเฉพาะงานของตัวเองในแท็บ "งานของฉัน"
+// ส่วนแท็บ "ทั้งหมด" ยังคงแสดงทุกสถานะเหมือนเดิมสำหรับดูภาพรวม
+type RoleTab = "mine" | "all";
 
-const STAGE_STATUS_MAP: Record<Exclude<StageFilter, "all">, FollowUpStatus[]> = {
-  to_propose: ["pending", "proposed"],
-  hrm_review: ["awaiting_hrm_review"],
-  to_execute: ["approved_pending_execution"],
-  to_document: ["document_issued"],
+const HR_RESPONSIBLE_STATUSES: FollowUpStatus[] = [
+  "pending",
+  "proposed",
+  "approved_pending_execution",
+  "approved_pending_issue",
+];
+
+const HRM_RESPONSIBLE_STATUSES: FollowUpStatus[] = [
+  "awaiting_hrm_review",
+  "awaiting_document_review",
+  "document_issued",
+];
+
+// ป้ายกำกับปุ่มดำเนินการหลักบนการ์ด ให้ตรงกับสิ่งที่บทบาทนั้นต้องทำในสถานะปัจจุบัน
+const getPrimaryActionLabel = (
+  item: Pick<FollowUpQueueItem, "status" | "hrmReviewStatus" | "documentReviewStatus">,
+  { isAdminSiteOnly, canManageFirstStage, canReviewByHrm }: {
+    isAdminSiteOnly: boolean;
+    canManageFirstStage: boolean;
+    canReviewByHrm: boolean;
+  }
+): string => {
+  if (isAdminSiteOnly) {
+    return item.status === "pending" || item.status === "proposed" ? "เสนอการดำเนินการ" : "ดูรายละเอียด";
+  }
+  if (canReviewByHrm) {
+    if (item.status === "awaiting_hrm_review") return "พิจารณาข้อเสนอ";
+    if (item.status === "awaiting_document_review") return "ตรวจร่างเอกสาร";
+    if (item.status === "document_issued") return "ปิดเคส";
+  }
+  if (canManageFirstStage) {
+    if (item.status === "pending" || item.status === "proposed") return "เสนอการดำเนินการ";
+    if (item.status === "approved_pending_execution") return "จัดทำเอกสาร";
+    if (item.status === "approved_pending_issue") return "ออกเอกสาร";
+  }
+  return "ดูรายละเอียด";
 };
 
 const shouldShowInQueue = (item: FollowUpQueueItem): boolean =>
@@ -280,6 +378,8 @@ const shouldShowInQueue = (item: FollowUpQueueItem): boolean =>
   item.status === "in_progress" ||
   item.status === "awaiting_hrm_review" ||
   item.status === "approved_pending_execution" ||
+  item.status === "awaiting_document_review" ||
+  item.status === "approved_pending_issue" ||
   item.status === "document_issued";
 
 const shouldShowInBacklog = (item: FollowUpQueueItem): boolean =>
@@ -338,6 +438,23 @@ const summarizeTopGroups = (items: string[]): Array<{ key: string; count: number
     .sort((a, b) => b.count - a.count || a.key.localeCompare(b.key, "th"))
     .slice(0, 3);
 
+const CHART_PALETTE = ["#0ea5e9", "#6366f1", "#10b981", "#f59e0b", "#f43f5e", "#a855f7"];
+
+const toDonutData = (items: Array<{ key: string; count: number }>) =>
+  items.map((item, i) => ({
+    name: item.key,
+    value: item.count,
+    color: CHART_PALETTE[i % CHART_PALETTE.length],
+  }));
+
+const toBarData = (items: Array<{ key: string; count: number }>) =>
+  items.map((item, i) => ({
+    name: item.key.length > 16 ? `${item.key.slice(0, 15)}…` : item.key,
+    fullName: item.key,
+    value: item.count,
+    color: CHART_PALETTE[i % CHART_PALETTE.length],
+  }));
+
 const toPersistedCase = (
   item: FollowUpQueueItem,
   actor: FollowUpActorSnapshot,
@@ -374,6 +491,12 @@ const toPersistedCase = (
   hrmReviewedByUid: item.hrmReviewedByUid || "",
   hrmReviewedByName: item.hrmReviewedByName || "",
   hrmReviewedByRole: item.hrmReviewedByRole || "",
+  documentDraft: item.documentDraft,
+  documentReviewStatus: item.documentReviewStatus || "not_prepared",
+  documentReviewComment: item.documentReviewComment || "",
+  documentReviewedAt: item.documentReviewedAt || 0,
+  documentReviewedByUid: item.documentReviewedByUid || "",
+  documentReviewedByName: item.documentReviewedByName || "",
   nextFollowUpDate: item.nextFollowUpDate || "",
   latestIncidentDate: item.latestIncidentDate,
   lastActionAt: item.lastActionAt || 0,
@@ -440,11 +563,27 @@ export const EmployeeFollowUpTab = ({
   // Admin Site เห็น/ดำเนินการได้เฉพาะเคสในโครงการที่ตนได้รับมอบหมายเท่านั้น (ไม่เห็นข้อมูลข้ามโครงการ)
   const isAdminSiteOnly = canRequestAsAdminSite && !canManage;
   const myAssignedProjects = userProfile?.assignedProjects || [];
+  // Admin Site เห็นมุมมองเดียว (ไม่มีแท็บ "ทั้งหมด"); HR/HRM สลับดู "งานของฉัน" กับ "ทั้งหมด" ได้
+  const showRoleTabs = !isAdminSiteOnly && (canManageFirstStage || canReviewByHrm);
+  const myResponsibleStatuses = useMemo(() => {
+    const set = new Set<FollowUpStatus>();
+    if (canManageFirstStage) HR_RESPONSIBLE_STATUSES.forEach((status) => set.add(status));
+    if (canReviewByHrm) HRM_RESPONSIBLE_STATUSES.forEach((status) => set.add(status));
+    return set;
+  }, [canManageFirstStage, canReviewByHrm]);
+  const myWorkTabLabel = isAdminSiteOnly
+    ? "งานของฉัน (Admin Site)"
+    : canReviewByHrm && canManageFirstStage
+    ? "งานของฉัน (HR/HRM)"
+    : canReviewByHrm
+    ? "งานของฉัน (HRM)"
+    : "งานของฉัน (HR)";
 
   const [users, setUsers] = useState<AppUser[]>([]);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | FollowUpStatus>("all");
-  const [stageFilter, setStageFilter] = useState<StageFilter>("all");
+  const [roleTab, setRoleTab] = useState<RoleTab>("mine");
+  const effectiveRoleTab: RoleTab = isAdminSiteOnly ? "mine" : showRoleTabs ? roleTab : "all";
   const defaultStageAppliedRef = useRef(false);
   const [showHistory, setShowHistory] = useState(false);
   const [ownerFilter, setOwnerFilter] = useState("all");
@@ -467,6 +606,9 @@ export const EmployeeFollowUpTab = ({
     status: "approved",
     comment: "",
   });
+  const [documentDraft, setDocumentDraft] = useState<DocumentDraftForm>(() => buildDocumentDraftForm());
+  const [documentReviewComment, setDocumentReviewComment] = useState("");
+  const [docBusyKey, setDocBusyKey] = useState<string>("");
   const enabledActionOptions = useMemo(
     () => policyConfig.actionOptions.filter((option) => option.enabled),
     [policyConfig.actionOptions]
@@ -600,10 +742,26 @@ export const EmployeeFollowUpTab = ({
 
   const filteredCases = useMemo(() => {
     const q = search.trim().toLowerCase();
+    const rolePriority = (item: FollowUpQueueItem): number => {
+      if (canReviewByHrm) {
+        if (item.status === "awaiting_document_review") return 0;
+        if (item.status === "awaiting_hrm_review") return 1;
+      }
+      if (canManageFirstStage) {
+        if (item.status === "approved_pending_issue") return 0;
+        if (item.status === "approved_pending_execution" && item.documentReviewStatus === "commented") return 1;
+        if (item.status === "approved_pending_execution") return 2;
+        if (item.hrmReviewStatus === "commented") return 3;
+        if (item.status === "pending" || item.status === "proposed") return 4;
+      }
+      return 10;
+    };
     return [...queueItems]
       .filter((item) => (view === "queue" ? shouldShowInQueue(item) : shouldShowInBacklog(item)))
       .filter((item) =>
-        view === "queue" && stageFilter !== "all" ? STAGE_STATUS_MAP[stageFilter].includes(item.status) : true
+        view === "queue" && effectiveRoleTab === "mine" && !isAdminSiteOnly
+          ? myResponsibleStatuses.has(item.status)
+          : true
       )
       .filter((item) => (statusFilter === "all" ? true : item.status === statusFilter))
       .filter((item) => (ownerFilter === "all" ? true : (item.ownerUid || "") === ownerFilter))
@@ -626,6 +784,7 @@ export const EmployeeFollowUpTab = ({
       })
       .sort(
         (a, b) =>
+          rolePriority(a) - rolePriority(b) ||
           Number(b.hrmReviewStatus === "commented") - Number(a.hrmReviewStatus === "commented") ||
           Number(b.hrmReviewStatus === "pending") - Number(a.hrmReviewStatus === "pending") ||
           Number(b.isCurrentlyDetected) - Number(a.isCurrentlyDetected) ||
@@ -633,7 +792,20 @@ export const EmployeeFollowUpTab = ({
           (b.lastActionAt || b.updatedAt || 0) - (a.lastActionAt || a.updatedAt || 0) ||
           b.riskScoreSnapshot - a.riskScoreSnapshot
       );
-  }, [employeeTypeFilter, ownerFilter, projectFilter, queueItems, search, stageFilter, statusFilter, view]);
+  }, [
+    canManageFirstStage,
+    canReviewByHrm,
+    effectiveRoleTab,
+    employeeTypeFilter,
+    isAdminSiteOnly,
+    myResponsibleStatuses,
+    ownerFilter,
+    projectFilter,
+    queueItems,
+    search,
+    statusFilter,
+    view,
+  ]);
 
   const pendingLaunchPreferredId = useMemo(() => {
     if (!pendingLaunch) return "";
@@ -648,6 +820,7 @@ export const EmployeeFollowUpTab = ({
   }, [pendingLaunch, queueItems]);
 
   const selectedCase = queueItems.find((item) => item.id === selectedCaseId);
+  const selectedActionType = selectedCase ? getCaseActionType(selectedCase) : undefined;
 
   useEffect(() => {
     if (!pendingLaunchPreferredId) return;
@@ -655,14 +828,13 @@ export const EmployeeFollowUpTab = ({
     setIsCaseModalOpen(true);
   }, [pendingLaunchPreferredId]);
 
-  // เปิดหน้ามาให้ตรงกับขั้นตอนที่บทบาทนั้นต้องทำก่อน เพื่อลดการไล่หาเคสเอง (ตั้งค่าเริ่มต้นครั้งเดียวหลังโหลดโปรไฟล์)
+  // เปิดหน้ามาที่แท็บ "งานของฉัน" เป็นค่าเริ่มต้นเสมอสำหรับผู้ที่มีงานต้องทำ เพื่อลดการไล่หาเคสเอง
   useEffect(() => {
     if (defaultStageAppliedRef.current) return;
     if (!userProfile) return;
     defaultStageAppliedRef.current = true;
-    if (canReviewByHrm) setStageFilter("hrm_review");
-    else if (canPropose) setStageFilter("to_propose");
-  }, [userProfile, canReviewByHrm, canPropose]);
+    setRoleTab(showRoleTabs ? "mine" : "all");
+  }, [userProfile, showRoleTabs]);
 
   useEffect(() => {
     if (selectedCase) {
@@ -673,12 +845,16 @@ export const EmployeeFollowUpTab = ({
         status: selectedCase.hrmReviewStatus === "commented" ? "commented" : "approved",
         comment: selectedCase.hrmReviewComment || "",
       });
+      setDocumentDraft(buildDocumentDraftForm(selectedCase));
+      setDocumentReviewComment(selectedCase.documentReviewComment || "");
     } else {
       setOwnerDraft("");
       setEscalationDraft("none");
       setStatusDraft(null);
       setActionDraft(null);
       setHrmReviewDraft({ status: "approved", comment: "" });
+      setDocumentDraft(buildDocumentDraftForm());
+      setDocumentReviewComment("");
     }
   }, [
     selectedCase?.id,
@@ -692,6 +868,9 @@ export const EmployeeFollowUpTab = ({
     selectedCase?.escalationState,
     selectedCase?.hrmReviewStatus,
     selectedCase?.hrmReviewComment,
+    selectedCase?.documentReviewStatus,
+    selectedCase?.documentReviewComment,
+    selectedCase?.documentDraft,
   ]);
 
   useEffect(() => {
@@ -726,24 +905,13 @@ export const EmployeeFollowUpTab = ({
     const noAction = scopedItems.filter((item) => item.status === "no_action").length;
     const closed = scopedItems.filter((item) => item.status === "closed").length;
     const escalation = scopedItems.filter((item) => item.warningRound >= 3 || item.escalationState !== "none").length;
-    const waitingHrm = scopedItems.filter((item) => item.status === "awaiting_hrm_review").length;
+    const waitingHrm = scopedItems.filter((item) => item.status === "awaiting_hrm_review" || item.status === "awaiting_document_review").length;
     const approvedPendingExecution = scopedItems.filter((item) => item.status === "approved_pending_execution").length;
-    const documentIssued = scopedItems.filter((item) => item.status === "document_issued").length;
+    const documentIssued = scopedItems.filter((item) => item.status === "approved_pending_issue" || item.status === "document_issued").length;
     const hrmCommented = scopedItems.filter((item) => item.hrmReviewStatus === "commented").length;
     const hrmApproved = scopedItems.filter((item) => item.hrmReviewStatus === "approved").length;
+    const mine = scopedItems.filter((item) => myResponsibleStatuses.has(item.status)).length;
     const topProjects = summarizeTopGroups(scopedItems.map((item) => item.projectName || "ไม่ระบุโครงการ"));
-    const topOwners = summarizeTopGroups(scopedItems.map((item) => item.ownerName || "ยังไม่ระบุผู้รับผิดชอบ"));
-    const workflowMix = summarizeTopGroups(scopedItems.map((item) => getWorkflowLabel(item)));
-    const actionMix = summarizeTopGroups(
-      scopedItems.map((item) => item.actions[item.actions.length - 1]?.label || FOLLOW_UP_STATUS_LABELS[item.status])
-    );
-    const escalationMix = summarizeTopGroups(
-      scopedItems.map((item) =>
-        item.escalationState && item.escalationState !== "none"
-          ? FOLLOW_UP_ESCALATION_LABELS[item.escalationState]
-          : "ปกติ"
-      )
-    );
     const closeMix = summarizeTopGroups(
       scopedItems
         .map((item) =>
@@ -755,6 +923,26 @@ export const EmployeeFollowUpTab = ({
         )
         .filter(Boolean)
     );
+    const monthlyTrend = (() => {
+      const now = new Date();
+      const buckets = Array.from({ length: 6 }, (_, i) => {
+        const d = new Date(now.getFullYear(), now.getMonth() - (5 - i), 1);
+        return {
+          year: d.getFullYear(),
+          month: d.getMonth(),
+          label: d.toLocaleDateString("th-TH", { month: "short", year: "2-digit" }),
+          count: 0,
+        };
+      });
+      scopedItems.forEach((item) => {
+        const ts = item.lastActionAt || item.updatedAt || item.createdAt;
+        if (!ts) return;
+        const d = new Date(ts);
+        const bucket = buckets.find((b) => b.year === d.getFullYear() && b.month === d.getMonth());
+        if (bucket) bucket.count += 1;
+      });
+      return buckets.map((b) => ({ name: b.label, value: b.count }));
+    })();
     return {
       total,
       pending,
@@ -768,14 +956,12 @@ export const EmployeeFollowUpTab = ({
       documentIssued,
       hrmCommented,
       hrmApproved,
+      mine,
       topProjects,
-      topOwners,
-      workflowMix,
-      actionMix,
-      escalationMix,
       closeMix,
+      monthlyTrend,
     };
-  }, [queueItems, view]);
+  }, [queueItems, view, myResponsibleStatuses]);
 
   const logActivity = async (action: string, details: string) => {
     try {
@@ -838,6 +1024,12 @@ export const EmployeeFollowUpTab = ({
         hrmReviewedByUid: item.hrmReviewedByUid || "",
         hrmReviewedByName: item.hrmReviewedByName || "",
         hrmReviewedByRole: item.hrmReviewedByRole || "",
+        documentDraft: item.documentDraft,
+        documentReviewStatus: item.documentReviewStatus || "not_prepared",
+        documentReviewComment: item.documentReviewComment || "",
+        documentReviewedAt: item.documentReviewedAt || 0,
+        documentReviewedByUid: item.documentReviewedByUid || "",
+        documentReviewedByName: item.documentReviewedByName || "",
         nextFollowUpDate: item.nextFollowUpDate || "",
         latestIncidentDate: item.latestIncidentDate,
         lastActionAt: item.lastActionAt || 0,
@@ -1102,9 +1294,9 @@ export const EmployeeFollowUpTab = ({
     }
   };
 
-  const saveHrmReview = async () => {
+  const saveHrmReview = async (decision: Exclude<FollowUpHrmReviewStatus, "not_requested" | "pending">) => {
     if (!selectedCase || !actor || !canReviewByHrm) return;
-    if (hrmReviewDraft.status === "commented" && !hrmReviewDraft.comment.trim()) {
+    if (decision === "commented" && !hrmReviewDraft.comment.trim()) {
       window.alert("กรุณาระบุความเห็นของ HRM");
       return;
     }
@@ -1119,13 +1311,13 @@ export const EmployeeFollowUpTab = ({
     const reviewComment = hrmReviewDraft.comment.trim();
     const event: FollowUpActionEvent = {
       id: `${baseCase.id}-${now}`,
-      type: hrmReviewDraft.status === "approved" ? "hrm_approved" : "hrm_commented",
+      type: decision === "approved" ? "hrm_approved" : "hrm_commented",
       label:
-        hrmReviewDraft.status === "approved"
+        decision === "approved"
           ? FOLLOW_UP_ACTION_LABELS.hrm_approved
           : FOLLOW_UP_ACTION_LABELS.hrm_commented,
       status: baseCase.status,
-      hrmReviewStatus: hrmReviewDraft.status,
+      hrmReviewStatus: decision,
       note: reviewComment || undefined,
       warningRound: baseCase.warningRound,
       nextFollowUpDate: baseCase.nextFollowUpDate || undefined,
@@ -1140,8 +1332,8 @@ export const EmployeeFollowUpTab = ({
 
     const nextCase: EmployeeFollowUpCase = {
       ...baseCase,
-      status: hrmReviewDraft.status === "commented" ? "proposed" : "approved_pending_execution",
-      hrmReviewStatus: hrmReviewDraft.status,
+      status: decision === "commented" ? "proposed" : "approved_pending_execution",
+      hrmReviewStatus: decision,
       hrmReviewComment: reviewComment,
       hrmReviewedAt: now,
       hrmReviewedByUid: actor.uid,
@@ -1159,16 +1351,16 @@ export const EmployeeFollowUpTab = ({
     try {
       await persistCase(
         nextCase,
-        hrmReviewDraft.status === "approved" ? "HRM อนุมัติรายการติดตาม" : "HRM ส่งความเห็นกลับรายการติดตาม",
+        decision === "approved" ? "HRM อนุมัติรายการติดตาม" : "HRM ส่งความเห็นกลับรายการติดตาม",
         `${selectedCase.employeeName} (${selectedCase.employeeCode}) · ${selectedCase.issueLabel} · ${
-          FOLLOW_UP_HRM_REVIEW_LABELS[hrmReviewDraft.status]
+          FOLLOW_UP_HRM_REVIEW_LABELS[decision]
         }`
       );
       void createNotifications(db, [baseCase.pendingActionProposedByUid], {
         module: "follow_up",
-        type: hrmReviewDraft.status === "approved" ? "hrm_approved" : "hrm_commented",
+        type: decision === "approved" ? "hrm_approved" : "hrm_commented",
         title:
-          hrmReviewDraft.status === "approved"
+          decision === "approved"
             ? "HRM อนุมัติข้อเสนอแล้ว พร้อมดำเนินการ"
             : "HRM ส่งความเห็นกลับ กรุณาทบทวน",
         message: `${selectedCase.employeeName} (${selectedCase.employeeCode}) · ${selectedCase.issueLabel}`,
@@ -1176,9 +1368,7 @@ export const EmployeeFollowUpTab = ({
         createdByUid: actor.uid,
         createdByName: actor.name,
       });
-      showToast(
-        hrmReviewDraft.status === "approved" ? "HRM อนุมัติแล้ว" : "ส่งความเห็นกลับให้ HR แล้ว"
-      );
+      showToast(decision === "approved" ? "HRM อนุมัติแล้ว" : "ส่งความเห็นกลับให้ HR แล้ว");
     } catch (error) {
       window.alert(`บันทึกไม่สำเร็จ: ${error instanceof Error ? error.message : "เกิดข้อผิดพลาดที่ไม่คาดคิด"}`);
     } finally {
@@ -1193,7 +1383,6 @@ export const EmployeeFollowUpTab = ({
     setActionDraft(draft);
   };
 
-  const [docBusyKey, setDocBusyKey] = useState<string>("");
   const [signatureBusy, setSignatureBusy] = useState(false);
   const signatureInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -1269,32 +1458,83 @@ export const EmployeeFollowUpTab = ({
     }
   };
 
-  // ขั้นที่ 3: HR ดำเนินการจริงตามที่ HRM อนุมัติแล้ว (บันทึกรอบหนังสือเตือน/สถานะยกระดับจริง) แล้วเข้าสู่ขั้นออกเอกสาร
-  const executeApproved = async () => {
+  // ขั้นที่ 3: หลัง HRM อนุมัติแนวทางแล้ว HR จึงเติมรายละเอียดเฉพาะที่ต้องใช้ในเอกสาร
+  const submitDocumentDraft = async () => {
     if (!selectedCase || !actor || !canManageFirstStage) return;
     if (selectedCase.status !== "approved_pending_execution") return;
+    const actionType = getCaseActionType(selectedCase);
+    if (!actionType) {
+      window.alert("ไม่พบประเภทการดำเนินการที่ HRM อนุมัติ");
+      return;
+    }
+    if (!documentDraft.facts.trim()) {
+      window.alert("กรุณาระบุข้อเท็จจริงสำหรับจัดทำเอกสาร");
+      return;
+    }
+    if (actionType.startsWith("suspension_") && (!documentDraft.suspensionStartDate || !documentDraft.suspensionEndDate)) {
+      window.alert("กรุณาระบุวันเริ่มและวันสิ้นสุดการพักงาน");
+      return;
+    }
+    if (actionType === "termination" && !documentDraft.terminationDate) {
+      window.alert("กรุณาระบุวันที่มีผลพ้นสภาพ");
+      return;
+    }
+    if (
+      actionType === "termination" &&
+      (selectedCase.issueType === "consecutive_absence" || selectedCase.issueType === "total_absence") &&
+      (!documentDraft.employmentStartDate || !documentDraft.lastWorkDate || !documentDraft.absenceStartDate)
+    ) {
+      window.alert("หนังสือพ้นสภาพกรณีขาดงานต้องระบุวันเริ่มงาน วันทำงานล่าสุด และวันเริ่มขาดงาน");
+      return;
+    }
     const now = Date.now();
     const baseCase = materializeSelectedCase(selectedCase, now);
     if (!baseCase) {
       window.alert("ไม่สามารถบันทึกรายการนี้ได้ เนื่องจากไม่พบข้อมูลความเสี่ยงต้นทาง");
       return;
     }
-    const nextCase = executeApprovedAction(baseCase, policyConfig, actor, now);
-    if (nextCase.status !== "document_issued") {
-      window.alert(
-        "ไม่พบข้อเสนอที่รอดำเนินการ และไม่พบประวัติการดำเนินการเดิมที่จะใช้เปิดขั้นออกเอกสารได้ กรุณาย้อนกลับไปเสนอการดำเนินการใหม่อีกครั้ง"
-      );
-      return;
-    }
-    const actionLabel = baseCase.pendingActionType
-      ? FOLLOW_UP_ACTION_LABELS[baseCase.pendingActionType]
-      : lastExecutedEvent(baseCase)?.label || "การดำเนินการ";
+    const preparedDraft: FollowUpDocumentDraft = {
+      ...documentDraft,
+      facts: documentDraft.facts.trim(),
+      violatedRule: documentDraft.violatedRule.trim(),
+      preparedAt: now,
+      preparedByUid: actor.uid,
+      preparedByName: actor.name,
+    };
+    const event: FollowUpActionEvent = {
+      id: `${baseCase.id}-${now}`,
+      type: "document_submitted",
+      label: FOLLOW_UP_ACTION_LABELS.document_submitted,
+      status: "awaiting_document_review",
+      note: preparedDraft.facts,
+      warningRound: baseCase.warningRound,
+      actedAt: now,
+      actedByUid: actor.uid,
+      actedByName: actor.name,
+      actedByRole: actor.role,
+    };
+    const nextCase: EmployeeFollowUpCase = {
+      ...baseCase,
+      status: "awaiting_document_review",
+      documentDraft: preparedDraft,
+      documentReviewStatus: "pending",
+      documentReviewComment: "",
+      documentReviewedAt: 0,
+      documentReviewedByUid: "",
+      documentReviewedByName: "",
+      actions: [...(baseCase.actions || []), event],
+      lastActionAt: now,
+      updatedAt: now,
+      updatedByUid: actor.uid,
+      updatedByName: actor.name,
+      updatedByRole: actor.role,
+    };
 
     setBusy(true);
     try {
       await persistCase(
         nextCase,
-        `ดำเนินการตามที่อนุมัติ: ${actionLabel}`,
+        "ส่งร่างเอกสารให้ HRM อนุมัติ",
         `${selectedCase.employeeName} (${selectedCase.employeeCode}) · ${selectedCase.issueLabel}`
       );
       void createNotifications(
@@ -1302,17 +1542,73 @@ export const EmployeeFollowUpTab = ({
         hrmUsers.map((user) => user.uid),
         {
           module: "follow_up",
-          type: "ready_to_close",
-          title: "เคสพร้อมออกเอกสาร รอปิดเคสหลังพนักงานเซ็นรับทราบ",
-          message: `${selectedCase.employeeName} (${selectedCase.employeeCode}) · ${actionLabel}`,
+          type: "document_review_requested",
+          title: "มีร่างเอกสารรออนุมัติ",
+          message: `${selectedCase.employeeName} (${selectedCase.employeeCode}) · ${FOLLOW_UP_ACTION_LABELS[actionType]}`,
           caseId: selectedCase.id,
           createdByUid: actor.uid,
           createdByName: actor.name,
         }
       );
-      showToast(`ดำเนินการ "${actionLabel}" แล้ว พร้อมออกเอกสาร`);
+      showToast("ส่งร่างเอกสารให้ HRM ตรวจแล้ว");
     } catch (error) {
       window.alert(`บันทึกไม่สำเร็จ: ${error instanceof Error ? error.message : "เกิดข้อผิดพลาดที่ไม่คาดคิด"}`);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const reviewDocumentDraft = async (approved: boolean) => {
+    if (!selectedCase || !actor || !canReviewByHrm || selectedCase.status !== "awaiting_document_review") return;
+    if (!approved && !documentReviewComment.trim()) {
+      window.alert("กรุณาระบุรายละเอียดที่ต้องแก้ไข");
+      return;
+    }
+    const now = Date.now();
+    const baseCase = materializeSelectedCase(selectedCase, now);
+    if (!baseCase) return;
+    const event: FollowUpActionEvent = {
+      id: `${baseCase.id}-${now}`,
+      type: approved ? "document_approved" : "document_commented",
+      label: approved ? FOLLOW_UP_ACTION_LABELS.document_approved : FOLLOW_UP_ACTION_LABELS.document_commented,
+      status: approved ? "approved_pending_issue" : "approved_pending_execution",
+      note: documentReviewComment.trim() || undefined,
+      warningRound: baseCase.warningRound,
+      actedAt: now,
+      actedByUid: actor.uid,
+      actedByName: actor.name,
+      actedByRole: actor.role,
+    };
+    const nextCase: EmployeeFollowUpCase = {
+      ...baseCase,
+      status: approved ? "approved_pending_issue" : "approved_pending_execution",
+      documentReviewStatus: approved ? "approved" : "commented",
+      documentReviewComment: documentReviewComment.trim(),
+      documentReviewedAt: now,
+      documentReviewedByUid: actor.uid,
+      documentReviewedByName: actor.name,
+      actions: [...(baseCase.actions || []), event],
+      lastActionAt: now,
+      updatedAt: now,
+      updatedByUid: actor.uid,
+      updatedByName: actor.name,
+      updatedByRole: actor.role,
+    };
+    setBusy(true);
+    try {
+      await persistCase(nextCase, event.label, `${selectedCase.employeeName} (${selectedCase.employeeCode})`);
+      void createNotifications(db, [baseCase.documentDraft?.preparedByUid, baseCase.ownerUid], {
+        module: "follow_up",
+        type: approved ? "document_approved" : "document_commented",
+        title: approved ? "HRM อนุมัติเอกสารแล้ว พร้อมออกเอกสาร" : "HRM ส่งร่างเอกสารกลับให้แก้ไข",
+        message: `${selectedCase.employeeName} (${selectedCase.employeeCode})`,
+        caseId: selectedCase.id,
+        createdByUid: actor.uid,
+        createdByName: actor.name,
+      });
+      showToast(approved ? "อนุมัติเอกสารแล้ว" : "ส่งร่างกลับให้ HR แก้ไขแล้ว");
+    } catch (error) {
+      window.alert(`บันทึกผลตรวจเอกสารไม่สำเร็จ: ${error instanceof Error ? error.message : "เกิดข้อผิดพลาดที่ไม่คาดคิด"}`);
     } finally {
       setBusy(false);
     }
@@ -1369,52 +1665,139 @@ export const EmployeeFollowUpTab = ({
     };
   };
 
-  // เหตุการณ์ล่าสุดที่บันทึกผลจริงจาก executeApprovedAction (type = ประเภทการดำเนินการจริง ไม่ใช่ "document_issued")
-  const lastExecutedEvent = (item: EmployeeFollowUpCase) =>
-    [...(item.actions || [])].reverse().find((event) => event.type !== "document_issued" && event.type !== "hrm_approved" && event.type !== "hrm_commented" && event.type !== "proposed_action" && event.type !== "status_updated");
+  const previewDocument = async (templateKey: FollowUpTemplateKey) => {
+    if (!selectedCase?.documentDraft) return;
+    const actionType = getCaseActionType(selectedCase);
+    if (!actionType) return;
+    const option = getFollowUpActionOption(policyConfig, actionType);
+    const draft = selectedCase.documentDraft;
+    const previewRound = actionType.startsWith("written_warning")
+      ? Math.min(3, selectedCase.warningRound + 1)
+      : selectedCase.warningRound;
+    setDocBusyKey(`preview-${templateKey}`);
+    try {
+      await generateAndPreviewFollowUpDocument(templateKey, {
+        followUpCase: selectedCase,
+        actionType,
+        note: draft.facts,
+        violatedRule: draft.violatedRule,
+        incidentDate: draft.incidentDate,
+        incidentTime: draft.incidentTime,
+        suspensionStartDate: draft.suspensionStartDate,
+        suspensionEndDate: draft.suspensionEndDate,
+        suspensionTotalDays: option?.suspensionDays,
+        terminationDate: draft.terminationDate,
+        employmentStartDate: draft.employmentStartDate,
+        lastWorkDate: draft.lastWorkDate,
+        absenceStartDate: draft.absenceStartDate,
+        warningRound: previewRound,
+        preparer: findSigner(draft.preparedByUid, draft.preparedByName),
+        isDraft: true,
+      });
+      showToast("เปิดตัวอย่างเอกสารในแท็บใหม่แล้ว");
+    } catch (error) {
+      window.alert(`สร้างร่างตรวจสอบไม่สำเร็จ: ${error instanceof Error ? error.message : "เกิดข้อผิดพลาดที่ไม่คาดคิด"}`);
+    } finally {
+      setDocBusyKey("");
+    }
+  };
+
+  const redownloadDocument = async (doc: FollowUpDocumentRecord) => {
+    if (!selectedCase) return;
+    const actionType = doc.actionType || selectedCase.pendingActionType || (lastExecutedEvent(selectedCase)?.type as FollowUpActionType | undefined);
+    if (!actionType) {
+      window.alert("ไม่พบข้อมูลการดำเนินการที่ใช้สร้างเอกสารนี้ ไม่สามารถดาวน์โหลดซ้ำได้");
+      return;
+    }
+    const draft = selectedCase.documentDraft;
+    const executedEvent = lastExecutedEvent(selectedCase);
+    setDocBusyKey(`redownload-${doc.id}`);
+    try {
+      await generateAndDownloadFollowUpDocument(doc.templateKey, {
+        followUpCase: selectedCase,
+        actionType,
+        note: draft?.facts || executedEvent?.note,
+        violatedRule: draft?.violatedRule,
+        incidentDate: draft?.incidentDate,
+        incidentTime: draft?.incidentTime,
+        suspensionStartDate: draft?.suspensionStartDate,
+        suspensionEndDate: draft?.suspensionEndDate,
+        suspensionTotalDays: executedEvent?.suspensionDays,
+        terminationDate: draft?.terminationDate,
+        employmentStartDate: draft?.employmentStartDate,
+        lastWorkDate: draft?.lastWorkDate,
+        absenceStartDate: draft?.absenceStartDate,
+        warningRound: executedEvent?.warningRound || selectedCase.warningRound,
+        preparer: findSigner(doc.generatedByUid, doc.generatedByName),
+        approver: doc.usedSignatureOfUid || doc.usedSignatureOfName
+          ? findSigner(doc.usedSignatureOfUid, doc.usedSignatureOfName)
+          : undefined,
+      });
+      showToast(`ดาวน์โหลด ${doc.templateLabel} แล้ว`);
+    } catch (error) {
+      window.alert(`ดาวน์โหลดเอกสารไม่สำเร็จ: ${error instanceof Error ? error.message : "เกิดข้อผิดพลาดที่ไม่คาดคิด"}`);
+    } finally {
+      setDocBusyKey("");
+    }
+  };
 
   const generateDocument = async (templateKey: FollowUpTemplateKey) => {
-    if (!selectedCase || !actor) return;
+    if (!selectedCase || !actor || !canManageFirstStage) return;
+    if (selectedCase.status !== "approved_pending_issue" && selectedCase.status !== "document_issued") return;
     const executedEvent = lastExecutedEvent(selectedCase);
-    const actionType = executedEvent?.type as FollowUpActionType | undefined;
+    const actionType = selectedCase.pendingActionType || (executedEvent?.type as FollowUpActionType | undefined);
     if (!actionType) {
       window.alert("ไม่พบข้อมูลการดำเนินการที่อนุมัติแล้วสำหรับออกเอกสาร");
       return;
     }
-    const preparer = findSigner(actor.uid, actor.name);
-    const approver = findSigner(selectedCase.hrmReviewedByUid, selectedCase.hrmReviewedByName);
+    const preparer = findSigner(selectedCase.documentDraft?.preparedByUid || actor.uid, selectedCase.documentDraft?.preparedByName || actor.name);
+    const approver = findSigner(selectedCase.documentReviewedByUid, selectedCase.documentReviewedByName);
 
     setDocBusyKey(templateKey);
     try {
+      const now = Date.now();
+      const baseCase = materializeSelectedCase(selectedCase, now);
+      if (!baseCase) throw new Error("ไม่พบข้อมูลเคส");
+      const issuedCase = selectedCase.status === "approved_pending_issue"
+        ? executeApprovedAction(baseCase, policyConfig, actor, now)
+        : baseCase;
+      const issuedEvent = lastExecutedEvent(issuedCase);
+      const draft = issuedCase.documentDraft;
       const docRecord = await generateAndDownloadFollowUpDocument(templateKey, {
-        followUpCase: selectedCase,
+        followUpCase: issuedCase,
         actionType,
-        note: executedEvent?.note,
-        suspensionTotalDays: executedEvent?.suspensionDays,
-        terminationDate: actionType === "termination" ? Date.now().toString().slice(0, 10) : undefined,
-        incidentDate: selectedCase.latestIncidentDate,
-        warningRound: executedEvent?.warningRound,
+        note: draft?.facts || issuedEvent?.note,
+        violatedRule: draft?.violatedRule,
+        suspensionStartDate: draft?.suspensionStartDate,
+        suspensionEndDate: draft?.suspensionEndDate,
+        suspensionTotalDays: issuedEvent?.suspensionDays,
+        terminationDate: draft?.terminationDate,
+        incidentDate: draft?.incidentDate,
+        incidentTime: draft?.incidentTime,
+        employmentStartDate: draft?.employmentStartDate,
+        lastWorkDate: draft?.lastWorkDate,
+        absenceStartDate: draft?.absenceStartDate,
+        warningRound: issuedEvent?.warningRound || issuedCase.warningRound,
         preparer,
         approver,
       });
 
-      const now = Date.now();
-      const baseCase = materializeSelectedCase(selectedCase, now);
-      if (baseCase) {
+      if (issuedCase) {
         const event: FollowUpActionEvent = {
-          id: `${baseCase.id}-${now}`,
+          id: `${issuedCase.id}-${now}-${templateKey}`,
           type: "document_issued",
           label: `ออกเอกสาร: ${FOLLOW_UP_TEMPLATE_LABELS[templateKey]}`,
-          warningRound: baseCase.warningRound,
+          warningRound: issuedCase.warningRound,
           actedAt: now,
           actedByUid: actor.uid,
           actedByName: actor.name,
           actedByRole: actor.role,
         };
         const nextCase: EmployeeFollowUpCase = {
-          ...baseCase,
-          documents: [...(baseCase.documents || []), docRecord],
-          actions: [...(baseCase.actions || []), event],
+          ...issuedCase,
+          status: "document_issued",
+          documents: [...(issuedCase.documents || []), docRecord],
+          actions: [...(issuedCase.actions || []), event],
           lastActionAt: now,
           updatedAt: now,
           updatedByUid: actor.uid,
@@ -1602,76 +1985,46 @@ export const EmployeeFollowUpTab = ({
             <SummaryCard label="เคสยกระดับ" value={summary.escalation} tone="rose" />
           </div>
 
-          <div className="grid gap-2 lg:grid-cols-2 xl:grid-cols-3">
-            <CompactGroupSummary
+          <div className="grid gap-2 lg:grid-cols-3">
+            <BacklogDonutCard
               title="สรุปผลลัพธ์ใน Backlog"
               items={summary.closeMix}
               emptyText="ยังไม่มีผลลัพธ์ย้อนหลัง"
+              centerValue={summary.closed + summary.noAction}
+              centerSub="รายการ"
             />
-            <CompactGroupSummary
+            <BacklogRankedBarCard
               title="โครงการที่มี backlog มากสุด"
               items={summary.topProjects}
               emptyText="ยังไม่มีข้อมูลโครงการ"
             />
-            <CompactGroupSummary
-              title="ผู้รับผิดชอบที่เกี่ยวข้อง"
-              items={summary.topOwners}
-              emptyText="ยังไม่มีผู้รับผิดชอบ"
-            />
-            <CompactGroupSummary
-              title="สถานะงาน / Workflow"
-              items={summary.workflowMix}
-              emptyText="ยังไม่มี workflow"
-            />
-            <CompactGroupSummary
-              title="การดำเนินการล่าสุด"
-              items={summary.actionMix}
-              emptyText="ยังไม่มีประวัติการดำเนินการ"
-            />
-            <CompactGroupSummary
-              title="ภาพรวมการยกระดับ"
-              items={summary.escalationMix}
-              emptyText="ยังไม่มีข้อมูลการยกระดับ"
-            />
+            <BacklogTrendCard data={summary.monthlyTrend} />
           </div>
         </>
       ) : (
-        <div className="flex flex-wrap gap-2 rounded-2xl border border-slate-200 bg-white p-2">
-          <StageTabButton
-            label="ทั้งหมด"
-            count={summary.total}
-            tone="slate"
-            active={stageFilter === "all"}
-            onClick={() => setStageFilter("all")}
-          />
-          <StageTabButton
-            label="① ต้องเสนอ"
-            count={summary.toPropose}
-            tone="amber"
-            active={stageFilter === "to_propose"}
-            onClick={() => setStageFilter("to_propose")}
-          />
-          <StageTabButton
-            label="② รอ HRM พิจารณา"
-            count={summary.waitingHrm}
-            tone="violet"
-            active={stageFilter === "hrm_review"}
-            onClick={() => setStageFilter("hrm_review")}
-          />
-          <StageTabButton
-            label="③ รอดำเนินการ"
-            count={summary.approvedPendingExecution}
-            tone="sky"
-            active={stageFilter === "to_execute"}
-            onClick={() => setStageFilter("to_execute")}
-          />
-          <StageTabButton
-            label="④ รอออกเอกสาร"
-            count={summary.documentIssued}
-            tone="emerald"
-            active={stageFilter === "to_document"}
-            onClick={() => setStageFilter("to_document")}
-          />
+        <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-slate-200 bg-white p-2">
+          {isAdminSiteOnly ? (
+            <span className="rounded-full border border-cyan-200 bg-cyan-50 px-3 py-1.5 text-xs font-semibold text-cyan-800">
+              งานของฉัน · Admin Site — เฉพาะโครงการที่คุณรับผิดชอบ
+            </span>
+          ) : showRoleTabs ? (
+            <>
+              <StageTabButton
+                label={myWorkTabLabel}
+                count={summary.mine}
+                tone="sky"
+                active={effectiveRoleTab === "mine"}
+                onClick={() => setRoleTab("mine")}
+              />
+              <StageTabButton
+                label="ทั้งหมด"
+                count={summary.total}
+                tone="slate"
+                active={effectiveRoleTab === "all"}
+                onClick={() => setRoleTab("all")}
+              />
+            </>
+          ) : null}
           {summary.escalation > 0 && (
             <span className="ml-auto inline-flex items-center gap-1.5 rounded-full border border-rose-200 bg-rose-50 px-3 py-1.5 text-xs font-semibold text-rose-700">
               เคสยกระดับ {summary.escalation}
@@ -1680,8 +2033,8 @@ export const EmployeeFollowUpTab = ({
         </div>
       )}
 
-      <div className="rounded-2xl border border-slate-200 bg-white p-3">
-        <div className="grid gap-3 lg:grid-cols-[minmax(0,1.2fr),repeat(4,minmax(0,170px))]">
+      {!isBacklogView && effectiveRoleTab === "mine" ? (
+        <div className="rounded-2xl border border-slate-200 bg-white p-3">
           <div className="relative">
             <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
             <input
@@ -1691,57 +2044,99 @@ export const EmployeeFollowUpTab = ({
               className="h-10 w-full rounded-xl border border-slate-200 pl-9 pr-3 text-sm outline-none focus:ring-2 focus:ring-sky-100"
             />
           </div>
-          <select
-            value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value as "all" | FollowUpStatus)}
-            className="h-10 rounded-xl border border-slate-200 px-3 text-sm outline-none focus:ring-2 focus:ring-sky-100"
-          >
-            <option value="all">ทุกสถานะ</option>
-            {FOLLOW_UP_STATUS_OPTIONS.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-          <select
-            value={employeeTypeFilter}
-            onChange={(e) => setEmployeeTypeFilter(e.target.value)}
-            className="h-10 rounded-xl border border-slate-200 px-3 text-sm outline-none focus:ring-2 focus:ring-sky-100"
-          >
-            <option value="all">ทุกประเภทพนักงาน</option>
-            {employeeTypeOptions.map((employeeType) => (
-              <option key={employeeType} value={employeeType}>
-                {employeeType}
-              </option>
-            ))}
-          </select>
-          <select
-            value={ownerFilter}
-            onChange={(e) => setOwnerFilter(e.target.value)}
-            className="h-10 rounded-xl border border-slate-200 px-3 text-sm outline-none focus:ring-2 focus:ring-sky-100"
-          >
-            <option value="all">ทุกผู้รับผิดชอบ</option>
-            {operatorUsers.map((user) => (
-              <option key={user.uid} value={user.uid}>
-                {userName(user)}
-              </option>
-            ))}
-          </select>
-          <select
-            value={projectFilter}
-            onChange={(e) => setProjectFilter(e.target.value)}
-            className="h-10 rounded-xl border border-slate-200 px-3 text-sm outline-none focus:ring-2 focus:ring-sky-100"
-          >
-            <option value="all">ทุกโครงการ</option>
-            {projectOptions.map((project) => (
-              <option key={project} value={project}>
-                {project}
-              </option>
-            ))}
-          </select>
         </div>
-      </div>
+      ) : (
+        <div className="rounded-2xl border border-slate-200 bg-white p-3">
+          <div className="grid gap-3 lg:grid-cols-[minmax(0,1.2fr),repeat(4,minmax(0,170px))]">
+            <div className="relative">
+              <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+              <input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="ค้นหาชื่อ รหัส ประเด็น หรือผู้รับผิดชอบ"
+                className="h-10 w-full rounded-xl border border-slate-200 pl-9 pr-3 text-sm outline-none focus:ring-2 focus:ring-sky-100"
+              />
+            </div>
+            <select
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value as "all" | FollowUpStatus)}
+              className="h-10 rounded-xl border border-slate-200 px-3 text-sm outline-none focus:ring-2 focus:ring-sky-100"
+            >
+              <option value="all">ทุกสถานะ</option>
+              {FOLLOW_UP_STATUS_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+            <select
+              value={employeeTypeFilter}
+              onChange={(e) => setEmployeeTypeFilter(e.target.value)}
+              className="h-10 rounded-xl border border-slate-200 px-3 text-sm outline-none focus:ring-2 focus:ring-sky-100"
+            >
+              <option value="all">ทุกประเภทพนักงาน</option>
+              {employeeTypeOptions.map((employeeType) => (
+                <option key={employeeType} value={employeeType}>
+                  {employeeType}
+                </option>
+              ))}
+            </select>
+            <select
+              value={ownerFilter}
+              onChange={(e) => setOwnerFilter(e.target.value)}
+              className="h-10 rounded-xl border border-slate-200 px-3 text-sm outline-none focus:ring-2 focus:ring-sky-100"
+            >
+              <option value="all">ทุกผู้รับผิดชอบ</option>
+              {operatorUsers.map((user) => (
+                <option key={user.uid} value={user.uid}>
+                  {userName(user)}
+                </option>
+              ))}
+            </select>
+            <select
+              value={projectFilter}
+              onChange={(e) => setProjectFilter(e.target.value)}
+              className="h-10 rounded-xl border border-slate-200 px-3 text-sm outline-none focus:ring-2 focus:ring-sky-100"
+            >
+              <option value="all">ทุกโครงการ</option>
+              {projectOptions.map((project) => (
+                <option key={project} value={project}>
+                  {project}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+      )}
 
+      {!isBacklogView && effectiveRoleTab === "mine" ? (
+        <div className="rounded-2xl border border-slate-200 bg-white p-3">
+          <div className="flex flex-wrap items-start justify-between gap-2 pb-2">
+            <div>
+              <div className="text-sm font-bold text-slate-800">{myWorkTabLabel}</div>
+              <div className="text-xs text-slate-500">{filteredCases.length} รายการที่ต้องดำเนินการ</div>
+            </div>
+          </div>
+          {filteredCases.length === 0 ? (
+            <div className="p-8 text-center text-sm text-slate-400">ไม่มีงานที่ต้องดำเนินการในตอนนี้</div>
+          ) : (
+            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+              {filteredCases.map((item) => (
+                <FollowUpWorkCard
+                  key={item.id}
+                  item={item}
+                  primaryActionLabel={getPrimaryActionLabel(item, {
+                    isAdminSiteOnly,
+                    canManageFirstStage,
+                    canReviewByHrm,
+                  })}
+                  onOpen={() => openCaseModal(item.id)}
+                />
+              ))}
+            </div>
+          )}
+        </div>
+      ) : (
       <div className="min-w-0 overflow-hidden rounded-2xl border border-slate-200 bg-white">
         <div className="border-b border-slate-100 px-4 py-3">
           <div className="flex flex-wrap items-start justify-between gap-2">
@@ -1792,17 +2187,10 @@ export const EmployeeFollowUpTab = ({
                       <div className="text-[11px] text-slate-500">{item.ownerRole || "-"}</div>
                     </td>
                     <td className="px-3 py-2 text-center">
-                      <div className="flex flex-col items-center gap-1">
+                      <div className="flex justify-center">
                         <span
                           className={`inline-flex rounded-full border px-2 py-1 text-[11px] font-semibold ${
                             statusBadgeClass[item.status]
-                          }`}
-                        >
-                          {FOLLOW_UP_STATUS_LABELS[item.status]}
-                        </span>
-                        <span
-                          className={`inline-flex rounded-full border px-2 py-0.5 text-[11px] font-semibold ${
-                            hrmReviewBadgeClass[item.hrmReviewStatus || "not_requested"]
                           }`}
                         >
                           {getWorkflowLabel(item)}
@@ -1826,6 +2214,7 @@ export const EmployeeFollowUpTab = ({
           </div>
         )}
       </div>
+      )}
 
       {isCaseModalOpen && selectedCase && (
         <div
@@ -1956,33 +2345,28 @@ export const EmployeeFollowUpTab = ({
                       <span className="font-semibold text-slate-800">{formatDate(selectedCase.nextFollowUpDate)}</span>
                     </span>
                   )}
-                  <span className="ml-auto flex items-center gap-1.5">
+                  <span className="ml-auto flex items-center gap-1.5 text-slate-500">
                     <UserCircle2 size={14} className="text-slate-400" />
-                    <select
-                      value={ownerDraft}
-                      onChange={(e) => setOwnerDraft(e.target.value)}
-                      disabled={!canManage || busy}
-                      className="h-8 rounded-lg border border-slate-200 px-2 text-xs outline-none focus:ring-2 focus:ring-sky-100 disabled:bg-slate-50"
-                    >
-                      <option value="">ยังไม่ระบุผู้รับผิดชอบ</option>
-                      {operatorUsers.map((user) => (
-                        <option key={user.uid} value={user.uid}>
-                          {userName(user)} ({roleText(user.role)})
-                        </option>
-                      ))}
-                    </select>
-                    {ownerDraft !== (selectedCase.ownerUid || "") && (
-                      <button
-                        type="button"
-                        disabled={!canManage || busy}
-                        onClick={() => void saveOwner()}
-                        className="rounded-lg border border-sky-200 bg-sky-50 px-2.5 py-1.5 text-xs font-semibold text-sky-700 hover:bg-sky-100 disabled:opacity-50"
-                      >
-                        บันทึก
-                      </button>
-                    )}
+                    {selectedCase.ownerName
+                      ? `ผู้รับผิดชอบ: ${selectedCase.ownerName}${selectedCase.ownerRole ? ` (${selectedCase.ownerRole})` : ""}`
+                      : "ยังไม่ระบุผู้รับผิดชอบ"}
                   </span>
                 </div>
+
+                {selectedCase.pendingActionType && (
+                  <div className="mt-3 rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2 text-xs text-indigo-900">
+                    <span className="font-bold">ข้อเสนอ:</span>{" "}
+                    <span className="font-semibold">
+                      {FOLLOW_UP_ACTION_LABELS[selectedCase.pendingActionType]}
+                    </span>
+                    {" · โดย "}
+                    <span className="font-semibold">
+                      {selectedCase.pendingActionProposedByName || "-"}
+                      {selectedCase.pendingActionProposedByRole ? ` (${selectedCase.pendingActionProposedByRole})` : ""}
+                    </span>
+                    {selectedCase.pendingActionNote ? ` · "${selectedCase.pendingActionNote}"` : ""}
+                  </div>
+                )}
               </div>
 
               {(() => {
@@ -2002,74 +2386,80 @@ export const EmployeeFollowUpTab = ({
                       </div>
                     </div>
                     <div className="space-y-3">
-                      <div className="rounded-xl border border-violet-200 bg-white p-3 text-sm text-slate-700">
-                        <div className="font-semibold text-slate-800">
-                          สถานะล่าสุด: {FOLLOW_UP_HRM_REVIEW_LABELS[selectedCase.hrmReviewStatus || "not_requested"]}
+                      {selectedCase.hrmReviewComment && (
+                        <div className="rounded-lg border border-violet-100 bg-white p-3 text-sm text-violet-900">
+                          <div className="font-semibold">ความเห็นล่าสุดจาก HRM</div>
+                          <div className="mt-1 whitespace-pre-wrap">{selectedCase.hrmReviewComment}</div>
+                          {selectedCase.hrmReviewedAt ? (
+                            <div className="mt-2 text-[11px] text-violet-600">
+                              โดย {selectedCase.hrmReviewedByName || "-"} ({selectedCase.hrmReviewedByRole || "-"}) ·{" "}
+                              {formatDateTime(selectedCase.hrmReviewedAt)}
+                            </div>
+                          ) : null}
                         </div>
-                        <div className="mt-1 text-xs text-slate-500">
-                          {canReviewByHrm
-                            ? "HR เสนอการดำเนินการแล้ว รอ HRM ตัดสินอนุมัติหรือส่งความเห็นกลับ"
-                            : "HRM ส่งความเห็นกลับแล้ว กรุณาทบทวนแล้วเสนอการดำเนินการใหม่อีกครั้งด้านล่าง"}
-                        </div>
-                        {selectedCase.hrmReviewComment && (
-                          <div className="mt-3 rounded-lg border border-violet-100 bg-violet-50 p-3 text-sm text-violet-900">
-                            <div className="font-semibold">ความเห็นล่าสุดจาก HRM</div>
-                            <div className="mt-1 whitespace-pre-wrap">{selectedCase.hrmReviewComment}</div>
-                          </div>
-                        )}
-                        {selectedCase.hrmReviewedAt ? (
-                          <div className="mt-2 text-[11px] text-slate-500">
-                            ล่าสุดโดย {selectedCase.hrmReviewedByName || "-"} ({selectedCase.hrmReviewedByRole || "-"}) ·{" "}
-                            {formatDateTime(selectedCase.hrmReviewedAt)}
-                          </div>
-                        ) : null}
-                      </div>
+                      )}
 
                       {canReviewByHrm ? (
                         <>
-                          <div className="grid gap-3 md:grid-cols-[minmax(0,180px),minmax(0,1fr),auto]">
+                          <div className="flex flex-wrap items-center gap-2 text-xs text-violet-800">
+                            <UserCircle2 size={14} className="text-violet-500" />
+                            <span className="font-semibold">ผู้รับผิดชอบ:</span>
                             <select
-                              value={hrmReviewDraft.status}
-                              onChange={(e) =>
-                                setHrmReviewDraft((prev) => ({
-                                  ...prev,
-                                  status: e.target.value as HrmReviewDraft["status"],
-                                }))
-                              }
+                              value={ownerDraft}
+                              onChange={(e) => setOwnerDraft(e.target.value)}
                               disabled={busy}
-                              className="h-10 rounded-xl border border-violet-200 bg-white px-3 text-sm outline-none focus:ring-2 focus:ring-violet-100 disabled:bg-violet-50"
+                              className="h-8 rounded-lg border border-violet-200 bg-white px-2 text-xs outline-none focus:ring-2 focus:ring-violet-100 disabled:bg-violet-50"
                             >
-                              {FOLLOW_UP_HRM_REVIEW_OPTIONS.map((option) => (
-                                <option key={option.value} value={option.value}>
-                                  {option.label}
+                              <option value="">ยังไม่ระบุผู้รับผิดชอบ</option>
+                              {operatorUsers.map((user) => (
+                                <option key={user.uid} value={user.uid}>
+                                  {userName(user)} ({roleText(user.role)})
                                 </option>
                               ))}
                             </select>
-                            <textarea
-                              rows={2}
-                              value={hrmReviewDraft.comment}
-                              onChange={(e) =>
-                                setHrmReviewDraft((prev) => ({
-                                  ...prev,
-                                  comment: e.target.value,
-                                }))
-                              }
-                              placeholder="ความเห็นจาก HRM (ถ้าเลือกให้ความเห็น แนะนำให้ระบุสิ่งที่ HR ต้องกลับไปทบทวน)"
-                              disabled={busy}
-                              className="w-full rounded-xl border border-violet-200 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-violet-100 disabled:bg-violet-50"
-                            />
-                            <button
-                              type="button"
-                              disabled={busy}
-                              onClick={() => void saveHrmReview()}
-                              className="rounded-xl border border-violet-200 bg-white px-4 py-2 text-sm font-semibold text-violet-700 hover:bg-violet-100 disabled:opacity-50"
-                            >
-                              บันทึกผล HRM
-                            </button>
+                            {ownerDraft !== (selectedCase.ownerUid || "") && (
+                              <button
+                                type="button"
+                                disabled={busy}
+                                onClick={() => void saveOwner()}
+                                className="rounded-lg border border-violet-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-violet-700 hover:bg-violet-100 disabled:opacity-50"
+                              >
+                                บันทึก
+                              </button>
+                            )}
                           </div>
+
+                          <textarea
+                            rows={2}
+                            value={hrmReviewDraft.comment}
+                            onChange={(e) =>
+                              setHrmReviewDraft((prev) => ({
+                                ...prev,
+                                comment: e.target.value,
+                              }))
+                            }
+                            placeholder="ให้ความเห็น (จำเป็นเฉพาะตอนส่งความเห็นกลับ แนะนำให้ระบุสิ่งที่ HR ต้องกลับไปทบทวน)"
+                            disabled={busy}
+                            className="w-full rounded-xl border border-violet-200 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-violet-100 disabled:bg-violet-50"
+                          />
                           <div className="flex flex-wrap items-center justify-between gap-2">
-                            <div className="text-[11px] text-violet-700">
-                              อนุมัติแล้วเคสจะไปขั้น "รอดำเนินการ" อัตโนมัติ · ปิดเคสได้จากขั้นออกเอกสารด้านล่างสุด
+                            <div className="flex flex-wrap gap-2">
+                              <button
+                                type="button"
+                                disabled={busy}
+                                onClick={() => void saveHrmReview("approved")}
+                                className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-700 hover:bg-emerald-100 disabled:opacity-50"
+                              >
+                                อนุมัติ
+                              </button>
+                              <button
+                                type="button"
+                                disabled={busy}
+                                onClick={() => void saveHrmReview("commented")}
+                                className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-2 text-sm font-semibold text-amber-700 hover:bg-amber-100 disabled:opacity-50"
+                              >
+                                ส่งความเห็นกลับ
+                              </button>
                             </div>
                             <button
                               type="button"
@@ -2176,46 +2566,43 @@ export const EmployeeFollowUpTab = ({
                         : "ยังไม่มีการบันทึกการดำเนินการในรายการนี้"}
                     </div>
                   ) : (
-                    <div className="mt-3 space-y-2">
-                    {[...selectedCase.actions].sort((a, b) => b.actedAt - a.actedAt).map((event) => {
-                      const tone = historyEventTone[event.type] || historyEventTone.status_updated;
-                      return (
-                      <div key={event.id} className={`rounded-xl border-l-4 border border-slate-200 p-3 ${tone.bg} ${tone.border}`}>
-                        <div className="flex flex-wrap items-start justify-between gap-2">
-                          <span className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-bold ${tone.chip}`}>
-                            {event.label}
-                          </span>
-                          {event.hrmReviewStatus === "commented" && event.type !== "hrm_commented" && (
-                            <span className="rounded-full border border-amber-200 bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-800">
-                              HRM มีความเห็นกลับ
-                            </span>
-                          )}
-                        </div>
-                        {(
-                          event.note ||
-                          event.reason ||
-                          event.closeReason ||
-                          event.nextFollowUpDate ||
-                          event.closeState ||
-                          event.suspensionDays ||
-                          event.warningValidityDays
-                        ) && (
-                          <div className="mt-2 space-y-1 text-sm text-slate-700">
-                            {event.note && <div>{event.note}</div>}
-                            {event.reason && <div>เหตุผล: {event.reason}</div>}
-                            {event.suspensionDays && <div>ระยะเวลาพักงาน: {event.suspensionDays} วัน</div>}
-                            {event.warningValidityDays && <div>อายุผลของหนังสือเตือน: {event.warningValidityDays} วัน</div>}
-                            {event.closeState && <div>รูปแบบปิดติดตาม: {FOLLOW_UP_CLOSE_STATE_LABELS[event.closeState]}</div>}
-                            {event.closeReason && <div>เหตุผลปิดติดตาม: {event.closeReason}</div>}
-                            {event.nextFollowUpDate && <div>ติดตามถัดไป: {formatDate(event.nextFollowUpDate)}</div>}
+                    <div className="mt-3 divide-y divide-slate-100">
+                      {[...selectedCase.actions].sort((a, b) => b.actedAt - a.actedAt).map((event) => {
+                        const tone = historyEventTone[event.type] || historyEventTone.status_updated;
+                        const details = [
+                          event.note,
+                          event.reason ? `เหตุผล: ${event.reason}` : "",
+                          event.suspensionDays ? `พักงาน ${event.suspensionDays} วัน` : "",
+                          event.warningValidityDays ? `อายุผล ${event.warningValidityDays} วัน` : "",
+                          event.closeState ? FOLLOW_UP_CLOSE_STATE_LABELS[event.closeState] : "",
+                          event.closeReason ? `เหตุผลปิดติดตาม: ${event.closeReason}` : "",
+                          event.nextFollowUpDate ? `ติดตามถัดไป: ${formatDate(event.nextFollowUpDate)}` : "",
+                        ].filter(Boolean);
+                        return (
+                          <div key={event.id} className="flex items-start justify-between gap-2 py-2 text-xs">
+                            <div className="min-w-0">
+                              <span className="font-semibold text-slate-800">{event.label}</span>
+                              <span className="text-slate-400">
+                                {" "}
+                                · {event.actedByName} ({event.actedByRole}) · {formatDateTime(event.actedAt)}
+                              </span>
+                              {details.length > 0 && (
+                                <div className="mt-0.5 text-slate-600">{details.join(" · ")}</div>
+                              )}
+                            </div>
+                            <div className="flex shrink-0 flex-col items-end gap-1">
+                              <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${tone.chip}`}>
+                                {FOLLOW_UP_STATUS_LABELS[event.status || selectedCase.status]}
+                              </span>
+                              {event.hrmReviewStatus === "commented" && event.type !== "hrm_commented" && (
+                                <span className="rounded-full border border-amber-200 bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-800">
+                                  HRM มีความเห็นกลับ
+                                </span>
+                              )}
+                            </div>
                           </div>
-                        )}
-                        <div className="mt-2 text-[11px] text-slate-500">
-                          {event.actedByName} ({event.actedByRole}) · {formatDateTime(event.actedAt)}
-                        </div>
-                      </div>
-                      );
-                    })}
+                        );
+                      })}
                     </div>
                   ))}
               </div>
@@ -2278,33 +2665,96 @@ export const EmployeeFollowUpTab = ({
 
             {canManageFirstStage && selectedCase.status === "approved_pending_execution" && (
               <div className="border-t border-slate-100 px-4 py-4 sm:px-5">
-                <div className="mb-2 text-sm font-bold text-indigo-900">ดำเนินการตามที่ HRM อนุมัติ</div>
+                <div className="mb-2 text-sm font-bold text-indigo-900">จัดทำรายละเอียดเอกสารหลัง HRM อนุมัติแนวทาง</div>
                 <div className="mb-3 rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2 text-xs text-indigo-800">
-                  ข้อเสนอ: {selectedCase.pendingActionType ? FOLLOW_UP_ACTION_LABELS[selectedCase.pendingActionType] : "-"}
+                  ข้อเสนอ: {selectedActionType ? FOLLOW_UP_ACTION_LABELS[selectedActionType] : "-"}
                   {selectedCase.pendingActionNote ? ` · ${selectedCase.pendingActionNote}` : ""}
+                </div>
+                {selectedCase.documentReviewStatus === "commented" && selectedCase.documentReviewComment && (
+                  <div className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                    HRM ส่งกลับให้แก้ไข: {selectedCase.documentReviewComment}
+                  </div>
+                )}
+                <div className="grid gap-3 md:grid-cols-2">
+                  <label className="md:col-span-2 text-xs font-semibold text-slate-600">
+                    ข้อเท็จจริงสำหรับเอกสาร <span className="text-rose-500">*</span>
+                    <textarea rows={3} value={documentDraft.facts} onChange={(e) => setDocumentDraft((prev) => ({ ...prev, facts: e.target.value }))} className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm font-normal outline-none focus:ring-2 focus:ring-indigo-100" />
+                  </label>
+                  <label className="md:col-span-2 text-xs font-semibold text-slate-600">
+                    ระเบียบ/ข้อบังคับที่เกี่ยวข้อง
+                    <input value={documentDraft.violatedRule} onChange={(e) => setDocumentDraft((prev) => ({ ...prev, violatedRule: e.target.value }))} className="mt-1 h-10 w-full rounded-xl border border-slate-200 px-3 text-sm font-normal outline-none focus:ring-2 focus:ring-indigo-100" />
+                  </label>
+                  <label className="text-xs font-semibold text-slate-600">วันที่เกิดเหตุ<input type="date" value={documentDraft.incidentDate} onChange={(e) => setDocumentDraft((prev) => ({ ...prev, incidentDate: e.target.value }))} className="mt-1 h-10 w-full rounded-xl border border-slate-200 px-3 text-sm font-normal" /></label>
+                  <label className="text-xs font-semibold text-slate-600">เวลาเกิดเหตุ<input type="time" value={documentDraft.incidentTime} onChange={(e) => setDocumentDraft((prev) => ({ ...prev, incidentTime: e.target.value }))} className="mt-1 h-10 w-full rounded-xl border border-slate-200 px-3 text-sm font-normal" /></label>
+                  {selectedActionType?.startsWith("suspension_") && (
+                    <>
+                      <label className="text-xs font-semibold text-slate-600">วันเริ่มพักงาน<input type="date" value={documentDraft.suspensionStartDate} onChange={(e) => setDocumentDraft((prev) => ({ ...prev, suspensionStartDate: e.target.value }))} className="mt-1 h-10 w-full rounded-xl border border-slate-200 px-3 text-sm font-normal" /></label>
+                      <label className="text-xs font-semibold text-slate-600">วันสิ้นสุดพักงาน<input type="date" value={documentDraft.suspensionEndDate} onChange={(e) => setDocumentDraft((prev) => ({ ...prev, suspensionEndDate: e.target.value }))} className="mt-1 h-10 w-full rounded-xl border border-slate-200 px-3 text-sm font-normal" /></label>
+                    </>
+                  )}
+                  {selectedActionType === "termination" && (
+                    <>
+                      <label className="text-xs font-semibold text-slate-600">วันที่มีผลพ้นสภาพ <span className="text-rose-500">*</span><input type="date" value={documentDraft.terminationDate} onChange={(e) => setDocumentDraft((prev) => ({ ...prev, terminationDate: e.target.value }))} className="mt-1 h-10 w-full rounded-xl border border-slate-200 px-3 text-sm font-normal" /></label>
+                      {(selectedCase.issueType === "consecutive_absence" || selectedCase.issueType === "total_absence") && (
+                        <>
+                          <label className="text-xs font-semibold text-slate-600">วันเริ่มงาน<input type="date" value={documentDraft.employmentStartDate} onChange={(e) => setDocumentDraft((prev) => ({ ...prev, employmentStartDate: e.target.value }))} className="mt-1 h-10 w-full rounded-xl border border-slate-200 px-3 text-sm font-normal" /></label>
+                          <label className="text-xs font-semibold text-slate-600">วันทำงานล่าสุด<input type="date" value={documentDraft.lastWorkDate} onChange={(e) => setDocumentDraft((prev) => ({ ...prev, lastWorkDate: e.target.value }))} className="mt-1 h-10 w-full rounded-xl border border-slate-200 px-3 text-sm font-normal" /></label>
+                          <label className="text-xs font-semibold text-slate-600">วันเริ่มขาดงาน<input type="date" value={documentDraft.absenceStartDate} onChange={(e) => setDocumentDraft((prev) => ({ ...prev, absenceStartDate: e.target.value }))} className="mt-1 h-10 w-full rounded-xl border border-slate-200 px-3 text-sm font-normal" /></label>
+                        </>
+                      )}
+                    </>
+                  )}
                 </div>
                 <button
                   type="button"
                   disabled={busy}
-                  onClick={() => void executeApproved()}
-                  className="inline-flex items-center gap-1.5 rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-50"
+                  onClick={() => void submitDocumentDraft()}
+                  className="mt-4 inline-flex items-center gap-1.5 rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-50"
                 >
                   {busy ? <Loader2 size={15} className="animate-spin" /> : <CheckCircle2 size={15} />}
-                  ดำเนินการและเปิดขั้นออกเอกสาร
+                  ส่งร่างเอกสารให้ HRM อนุมัติ
                 </button>
               </div>
             )}
 
-            {(canManageFirstStage || canReviewByHrm) && selectedCase.status === "document_issued" && (
+            {canReviewByHrm && selectedCase.status === "awaiting_document_review" && selectedCase.documentDraft && (
+              <div className="border-t border-violet-100 bg-violet-50/40 px-4 py-4 sm:px-5">
+                <div className="text-sm font-bold text-violet-900">HRM ตรวจและอนุมัติร่างเอกสาร</div>
+                <div className="mt-3 rounded-xl border border-violet-200 bg-white p-3 text-sm text-slate-700">
+                  <div><span className="font-semibold">การดำเนินการ:</span> {selectedActionType ? FOLLOW_UP_ACTION_LABELS[selectedActionType] : "-"}</div>
+                  <div className="mt-2"><span className="font-semibold">ข้อเท็จจริง:</span> {selectedCase.documentDraft.facts}</div>
+                  {selectedCase.documentDraft.violatedRule && <div className="mt-2"><span className="font-semibold">ระเบียบที่เกี่ยวข้อง:</span> {selectedCase.documentDraft.violatedRule}</div>}
+                  <div className="mt-2 text-xs text-slate-500">วันที่เกิดเหตุ {formatDate(selectedCase.documentDraft.incidentDate)} {selectedCase.documentDraft.incidentTime ? `เวลา ${selectedCase.documentDraft.incidentTime}` : ""}</div>
+                  {selectedCase.documentDraft.suspensionStartDate && <div className="mt-1 text-xs text-slate-500">พักงาน {formatDate(selectedCase.documentDraft.suspensionStartDate)} - {formatDate(selectedCase.documentDraft.suspensionEndDate)}</div>}
+                  {selectedCase.documentDraft.terminationDate && <div className="mt-1 text-xs text-slate-500">มีผลพ้นสภาพ {formatDate(selectedCase.documentDraft.terminationDate)}</div>}
+                  {selectedCase.documentDraft.lastWorkDate && <div className="mt-1 text-xs text-slate-500">เริ่มงาน {formatDate(selectedCase.documentDraft.employmentStartDate)} · ทำงานล่าสุด {formatDate(selectedCase.documentDraft.lastWorkDate)} · เริ่มขาด {formatDate(selectedCase.documentDraft.absenceStartDate)}</div>}
+                </div>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {selectedActionType && resolveFollowUpTemplateKeys(selectedActionType, selectedCase.issueType).map((key) => (
+                    <button key={key} type="button" disabled={!!docBusyKey || busy} onClick={() => void previewDocument(key)} className="inline-flex items-center gap-1.5 rounded-xl border border-violet-200 bg-white px-3 py-2 text-xs font-semibold text-violet-700 hover:bg-violet-100 disabled:opacity-50">
+                      {docBusyKey === `preview-${key}` ? <Loader2 size={14} className="animate-spin" /> : <FileText size={14} />}
+                      ดูตัวอย่าง {FOLLOW_UP_TEMPLATE_LABELS[key]}
+                    </button>
+                  ))}
+                </div>
+                <textarea rows={2} value={documentReviewComment} onChange={(e) => setDocumentReviewComment(e.target.value)} placeholder="ความเห็นเกี่ยวกับเอกสาร (จำเป็นเมื่อส่งกลับให้แก้ไข)" className="mt-3 w-full rounded-xl border border-violet-200 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-violet-100" />
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <button type="button" disabled={busy} onClick={() => void reviewDocumentDraft(true)} className="rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-50">อนุมัติเอกสาร</button>
+                  <button type="button" disabled={busy} onClick={() => void reviewDocumentDraft(false)} className="rounded-xl border border-amber-300 bg-white px-4 py-2 text-sm font-semibold text-amber-700 hover:bg-amber-50 disabled:opacity-50">ส่งกลับให้ HR แก้ไข</button>
+                </div>
+              </div>
+            )}
+
+            {(canManageFirstStage || canReviewByHrm) && (selectedCase.status === "approved_pending_issue" || selectedCase.status === "document_issued") && (
               <div className="border-t border-slate-100 px-4 py-4 sm:px-5">
-                <div className="mb-2 text-sm font-bold text-teal-900">ออกเอกสารประกอบการดำเนินการ</div>
+                <div className="mb-2 text-sm font-bold text-teal-900">{selectedCase.status === "approved_pending_issue" ? "เอกสารผ่าน HRM แล้ว พร้อมออกเอกสารจริง" : "เอกสารที่ออกแล้ว"}</div>
                 <div className="mb-3 text-xs text-slate-500">
                   ระบบจะสร้าง PDF ตามฟอร์มจริงของบริษัท พร้อมฝังลายเซ็นดิจิทัลของผู้อนุมัติ/ผู้จัดทำ (ถ้ามี) — ช่องเซ็นของพนักงานและพยานต้องเซ็นสดเสมอ
                 </div>
-                <div className="flex flex-wrap gap-2">
+                {canManageFirstStage && <div className="flex flex-wrap gap-2">
                   {(() => {
                     const executedEvent = lastExecutedEvent(selectedCase);
-                    const actionType = executedEvent?.type as FollowUpActionType | undefined;
+                    const actionType = selectedCase.pendingActionType || (executedEvent?.type as FollowUpActionType | undefined);
                     const templateKeys = actionType
                       ? resolveFollowUpTemplateKeys(actionType, selectedCase.issueType)
                       : [];
@@ -2321,17 +2771,36 @@ export const EmployeeFollowUpTab = ({
                       </button>
                     ));
                   })()}
-                </div>
+                </div>}
                 {selectedCase.documents && selectedCase.documents.length > 0 && (
                   <div className="mt-3 space-y-1 text-[11px] text-slate-500">
-                    {selectedCase.documents.map((doc) => (
-                      <div key={doc.id}>
-                        สร้างแล้ว: {doc.templateLabel} · {doc.generatedByName} · {formatDateTime(doc.generatedAt)}
-                      </div>
-                    ))}
+                    {selectedCase.documents.map((doc) => {
+                      const redownloadKey = `redownload-${doc.id}`;
+                      return (
+                        <div key={doc.id} className="flex items-center justify-between gap-2">
+                          <span>
+                            สร้างแล้ว: {doc.templateLabel} · {doc.generatedByName} · {formatDateTime(doc.generatedAt)}
+                          </span>
+                          <button
+                            type="button"
+                            disabled={busy || docBusyKey === redownloadKey}
+                            onClick={() => redownloadDocument(doc)}
+                            title="ดาวน์โหลดเอกสารนี้อีกครั้ง"
+                            className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-slate-200 bg-white px-2 py-1 text-[11px] font-semibold text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+                          >
+                            {docBusyKey === redownloadKey ? (
+                              <Loader2 size={12} className="animate-spin" />
+                            ) : (
+                              <Download size={12} />
+                            )}
+                            ดาวน์โหลด
+                          </button>
+                        </div>
+                      );
+                    })}
                   </div>
                 )}
-                {canReviewByHrm ? (
+                {selectedCase.status === "document_issued" && (canReviewByHrm ? (
                   <div className="mt-3 border-t border-slate-100 pt-3">
                     <div className="mb-1.5 text-[11px] font-semibold text-slate-500">
                       หลังพนักงานเซ็นรับทราบแล้ว ปิดเคส:
@@ -2354,7 +2823,7 @@ export const EmployeeFollowUpTab = ({
                   <div className="mt-3 text-[11px] text-slate-500">
                     หลังพิมพ์ให้พนักงานเซ็นรับทราบเรียบร้อยแล้ว ให้ HRM เป็นผู้ปิดเคส
                   </div>
-                )}
+                ))}
               </div>
             )}
           </div>
@@ -2401,11 +2870,12 @@ export const EmployeeFollowUpTab = ({
                 );
               })()}
               <div>
-                <label className="mb-1 block text-xs font-semibold text-slate-600">บันทึกเพิ่มเติม</label>
+                <label className="mb-1 block text-xs font-semibold text-slate-600">ข้อมูลสรุปเพื่อให้ HRM พิจารณา</label>
                 <textarea
                   rows={3}
                   value={actionDraft.note}
                   onChange={(e) => setActionDraft((prev) => (prev ? { ...prev, note: e.target.value } : prev))}
+                  placeholder="สรุปสิ่งที่สอบถามมาและเหตุผลที่เสนอ ไม่จำเป็นต้องเขียนเป็นข้อความสำหรับหนังสือ"
                   className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-sky-100"
                 />
               </div>
@@ -2530,7 +3000,74 @@ const StageTabButton = ({
   );
 };
 
-const CompactGroupSummary = ({
+// การ์ดของแต่ละเคสในแท็บ "งานของฉัน" — โชว์แค่สิ่งจำเป็นต่อการตัดสินใจ พร้อมปุ่มดำเนินการหลักปุ่มเดียว
+const FollowUpWorkCard = ({
+  item,
+  primaryActionLabel,
+  onOpen,
+}: {
+  item: FollowUpQueueItem;
+  primaryActionLabel: string;
+  onOpen: () => void;
+}) => (
+  <div className="flex flex-col justify-between rounded-xl border border-slate-200 bg-white p-3 shadow-sm transition-shadow hover:shadow-md">
+    <div>
+      <div className="flex items-start justify-between gap-2">
+        <div>
+          <div className="text-sm font-bold text-slate-900">{item.employeeName}</div>
+          <div className="text-[11px] text-slate-500">
+            {item.employeeCode} · {item.projectName || "-"}
+          </div>
+        </div>
+        <span className={`rounded-full border px-2 py-0.5 text-[11px] font-semibold ${statusBadgeClass[item.status]}`}>
+          {getWorkflowLabel(item)}
+        </span>
+      </div>
+
+      <div className="mt-2 text-xs font-semibold text-slate-700">{item.issueLabel}</div>
+      <div className="mt-1 line-clamp-2 text-[11px] text-slate-500">{item.issueReason}</div>
+
+      <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[11px] text-slate-500">
+        <UserCircle2 size={12} />
+        {item.ownerName ? `ผู้รับผิดชอบ: ${item.ownerName}` : "ยังไม่ระบุผู้รับผิดชอบ"}
+      </div>
+    </div>
+
+    <button
+      type="button"
+      onClick={onOpen}
+      className="mt-3 inline-flex items-center justify-center gap-1.5 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-xs font-semibold text-sky-700 hover:bg-sky-100"
+    >
+      {primaryActionLabel}
+      <ArrowRight size={13} />
+    </button>
+  </div>
+);
+
+const BacklogDonutCard = ({
+  title,
+  items,
+  emptyText,
+  centerValue,
+  centerSub,
+}: {
+  title: string;
+  items: Array<{ key: string; count: number }>;
+  emptyText: string;
+  centerValue: React.ReactNode;
+  centerSub?: string;
+}) => (
+  <div className="rounded-xl border border-slate-200 bg-white p-3">
+    <div className="text-xs font-black text-slate-900">{title}</div>
+    {items.length === 0 ? (
+      <div className="mt-2 text-xs text-slate-400">{emptyText}</div>
+    ) : (
+      <DonutChart data={toDonutData(items)} centerValue={centerValue} centerSub={centerSub} height={180} unit="รายการ" />
+    )}
+  </div>
+);
+
+const BacklogRankedBarCard = ({
   title,
   items,
   emptyText,
@@ -2544,16 +3081,47 @@ const CompactGroupSummary = ({
     {items.length === 0 ? (
       <div className="mt-2 text-xs text-slate-400">{emptyText}</div>
     ) : (
-      <div className="mt-2 flex flex-wrap gap-1.5">
-        {items.map((item) => (
-          <div key={item.key} className="rounded-full border border-slate-200 bg-slate-50 px-2 py-1 text-[11px] text-slate-700">
-            <span className="font-semibold">{item.key}</span> <span className="text-slate-500">{item.count} รายการ</span>
-          </div>
-        ))}
-      </div>
+      <RankedBarChart
+        data={toBarData(items)}
+        maxValue={Math.max(1, ...items.map((item) => item.count))}
+        valueSuffix=" รายการ"
+        height={160}
+      />
     )}
   </div>
 );
+
+const BacklogTrendCard = ({ data }: { data: Array<{ name: string; value: number }> }) => {
+  const hasData = data.some((d) => d.value > 0);
+  return (
+    <div className="rounded-xl border border-slate-200 bg-white p-3">
+      <div className="text-xs font-black text-slate-900">แนวโน้ม Backlog รายเดือน (6 เดือนล่าสุด)</div>
+      {!hasData ? (
+        <div className="mt-2 text-xs text-slate-400">ยังไม่มีข้อมูลย้อนหลัง</div>
+      ) : (
+        <div className="mt-2" style={{ height: 180 }}>
+          <ResponsiveContainer width="100%" height="100%">
+            <BarChart data={data} margin={{ left: -20, right: 8, top: 12, bottom: 4 }}>
+              <CartesianGrid vertical={false} stroke="#f1f5f9" />
+              <XAxis dataKey="name" tick={{ fontSize: 11, fill: "#475569" }} tickLine={false} axisLine={false} />
+              <YAxis hide allowDecimals={false} />
+              <Tooltip
+                formatter={(value) => [`${value} รายการ`, "จำนวน"] as [string, string]}
+                contentStyle={{ fontSize: 12, borderRadius: 8, border: "1px solid #e2e8f0" }}
+              />
+              <Bar dataKey="value" fill="#0ea5e9" radius={[4, 4, 0, 0]} maxBarSize={40}>
+                <LabelList dataKey="value" position="top" style={{ fontSize: 10, fill: "#475569", fontWeight: 700 }} />
+                {data.map((_, i) => (
+                  <Cell key={i} fill="#0ea5e9" />
+                ))}
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+      )}
+    </div>
+  );
+};
 
 const StatBox = ({ label, value }: { label: string; value: string }) => (
   <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">

@@ -18,6 +18,8 @@ export type FollowUpStatus =
   | "in_progress"
   | "awaiting_hrm_review"
   | "approved_pending_execution"
+  | "awaiting_document_review"
+  | "approved_pending_issue"
   | "document_issued"
   | "no_action"
   | "closed";
@@ -25,11 +27,15 @@ export type FollowUpWarningRound = 0 | 1 | 2 | 3;
 export type FollowUpEscalationState = "none" | "hrm_review_required" | "termination_consideration";
 export type FollowUpCloseState = "resolved" | "monitoring_complete" | "no_action" | "terminated" | "other";
 export type FollowUpHrmReviewStatus = "not_requested" | "pending" | "approved" | "commented";
+export type FollowUpDocumentReviewStatus = "not_prepared" | "pending" | "approved" | "commented";
 
 export type FollowUpActionType =
   | "status_updated"
   | "hrm_approved"
   | "hrm_commented"
+  | "document_submitted"
+  | "document_approved"
+  | "document_commented"
   | "proposed_action"
   | "document_issued"
   | "verbal_warning"
@@ -57,6 +63,23 @@ export interface FollowUpDocumentRecord {
   generatedByName: string;
   usedSignatureOfUid?: string;
   usedSignatureOfName?: string;
+  actionType?: FollowUpActionType;
+}
+
+export interface FollowUpDocumentDraft {
+  incidentDate?: string;
+  incidentTime?: string;
+  facts: string;
+  violatedRule?: string;
+  suspensionStartDate?: string;
+  suspensionEndDate?: string;
+  terminationDate?: string;
+  employmentStartDate?: string;
+  lastWorkDate?: string;
+  absenceStartDate?: string;
+  preparedAt: number;
+  preparedByUid: string;
+  preparedByName: string;
 }
 
 export interface FollowUpIssueSnapshot {
@@ -141,6 +164,12 @@ export interface EmployeeFollowUpCase {
   hrmReviewedByUid?: string;
   hrmReviewedByName?: string;
   hrmReviewedByRole?: string;
+  documentDraft?: FollowUpDocumentDraft;
+  documentReviewStatus?: FollowUpDocumentReviewStatus;
+  documentReviewComment?: string;
+  documentReviewedAt?: number;
+  documentReviewedByUid?: string;
+  documentReviewedByName?: string;
   // ข้อเสนอที่ยังไม่ได้ดำเนินการจริง (proposed -> รอ HRM อนุมัติ -> HR ดำเนินการจริงใน executeApprovedAction)
   pendingActionType?: FollowUpActionType;
   pendingActionNote?: string;
@@ -231,7 +260,9 @@ export const FOLLOW_UP_STATUS_LABELS: Record<FollowUpStatus, string> = {
   proposed: "HR เสนอการดำเนินการ",
   in_progress: "กำลังติดตาม (ค่าเดิม)",
   awaiting_hrm_review: "รอ HRM พิจารณา",
-  approved_pending_execution: "HRM อนุมัติแล้ว รอ HR ดำเนินการ",
+  approved_pending_execution: "HRM อนุมัติแล้ว รอ HR จัดทำเอกสาร",
+  awaiting_document_review: "รอ HRM อนุมัติเอกสาร",
+  approved_pending_issue: "HRM อนุมัติเอกสารแล้ว รอ HR ออกเอกสาร",
   document_issued: "ออกเอกสารแล้ว รอปิดเคส",
   no_action: "ไม่ต้องดำเนินการ",
   closed: "ติดตามเสร็จสิ้น",
@@ -241,6 +272,9 @@ export const FOLLOW_UP_ACTION_LABELS: Record<FollowUpActionType, string> = {
   status_updated: "อัปเดตสถานะ",
   hrm_approved: "HRM อนุมัติ",
   hrm_commented: "HRM ให้ความเห็น",
+  document_submitted: "ส่งร่างเอกสารให้ HRM",
+  document_approved: "HRM อนุมัติเอกสาร",
+  document_commented: "HRM ส่งแก้ไขเอกสาร",
   proposed_action: "เสนอการดำเนินการ",
   document_issued: "ออกเอกสารประกอบการดำเนินการ",
   verbal_warning: "เตือนวาจา",
@@ -282,6 +316,8 @@ export const FOLLOW_UP_STATUS_OPTIONS: Array<{ value: FollowUpStatus; label: str
   { value: "proposed", label: FOLLOW_UP_STATUS_LABELS.proposed },
   { value: "awaiting_hrm_review", label: FOLLOW_UP_STATUS_LABELS.awaiting_hrm_review },
   { value: "approved_pending_execution", label: FOLLOW_UP_STATUS_LABELS.approved_pending_execution },
+  { value: "awaiting_document_review", label: FOLLOW_UP_STATUS_LABELS.awaiting_document_review },
+  { value: "approved_pending_issue", label: FOLLOW_UP_STATUS_LABELS.approved_pending_issue },
   { value: "document_issued", label: FOLLOW_UP_STATUS_LABELS.document_issued },
   { value: "no_action", label: FOLLOW_UP_STATUS_LABELS.no_action },
   { value: "closed", label: FOLLOW_UP_STATUS_LABELS.closed },
@@ -470,6 +506,8 @@ export const isFollowUpOpenStatus = (status: FollowUpStatus): boolean =>
   status === "in_progress" ||
   status === "awaiting_hrm_review" ||
   status === "approved_pending_execution" ||
+  status === "awaiting_document_review" ||
+  status === "approved_pending_issue" ||
   status === "document_issued";
 
 export const isFollowUpProcessedStatus = (status: FollowUpStatus): boolean =>
@@ -520,6 +558,12 @@ export const proposeAction = (
     claimedProject: requestContext?.requestedProject || baseCase.claimedProject,
     hrmReviewStatus: "pending",
     hrmReviewComment: "",
+    documentDraft: undefined,
+    documentReviewStatus: "not_prepared",
+    documentReviewComment: "",
+    documentReviewedAt: 0,
+    documentReviewedByUid: "",
+    documentReviewedByName: "",
     actions: [...(baseCase.actions || []), event],
     lastActionAt: now,
     updatedAt: now,
@@ -550,6 +594,9 @@ export const executeApprovedAction = (
       .find(
         (event) =>
           event.type !== "document_issued" &&
+          event.type !== "document_submitted" &&
+          event.type !== "document_approved" &&
+          event.type !== "document_commented" &&
           event.type !== "hrm_approved" &&
           event.type !== "hrm_commented" &&
           event.type !== "proposed_action" &&
@@ -655,6 +702,12 @@ export const resetFollowUpToPending = (
     hrmReviewedByUid: "",
     hrmReviewedByName: "",
     hrmReviewedByRole: "",
+    documentDraft: undefined,
+    documentReviewStatus: "not_prepared",
+    documentReviewComment: "",
+    documentReviewedAt: 0,
+    documentReviewedByUid: "",
+    documentReviewedByName: "",
     noActionReason: "",
     closeReason: "",
     closeState: undefined,
@@ -673,8 +726,10 @@ export const getDefaultHrmReviewStatus = (item: Partial<EmployeeFollowUpCase>): 
   if (
     item.status === "closed" ||
     item.status === "no_action" ||
-    item.status === "approved_pending_execution" ||
-    item.status === "document_issued"
+      item.status === "approved_pending_execution" ||
+      item.status === "awaiting_document_review" ||
+      item.status === "approved_pending_issue" ||
+      item.status === "document_issued"
   )
     return "approved";
   const actions = item.actions || [];
@@ -716,6 +771,11 @@ export const normalizeFollowUpCase = (item: EmployeeFollowUpCase): EmployeeFollo
     hrmReviewedByRole: item.hrmReviewedByRole || "",
     requestedByRole: item.requestedByRole || "HR",
     documents: item.documents || [],
+    documentReviewStatus: item.documentReviewStatus || "not_prepared",
+    documentReviewComment: item.documentReviewComment || "",
+    documentReviewedAt: Number(item.documentReviewedAt || 0),
+    documentReviewedByUid: item.documentReviewedByUid || "",
+    documentReviewedByName: item.documentReviewedByName || "",
   };
 };
 
@@ -816,6 +876,11 @@ export const buildFollowUpCaseFromRiskSeed = (
     hrmReviewedByUid: "",
     hrmReviewedByName: "",
     hrmReviewedByRole: "",
+    documentReviewStatus: "not_prepared",
+    documentReviewComment: "",
+    documentReviewedAt: 0,
+    documentReviewedByUid: "",
+    documentReviewedByName: "",
     nextFollowUpDate: "",
     latestIncidentDate: seed.latestIncidentDate,
     lastActionAt: 0,

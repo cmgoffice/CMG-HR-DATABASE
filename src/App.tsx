@@ -926,7 +926,6 @@ const Sidebar = ({ activeModule, setActiveModule, dbConnected, sidebarOpen, onTo
               <p className="text-white text-sm font-semibold truncate">{userProfile?.firstName} {userProfile?.lastName}</p>
               <p className="text-[10px] text-blue-400 font-medium truncate">{userProfile?.role?.join(', ')}</p>
             </div>
-            <NotificationBell setActiveModule={setActiveModule} />
           </div>
         ) : (
           <div className="flex flex-col items-center gap-2">
@@ -937,7 +936,6 @@ const Sidebar = ({ activeModule, setActiveModule, dbConnected, sidebarOpen, onTo
                 {userProfile?.firstName?.charAt(0) || firebaseUser?.email?.charAt(0).toUpperCase() || "A"}
               </div>
             )}
-            <NotificationBell setActiveModule={setActiveModule} />
           </div>
         )}
       </div>
@@ -3388,6 +3386,7 @@ function MasterDatabaseApp() {
           )}
           
           <div className="ml-auto flex items-center gap-4 border-l pl-4">
+            <NotificationBell setActiveModule={setActiveModule} />
             <button onClick={logout} className="text-xs font-semibold text-gray-500 hover:text-red-500 flex items-center gap-1 transition-colors">
               ออกจากระบบ
             </button>

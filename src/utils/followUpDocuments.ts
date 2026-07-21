@@ -1,4 +1,4 @@
-import { PDFDocument, PDFFont, PDFPage, rgb } from "pdf-lib";
+import { PDFDocument, PDFFont, PDFPage, PageSizes, rgb } from "pdf-lib";
 // @ts-ignore - @pdf-lib/fontkit has no bundled types matching this pdf-lib version
 import fontkit from "@pdf-lib/fontkit";
 import sarabunLatinRegularUrl from "@fontsource/sarabun/files/sarabun-latin-400-normal.woff";
@@ -7,18 +7,14 @@ import type { EmployeeFollowUpCase, FollowUpActionType, FollowUpDocumentRecord }
 
 const asset = (path: string): string => `${process.env.PUBLIC_URL || ""}${path}`;
 
-const TEMPLATE_URLS = {
-  warning_memo: asset("/templates/follow-up/fm-hr-017-warning-memo.pdf"),
-  warning_letter: asset("/templates/follow-up/fm-hr-018-warning-letter.pdf"),
-  termination_notice: asset("/templates/follow-up/termination-notice.pdf"),
-} as const;
+const LOGO_URL = asset("/templates/follow-up/cmg-logo.jpg");
 
 const FONT_REGULAR_URL = asset("/fonts/sarabun-thai-400-normal.woff");
 const FONT_BOLD_URL = asset("/fonts/sarabun-thai-600-normal.woff");
 const FONT_LATIN_REGULAR_URL = sarabunLatinRegularUrl;
 const FONT_LATIN_BOLD_URL = sarabunLatinBoldUrl;
 
-export type FollowUpTemplateKey = keyof typeof TEMPLATE_URLS;
+export type FollowUpTemplateKey = "warning_memo" | "warning_letter" | "termination_notice";
 
 export const FOLLOW_UP_TEMPLATE_LABELS: Record<FollowUpTemplateKey, string> = {
   warning_memo: "FM-HR-017 บันทึกข้อความขอออกหนังสือตักเตือน",
@@ -36,15 +32,20 @@ export interface FollowUpDocumentInput {
   followUpCase: EmployeeFollowUpCase;
   actionType: FollowUpActionType;
   note?: string;
+  violatedRule?: string;
   suspensionStartDate?: string;
   suspensionEndDate?: string;
   suspensionTotalDays?: number;
   terminationDate?: string;
   incidentDate?: string;
   incidentTime?: string;
+  employmentStartDate?: string;
+  lastWorkDate?: string;
+  absenceStartDate?: string;
   warningRound?: number;
   preparer: SignerInfo;
   approver?: SignerInfo;
+  isDraft?: boolean;
 }
 
 const fetchBytes = async (url: string): Promise<Uint8Array> => {
@@ -74,17 +75,24 @@ const thaiDateParts = (isoDate?: string): { day: string; month: string; year: st
   };
 };
 
-interface FieldSpec {
-  x: number;
-  y: number;
-  maxWidth: number;
-  size?: number;
-}
+const thaiDateText = (isoDate?: string): string => {
+  const p = thaiDateParts(isoDate);
+  if (!p.day) return "-";
+  return `${p.day} ${p.month} ${p.year}`;
+};
 
 interface PdfFontSet {
   thai: PDFFont;
   latin: PDFFont;
 }
+
+const PAGE_WIDTH = PageSizes.A4[0];
+const PAGE_HEIGHT = PageSizes.A4[1];
+const MARGIN_X = 50;
+const CONTENT_WIDTH = PAGE_WIDTH - MARGIN_X * 2;
+const TEXT_COLOR = rgb(0.05, 0.05, 0.15);
+const LINE_COLOR = rgb(0.15, 0.15, 0.2);
+const MARK_COLOR = rgb(0.75, 0, 0);
 
 const fontForCharacter = (fonts: PdfFontSet, character: string): PDFFont =>
   /[\u0E00-\u0E7F]/.test(character) ? fonts.thai : fonts.latin;
@@ -112,7 +120,7 @@ const drawTextWithFallback = (
       y: options.y,
       size: options.size,
       font: runFont,
-      color: rgb(0.05, 0.05, 0.15),
+      color: TEXT_COLOR,
     });
     x += runFont.widthOfTextAtSize(run, options.size);
     run = "";
@@ -127,20 +135,115 @@ const drawTextWithFallback = (
   flush();
 };
 
-/** วาดข้อความให้พอดีกับความกว้างที่กำหนด (ลดขนาดฟอนต์ลงหากยาวเกิน) โดยวางไว้เหนือเส้นประของฟอร์มเดิมเล็กน้อย */
-const drawFitted = (page: PDFPage, fonts: PdfFontSet, text: string, spec: FieldSpec, baseSize = 10) => {
-  const value = (text || "").trim();
-  if (!value) return;
-  let size = spec.size || baseSize;
-  const minSize = 6.5;
-  while (size > minSize && textWidth(fonts, value, size) > spec.maxWidth) {
-    size -= 0.5;
+/** ตัดคำแบบ greedy โดยยึดช่องว่างเป็นหลัก และตัดเป็นรายตัวอักษรหากคำ/ช่วงข้อความยาวเกินความกว้างที่กำหนด (เช่น ข้อความไทยที่ไม่มีช่องว่าง) */
+const wrapText = (fonts: PdfFontSet, text: string, maxWidth: number, size: number): string[] => {
+  const normalized = (text || "").replace(/\s+/g, " ").trim();
+  if (!normalized) return [];
+  const words = normalized.split(" ");
+  const lines: string[] = [];
+  let current = "";
+
+  const breakLongWord = (word: string) => {
+    let remaining = word;
+    while (remaining && textWidth(fonts, remaining, size) > maxWidth) {
+      let cut = remaining.length;
+      while (cut > 1 && textWidth(fonts, remaining.slice(0, cut), size) > maxWidth) cut -= 1;
+      lines.push(remaining.slice(0, cut));
+      remaining = remaining.slice(cut);
+    }
+    return remaining;
+  };
+
+  for (const word of words) {
+    const candidate = current ? `${current} ${word}` : word;
+    if (textWidth(fonts, candidate, size) <= maxWidth) {
+      current = candidate;
+      continue;
+    }
+    if (current) lines.push(current);
+    if (textWidth(fonts, word, size) > maxWidth) {
+      current = breakLongWord(word);
+    } else {
+      current = word;
+    }
   }
-  drawTextWithFallback(page, fonts, value, { x: spec.x, y: spec.y + 2, size });
+  if (current) lines.push(current);
+  return lines;
 };
 
-const drawMark = (page: PDFPage, fonts: PdfFontSet, spec: { x: number; y: number }) => {
-  page.drawText("X", { x: spec.x, y: spec.y, size: 10, font: fonts.latin, color: rgb(0.75, 0, 0) });
+/** วาดข้อความหลายบรรทัดแบบตัดคำอัตโนมัติ คืนค่า y ถัดจากบรรทัดสุดท้ายเพื่อให้วางเนื้อหาต่อได้ */
+const drawParagraph = (
+  page: PDFPage,
+  fonts: PdfFontSet,
+  text: string,
+  options: { x: number; y: number; maxWidth: number; size?: number; lineHeight?: number; maxLines?: number }
+): number => {
+  const size = options.size ?? 10;
+  const lineHeight = options.lineHeight ?? size * 1.6;
+  const lines = wrapText(fonts, text, options.maxWidth, size);
+  const limited = options.maxLines ? lines.slice(0, options.maxLines) : lines;
+  let y = options.y;
+  limited.forEach((line) => {
+    drawTextWithFallback(page, fonts, line, { x: options.x, y, size });
+    y -= lineHeight;
+  });
+  return limited.length > 0 ? y + lineHeight - lineHeight : y;
+};
+
+/** วาด label ตามด้วยค่า หรือเส้นใต้ว่างไว้ให้กรอก (ยาวไปจนถึง lineEndX) บนบรรทัดเดียวกัน */
+const drawLabelLine = (
+  page: PDFPage,
+  fonts: PdfFontSet,
+  options: {
+    label?: string;
+    value?: string;
+    x: number;
+    y: number;
+    lineEndX: number;
+    size?: number;
+    gap?: number;
+    boldLabel?: PdfFontSet;
+  }
+) => {
+  const size = options.size ?? 10;
+  const gap = options.gap ?? 4;
+  let valueX = options.x;
+  if (options.label) {
+    const labelFont = options.boldLabel || fonts;
+    drawTextWithFallback(page, labelFont, options.label, { x: options.x, y: options.y, size });
+    valueX = options.x + textWidth(labelFont, options.label, size) + gap;
+  }
+  const value = (options.value || "").trim();
+  if (value) {
+    drawTextWithFallback(page, fonts, value, { x: valueX, y: options.y, size });
+  } else if (options.lineEndX > valueX) {
+    page.drawLine({
+      start: { x: valueX, y: options.y - 2 },
+      end: { x: options.lineEndX, y: options.y - 2 },
+      thickness: 0.7,
+      color: LINE_COLOR,
+    });
+  }
+};
+
+const drawCheckbox = (page: PDFPage, options: { x: number; y: number; size?: number; checked?: boolean }) => {
+  const size = options.size ?? 9;
+  page.drawRectangle({
+    x: options.x,
+    y: options.y,
+    width: size,
+    height: size,
+    borderColor: LINE_COLOR,
+    borderWidth: 0.8,
+  });
+  if (options.checked) {
+    page.drawText("X", {
+      x: options.x + size * 0.15,
+      y: options.y + size * 0.12,
+      size: size * 0.95,
+      color: MARK_COLOR,
+    });
+  }
 };
 
 const embedSignature = async (
@@ -163,54 +266,88 @@ const embedSignature = async (
   }
 };
 
-// พิกัดอ้างอิงจากการดึงตำแหน่งข้อความจริงในไฟล์ต้นฉบับ (origin ล่างซ้าย, หน่วย pt, ขนาดหน้า A4)
-const WARNING_MEMO_FIELDS = {
-  date: { x: 458, y: 681.5, maxWidth: 90 } as FieldSpec,
-  employeeName: { x: 232, y: 586.3, maxWidth: 150 } as FieldSpec,
-  position: { x: 429, y: 586.3, maxWidth: 115 } as FieldSpec,
-  department: { x: 150, y: 562.9, maxWidth: 190 } as FieldSpec,
-  incidentDate: { x: 200, y: 539.6, maxWidth: 42 } as FieldSpec,
-  incidentTime: { x: 310, y: 539.6, maxWidth: 65 } as FieldSpec,
-  descriptionLine1: { x: 428, y: 539.6, maxWidth: 115 } as FieldSpec,
-  descriptionLine2: { x: 57, y: 516.2, maxWidth: 490 } as FieldSpec,
-  descriptionLine3: { x: 57, y: 493.0, maxWidth: 490 } as FieldSpec,
-  approverName: { x: 372, y: 204.4, maxWidth: 150 } as FieldSpec,
+/** วาดบรรทัด "ลงชื่อ...." พร้อมชื่อในวงเล็บและตำแหน่งด้านล่าง ฝังลายเซ็นดิจิทัลไว้เหนือเส้นหากมี */
+const drawSignatureBlock = async (
+  pdfDoc: PDFDocument,
+  page: PDFPage,
+  fonts: PdfFontSet,
+  options: { x: number; y: number; width: number; label?: string; name?: string; signer?: SignerInfo }
+) => {
+  const signLabel = "ลงชื่อ";
+  drawTextWithFallback(page, fonts, signLabel, { x: options.x, y: options.y, size: 10 });
+  const dotsStartX = options.x + textWidth(fonts, signLabel, 10) + 4;
+  page.drawLine({
+    start: { x: dotsStartX, y: options.y - 1 },
+    end: { x: options.x + options.width, y: options.y - 1 },
+    thickness: 0.7,
+    color: LINE_COLOR,
+  });
+  if (options.signer?.signatureImageUrl) {
+    await embedSignature(pdfDoc, page, options.signer, {
+      x: dotsStartX,
+      y: options.y + 3,
+      maxWidth: Math.max(0, options.x + options.width - dotsStartX),
+      maxHeight: 30,
+    });
+  }
+  const nameValue = options.name ?? options.signer?.name ?? "";
+  const nameText = `( ${nameValue} )`;
+  const nameWidth = textWidth(fonts, nameText, 10);
+  drawTextWithFallback(page, fonts, nameText, { x: options.x + (options.width - nameWidth) / 2, y: options.y - 16, size: 10 });
+  if (options.label) {
+    const labelWidth = textWidth(fonts, options.label, 9);
+    drawTextWithFallback(page, fonts, options.label, { x: options.x + (options.width - labelWidth) / 2, y: options.y - 30, size: 9 });
+  }
 };
 
-const WARNING_LETTER_FIELDS = {
-  day: { x: 335, y: 675.4, maxWidth: 25 } as FieldSpec,
-  month: { x: 395, y: 675.4, maxWidth: 55 } as FieldSpec,
-  year: { x: 465, y: 675.4, maxWidth: 55 } as FieldSpec,
-  employeeName: { x: 220, y: 636.5, maxWidth: 185 } as FieldSpec,
-  incidentDate: { x: 234, y: 583.4, maxWidth: 135 } as FieldSpec,
-  incidentTime: { x: 242, y: 564.0, maxWidth: 105 } as FieldSpec,
-  factsLine1: { x: 98, y: 525.1, maxWidth: 440 } as FieldSpec,
-  factsLine2: { x: 98, y: 505.7, maxWidth: 440 } as FieldSpec,
-  verbalCheckbox: { x: 108, y: 386 },
-  verbalRound: { x: 276, y: 384.3, maxWidth: 40 } as FieldSpec,
-  writtenCheckbox: { x: 340, y: 386 },
-  writtenRound: { x: 502, y: 384.3, maxWidth: 40 } as FieldSpec,
-  suspensionCheckbox: { x: 108, y: 347.5 },
-  suspensionFrom: { x: 200, y: 326.1, maxWidth: 130 } as FieldSpec,
-  suspensionTo: { x: 400, y: 326.1, maxWidth: 130 } as FieldSpec,
-  suspensionTotalDays: { x: 220, y: 306.7, maxWidth: 60 } as FieldSpec,
-  terminationCheckbox: { x: 108, y: 289.3 },
-  terminationDate: { x: 408, y: 287.3, maxWidth: 90 } as FieldSpec,
-  approverName: { x: 388, y: 190.7, maxWidth: 155 } as FieldSpec,
-  approverSignatureBox: { x: 386, y: 195, maxWidth: 160, maxHeight: 32 },
-};
+/** วาดหัวกระดาษบริษัท (โลโก้ + ชื่อ/ที่อยู่/เลขผู้เสียภาษี) แล้วคืนค่า y ถัดไปสำหรับวางเนื้อหา */
+const drawCompanyHeader = async (
+  pdfDoc: PDFDocument,
+  page: PDFPage,
+  fonts: PdfFontSet,
+  bold: PdfFontSet,
+  options: { includeEnglish?: boolean; includeTaxId?: boolean }
+): Promise<number> => {
+  const topY = PAGE_HEIGHT - MARGIN_X;
+  let logoBottomY = topY;
+  try {
+    const logoBytes = await fetchBytes(LOGO_URL);
+    const logo = await pdfDoc.embedJpg(logoBytes);
+    const logoWidth = 78;
+    const logoHeight = (logo.height / logo.width) * logoWidth;
+    page.drawImage(logo, { x: MARGIN_X, y: topY - logoHeight, width: logoWidth, height: logoHeight });
+    logoBottomY = topY - logoHeight;
+  } catch {
+    // ไม่พบไฟล์โลโก้ ให้แสดงเฉพาะข้อความหัวกระดาษ
+  }
 
-const TERMINATION_FIELDS = {
-  docDate: { x: 456, y: 645.5, maxWidth: 83 } as FieldSpec,
-  employeeName: { x: 94, y: 626.1, maxWidth: 160 } as FieldSpec,
-  employeeName2: { x: 58, y: 517.1, maxWidth: 340 } as FieldSpec,
-  position: { x: 256, y: 517.1, maxWidth: 250 } as FieldSpec,
-  startDate: { x: 58, y: 491.7, maxWidth: 175 } as FieldSpec,
-  lastWorkDate: { x: 146, y: 466.2, maxWidth: 240 } as FieldSpec,
-  absentSinceDate: { x: 144, y: 440.8, maxWidth: 350 } as FieldSpec,
-  employeeNameForTermination: { x: 281, y: 321.7, maxWidth: 225 } as FieldSpec,
-  effectiveDate: { x: 381, y: 296.2, maxWidth: 145 } as FieldSpec,
-  hrmApproverSignatureBox: { x: 312, y: 195, maxWidth: 150, maxHeight: 32 },
+  const textX = MARGIN_X + 92;
+  let textY = topY - 10;
+  drawTextWithFallback(page, bold, "บริษัท ซีเอ็มจี เอ็นจิเนียริ่ง แอนด์ คอนสตรัคชั่น จำกัด", { x: textX, y: textY, size: 12 });
+  textY -= 15;
+  if (options.includeEnglish) {
+    drawTextWithFallback(page, fonts, "CMG ENGINEERING & CONSTRUCTION CO., LTD.", { x: textX, y: textY, size: 9 });
+    textY -= 13;
+  }
+  drawTextWithFallback(page, fonts, "4/281 หมู่ 3 ตำบลเนินพระ อำเภอเมืองระยอง จังหวัดระยอง 21000 โทร./แฟกซ์: 033-680588", {
+    x: textX,
+    y: textY,
+    size: 8.5,
+  });
+  textY -= 12;
+  if (options.includeTaxId) {
+    drawTextWithFallback(page, fonts, "เลขประจำตัวผู้เสียภาษี 0215557001784", { x: textX, y: textY, size: 8.5 });
+    textY -= 12;
+  }
+
+  const ruleY = Math.min(logoBottomY, textY) - 12;
+  page.drawLine({
+    start: { x: MARGIN_X, y: ruleY },
+    end: { x: PAGE_WIDTH - MARGIN_X, y: ruleY },
+    thickness: 1,
+    color: LINE_COLOR,
+  });
+  return ruleY - 22;
 };
 
 const downloadBlob = (bytes: Uint8Array, filename: string) => {
@@ -225,17 +362,35 @@ const downloadBlob = (bytes: Uint8Array, filename: string) => {
   setTimeout(() => URL.revokeObjectURL(url), 4000);
 };
 
-const loadPdfWithFonts = async (
-  templateKey: FollowUpTemplateKey
-): Promise<{ pdfDoc: PDFDocument; page: PDFPage; regular: PdfFontSet; bold: PdfFontSet }> => {
-  const [templateBytes, regularBytes, boldBytes, latinRegularBytes, latinBoldBytes] = await Promise.all([
-    fetchBytes(TEMPLATE_URLS[templateKey]),
+const openPdfInNewTab = (bytes: Uint8Array) => {
+  const blob = new Blob([bytes], { type: "application/pdf" });
+  const url = URL.createObjectURL(blob);
+  const opened = window.open(url, "_blank");
+  if (!opened) {
+    // Popup blocked - fall back to a direct download so the user can still view the file.
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "preview.pdf";
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+  }
+  setTimeout(() => URL.revokeObjectURL(url), 60000);
+};
+
+const loadPdfWithFonts = async (): Promise<{
+  pdfDoc: PDFDocument;
+  page: PDFPage;
+  regular: PdfFontSet;
+  bold: PdfFontSet;
+}> => {
+  const [regularBytes, boldBytes, latinRegularBytes, latinBoldBytes] = await Promise.all([
     loadFontBytes(FONT_REGULAR_URL),
     loadFontBytes(FONT_BOLD_URL),
     loadFontBytes(FONT_LATIN_REGULAR_URL),
     loadFontBytes(FONT_LATIN_BOLD_URL),
   ]);
-  const pdfDoc = await PDFDocument.load(templateBytes);
+  const pdfDoc = await PDFDocument.create();
   pdfDoc.registerFontkit(fontkit as any);
   const regular = {
     thai: await pdfDoc.embedFont(regularBytes, { subset: true }),
@@ -245,112 +400,374 @@ const loadPdfWithFonts = async (
     thai: await pdfDoc.embedFont(boldBytes, { subset: true }),
     latin: await pdfDoc.embedFont(latinBoldBytes, { subset: true }),
   };
-  const page = pdfDoc.getPages()[0];
+  const page = pdfDoc.addPage(PageSizes.A4);
   return { pdfDoc, page, regular, bold };
 };
 
 export const generateWarningMemoPdf = async (input: FollowUpDocumentInput): Promise<Uint8Array> => {
-  const { pdfDoc, page, regular } = await loadPdfWithFonts("warning_memo");
-  const f = WARNING_MEMO_FIELDS;
+  const { pdfDoc, page, regular, bold } = await loadPdfWithFonts();
   const c = input.followUpCase;
-  const nowParts = thaiDateParts(new Date().toISOString().slice(0, 10));
 
-  drawFitted(page, regular, `${nowParts.day} ${nowParts.month} ${nowParts.year}`, f.date);
-  drawFitted(page, regular, c.employeeName, f.employeeName);
-  drawFitted(page, regular, c.position || "-", f.position);
-  drawFitted(page, regular, c.projectName || "-", f.department);
-  if (input.incidentDate) {
-    const parts = thaiDateParts(input.incidentDate);
-    drawFitted(page, regular, `${parts.day}/${parts.month}`, f.incidentDate, 8);
-  }
-  if (input.incidentTime) drawFitted(page, regular, input.incidentTime, f.incidentTime, 8);
-  const description = input.note || c.issueReason || c.issueLabel;
-  drawFitted(page, regular, description.slice(0, 55), f.descriptionLine1, 9);
-  drawFitted(page, regular, description.slice(55, 155), f.descriptionLine2, 9);
-  drawFitted(page, regular, description.slice(155, 255), f.descriptionLine3, 9);
-  drawFitted(page, regular, input.approver?.name || "", f.approverName);
+  let y = await drawCompanyHeader(pdfDoc, page, regular, bold, { includeEnglish: true, includeTaxId: true });
+
+  drawTextWithFallback(page, regular, "FM-HR-017/00", { x: MARGIN_X, y, size: 9 });
+  y -= 20;
+  const title = "บันทึกข้อความ";
+  const titleWidth = textWidth(bold, title, 16);
+  drawTextWithFallback(page, bold, title, { x: (PAGE_WIDTH - titleWidth) / 2, y, size: 16 });
+  y -= 26;
+
+  drawLabelLine(page, regular, {
+    label: "วันที่",
+    value: thaiDateText(new Date().toISOString().slice(0, 10)),
+    x: PAGE_WIDTH - MARGIN_X - 170,
+    y,
+    lineEndX: PAGE_WIDTH - MARGIN_X,
+  });
+  y -= 24;
+
+  drawLabelLine(page, regular, { label: "เรื่อง", value: "ขอออกหนังสือตักเตือน", x: MARGIN_X, y, lineEndX: PAGE_WIDTH - MARGIN_X });
+  y -= 20;
+  drawLabelLine(page, regular, { label: "เรียน", value: "ฝ่ายบุคคล", x: MARGIN_X, y, lineEndX: PAGE_WIDTH - MARGIN_X });
+  y -= 26;
+
+  const opening = `เนื่องจาก นาย/นาง/นางสาว ${c.employeeName} ตำแหน่ง ${c.position || "-"} สังกัดหน่วยงาน ${c.projectName || "-"} ได้กระทำการฝ่าฝืนกฎระเบียบข้อบังคับของบริษัท`;
+  y = drawParagraph(page, regular, opening, { x: MARGIN_X, y, maxWidth: CONTENT_WIDTH, size: 10.5, lineHeight: 17 });
+  y -= 6;
+
+  const incidentLine = `กล่าวคือ เมื่อวันที่ ${thaiDateText(input.incidentDate)} เวลาประมาณ ${input.incidentTime || "-"} น. ท่านได้กระทำดังนี้`;
+  y = drawParagraph(page, regular, incidentLine, { x: MARGIN_X, y, maxWidth: CONTENT_WIDTH, size: 10.5, lineHeight: 17 });
+  y -= 4;
+
+  const description = [input.note || c.issueReason || c.issueLabel, input.violatedRule ? `ระเบียบที่เกี่ยวข้อง: ${input.violatedRule}` : ""]
+    .filter(Boolean)
+    .join(" ");
+  y = drawParagraph(page, regular, description, { x: MARGIN_X, y, maxWidth: CONTENT_WIDTH, size: 10.5, lineHeight: 17, maxLines: 5 });
+  y -= 10;
+
+  y = drawParagraph(page, regular, "ซึ่งเป็นการกระทำความผิดระเบียบข้อบังคับการทำงานของบริษัท จึงเรียนมาเพื่อโปรดพิจารณา", {
+    x: MARGIN_X,
+    y,
+    maxWidth: CONTENT_WIDTH,
+    size: 10.5,
+    lineHeight: 17,
+  });
+  y -= 40;
+
+  await drawSignatureBlock(pdfDoc, page, regular, {
+    x: PAGE_WIDTH - MARGIN_X - 200,
+    y,
+    width: 200,
+    label: "ผู้มีอำนาจ",
+    name: input.approver?.name,
+    signer: input.approver,
+  });
 
   return pdfDoc.save();
 };
 
 export const generateWarningLetterPdf = async (input: FollowUpDocumentInput): Promise<Uint8Array> => {
-  const { pdfDoc, page, regular } = await loadPdfWithFonts("warning_letter");
-  const f = WARNING_LETTER_FIELDS;
+  const { pdfDoc, page, regular, bold } = await loadPdfWithFonts();
   const c = input.followUpCase;
-  const today = thaiDateParts(new Date().toISOString().slice(0, 10));
 
-  drawFitted(page, regular, today.day, f.day, 9);
-  drawFitted(page, regular, today.month, f.month, 9);
-  drawFitted(page, regular, today.year, f.year, 9);
-  drawFitted(page, regular, c.employeeName, f.employeeName);
-  if (input.incidentDate) {
-    const parts = thaiDateParts(input.incidentDate);
-    drawFitted(page, regular, `${parts.day} ${parts.month} ${parts.year}`, f.incidentDate, 9);
-  }
-  if (input.incidentTime) drawFitted(page, regular, input.incidentTime, f.incidentTime, 9);
-  const facts = input.note || c.issueReason || c.issueLabel;
-  drawFitted(page, regular, facts.slice(0, 70), f.factsLine1, 9);
-  drawFitted(page, regular, facts.slice(70, 160), f.factsLine2, 9);
+  let y = await drawCompanyHeader(pdfDoc, page, regular, bold, { includeEnglish: true, includeTaxId: true });
+
+  drawTextWithFallback(page, regular, "FM-HR-018", { x: MARGIN_X, y, size: 9 });
+  y -= 18;
+  const title = "หนังสือเตือน";
+  const titleWidth = textWidth(bold, title, 15);
+  drawTextWithFallback(page, bold, title, { x: (PAGE_WIDTH - titleWidth) / 2, y, size: 15 });
+  y -= 22;
+
+  drawLabelLine(page, regular, {
+    label: "วันที่",
+    value: thaiDateText(new Date().toISOString().slice(0, 10)),
+    x: PAGE_WIDTH - MARGIN_X - 190,
+    y,
+    lineEndX: PAGE_WIDTH - MARGIN_X,
+    size: 9.5,
+  });
+  y -= 18;
+
+  drawLabelLine(page, regular, {
+    label: "เรื่อง",
+    value: "การฝ่าฝืนคำสั่ง ระเบียบ หรือข้อบังคับเกี่ยวกับการทำงาน",
+    x: MARGIN_X,
+    y,
+    lineEndX: PAGE_WIDTH - MARGIN_X,
+    size: 9.5,
+  });
+  y -= 16;
+  drawLabelLine(page, regular, {
+    label: "เรียน",
+    value: `นาย/นาง/นางสาว ${c.employeeName}`,
+    x: MARGIN_X,
+    y,
+    lineEndX: PAGE_WIDTH - MARGIN_X,
+    size: 9.5,
+  });
+  y -= 22;
+
+  drawTextWithFallback(page, bold, "บันทึกการสอบสวน / Disciplinary Hearing", { x: MARGIN_X, y, size: 9.5 });
+  y -= 16;
+  y = drawParagraph(
+    page,
+    regular,
+    "การกระทำของท่านดังกล่าว เป็นการฝ่าฝืนระเบียบข้อบังคับการทำงาน / Your violation subject to Company Rule & Regulation :",
+    { x: MARGIN_X, y, maxWidth: CONTENT_WIDTH, size: 9, lineHeight: 13 }
+  );
+  const facts = input.note || c.issueReason || c.issueLabel || "-";
+  y = drawParagraph(page, regular, facts, { x: MARGIN_X, y, maxWidth: CONTENT_WIDTH, size: 9, lineHeight: 13, maxLines: 3 });
+  y -= 10;
+
+  drawTextWithFallback(page, bold, "บริษัทจึงขอลงโทษทางวินัยแก่ท่านโดย / You are therefore subjected to the following :-", {
+    x: MARGIN_X,
+    y,
+    size: 9.5,
+  });
+  y -= 18;
 
   const isVerbal = input.actionType === "verbal_warning";
   const isWritten = input.actionType.startsWith("written_warning");
   const isSuspension = input.actionType.startsWith("suspension_");
   const isTermination = input.actionType === "termination";
 
-  if (isVerbal) {
-    drawMark(page, regular, f.verbalCheckbox);
-    if (input.warningRound) drawFitted(page, regular, String(input.warningRound), f.verbalRound, 9);
-  }
-  if (isWritten) {
-    drawMark(page, regular, f.writtenCheckbox);
-    if (input.warningRound) drawFitted(page, regular, String(input.warningRound), f.writtenRound, 9);
-  }
-  if (isSuspension) {
-    drawMark(page, regular, f.suspensionCheckbox);
-    if (input.suspensionStartDate) {
-      const p = thaiDateParts(input.suspensionStartDate);
-      drawFitted(page, regular, `${p.day}/${p.month}/${p.year}`, f.suspensionFrom, 9);
-    }
-    if (input.suspensionEndDate) {
-      const p = thaiDateParts(input.suspensionEndDate);
-      drawFitted(page, regular, `${p.day}/${p.month}/${p.year}`, f.suspensionTo, 9);
-    }
-    if (input.suspensionTotalDays) drawFitted(page, regular, String(input.suspensionTotalDays), f.suspensionTotalDays, 9);
-  }
-  if (isTermination) {
-    drawMark(page, regular, f.terminationCheckbox);
-    if (input.terminationDate) {
-      const p = thaiDateParts(input.terminationDate);
-      drawFitted(page, regular, `${p.day}/${p.month}/${p.year}`, f.terminationDate, 9);
-    }
-  }
+  drawCheckbox(page, { x: MARGIN_X, y: y - 7, checked: isVerbal });
+  drawLabelLine(page, regular, {
+    label: "ตักเตือนด้วยวาจา / Verbal Warning ครั้งที่",
+    value: isVerbal && input.warningRound ? String(input.warningRound) : "",
+    x: MARGIN_X + 15,
+    y,
+    lineEndX: MARGIN_X + 260,
+    size: 9,
+  });
+  drawCheckbox(page, { x: MARGIN_X + 275, y: y - 7, checked: isWritten });
+  drawLabelLine(page, regular, {
+    label: "ตักเตือนเป็นหนังสือ / Written Warning ครั้งที่",
+    value: isWritten && input.warningRound ? String(input.warningRound) : "",
+    x: MARGIN_X + 290,
+    y,
+    lineEndX: PAGE_WIDTH - MARGIN_X,
+    size: 9,
+  });
+  y -= 20;
 
-  drawFitted(page, regular, input.approver ? `(${input.approver.name})` : "", f.approverName, 9);
-  await embedSignature(pdfDoc, page, input.approver, f.approverSignatureBox);
+  drawCheckbox(page, { x: MARGIN_X, y: y - 7, checked: false });
+  drawLabelLine(page, regular, {
+    label: "ตัดเงินเดือน / ตัดค่าจ้าง / ตัดสิทธิประโยชน์อื่นๆ / Wage / Benefit Cut off",
+    x: MARGIN_X + 15,
+    y,
+    lineEndX: PAGE_WIDTH - MARGIN_X,
+    size: 9,
+  });
+  y -= 20;
+
+  drawCheckbox(page, { x: MARGIN_X, y: y - 7, checked: isSuspension });
+  drawTextWithFallback(page, regular, "พักงานโดยไม่จ่ายค่าจ้าง / Suspension without payment", { x: MARGIN_X + 15, y, size: 9 });
+  y -= 17;
+  drawLabelLine(page, regular, {
+    label: "ตั้งแต่ / From",
+    value: input.suspensionStartDate ? thaiDateText(input.suspensionStartDate) : "",
+    x: MARGIN_X + 30,
+    y,
+    lineEndX: MARGIN_X + 280,
+    size: 9,
+  });
+  drawLabelLine(page, regular, {
+    label: "ถึง / To",
+    value: input.suspensionEndDate ? thaiDateText(input.suspensionEndDate) : "",
+    x: MARGIN_X + 300,
+    y,
+    lineEndX: PAGE_WIDTH - MARGIN_X,
+    size: 9,
+  });
+  y -= 17;
+  drawLabelLine(page, regular, {
+    label: "รวมเป็นเวลา / Total",
+    value: input.suspensionTotalDays ? `${input.suspensionTotalDays} วัน` : "",
+    x: MARGIN_X + 30,
+    y,
+    lineEndX: MARGIN_X + 250,
+    size: 9,
+  });
+  y -= 20;
+
+  drawCheckbox(page, { x: MARGIN_X, y: y - 7, checked: isTermination });
+  drawLabelLine(page, regular, {
+    label: "เลิกจ้าง / ให้ออกจากงาน / ไล่ออกจากงาน ตั้งแต่ / Termination from วันที่",
+    value: input.terminationDate ? thaiDateText(input.terminationDate) : "",
+    x: MARGIN_X + 15,
+    y,
+    lineEndX: PAGE_WIDTH - MARGIN_X,
+    size: 9,
+  });
+  y -= 24;
+
+  y = drawParagraph(
+    page,
+    regular,
+    "ดังนั้น จึงให้ท่านแก้ไข ปรับปรุง งดเว้น หรือละเว้นการกระทำเช่นว่านั้น บริษัทขอเตือนว่า หากท่านยังคงกระทำผิดซ้ำคำเตือนอีก ท่านอาจถูกพิจารณาลงโทษหนักขึ้น หรืออาจถึงขั้นเลิกจ้างโดยไม่จ่ายค่าชดเชยต่อไป จึงเรียนมาเพื่อทราบ",
+    { x: MARGIN_X, y, maxWidth: CONTENT_WIDTH, size: 9, lineHeight: 13 }
+  );
+  y -= 4;
+  y = drawParagraph(
+    page,
+    regular,
+    "หมายเหตุ : พนักงานไม่ได้ลงนามรับทราบหนังสือเตือน บริษัทจึงอ่านให้พนักงานฟังต่อหน้าพยาน หรือได้ส่งหนังสือโดยไปรษณีย์ หรือได้ปิดประกาศหนังสือให้ทราบแล้ว",
+    { x: MARGIN_X, y, maxWidth: CONTENT_WIDTH, size: 8.5, lineHeight: 12 }
+  );
+  y -= 26;
+
+  const halfWidth = (CONTENT_WIDTH - 20) / 2;
+  await drawSignatureBlock(pdfDoc, page, regular, {
+    x: MARGIN_X,
+    y,
+    width: halfWidth,
+    label: "ผู้มีอำนาจลงนาม",
+    name: input.approver?.name,
+    signer: input.approver,
+  });
+  await drawSignatureBlock(pdfDoc, page, regular, {
+    x: MARGIN_X + halfWidth + 20,
+    y,
+    width: halfWidth,
+    label: "ได้ทราบหนังสือเตือนแล้ว",
+  });
+  y -= 46;
+
+  drawLabelLine(page, regular, {
+    label: "วันที่กระทำผิด / Date of Violation :",
+    value: input.incidentDate ? thaiDateText(input.incidentDate) : "",
+    x: MARGIN_X,
+    y,
+    lineEndX: PAGE_WIDTH - MARGIN_X,
+    size: 9,
+  });
+  y -= 16;
+  drawLabelLine(page, regular, {
+    label: "เวลาที่กระทำผิด / Time of Violation :",
+    value: input.incidentTime || "",
+    x: MARGIN_X,
+    y,
+    lineEndX: PAGE_WIDTH - MARGIN_X,
+    size: 9,
+  });
+  y -= 18;
+
+  drawTextWithFallback(page, regular, "ลักษณะการกระทำผิด / Facts of the case :", { x: MARGIN_X, y, size: 9 });
+  y -= 14;
+  y = drawParagraph(page, regular, input.violatedRule || facts, {
+    x: MARGIN_X,
+    y,
+    maxWidth: CONTENT_WIDTH,
+    size: 9,
+    lineHeight: 13,
+    maxLines: 2,
+  });
+  y -= 20;
+
+  await drawSignatureBlock(pdfDoc, page, regular, {
+    x: MARGIN_X,
+    y,
+    width: 260,
+    label: "ผู้อ่าน/ผู้ส่งหนังสือ/ผู้ปิดประกาศ",
+  });
+  y -= 46;
+  await drawSignatureBlock(pdfDoc, page, regular, {
+    x: MARGIN_X,
+    y,
+    width: 260,
+    label: "พยาน",
+  });
 
   return pdfDoc.save();
 };
 
-export const generateTerminationNoticePdf = async (input: FollowUpDocumentInput): Promise<Uint8Array> => {
-  const { pdfDoc, page, regular } = await loadPdfWithFonts("termination_notice");
-  const f = TERMINATION_FIELDS;
-  const c = input.followUpCase;
-  const today = thaiDateParts(new Date().toISOString().slice(0, 10));
+const HR_MANAGER_NAME = "นางสาวสรยา พินิจผล";
 
-  drawFitted(page, regular, `${today.day} ${today.month} ${today.year}`, f.docDate, 9);
-  drawFitted(page, regular, c.employeeName, f.employeeName);
-  drawFitted(page, regular, c.employeeName, f.employeeName2);
-  drawFitted(page, regular, c.position || "-", f.position);
-  if (input.incidentDate) {
-    const startParts = thaiDateParts(input.incidentDate);
-    drawFitted(page, regular, `${startParts.day} ${startParts.month} ${startParts.year}`, f.absentSinceDate, 9);
-  }
-  drawFitted(page, regular, c.employeeName, f.employeeNameForTermination);
-  if (input.terminationDate) {
-    const p = thaiDateParts(input.terminationDate);
-    drawFitted(page, regular, `${p.day} ${p.month} ${p.year}`, f.effectiveDate, 9);
-  }
-  await embedSignature(pdfDoc, page, input.approver, f.hrmApproverSignatureBox);
+export const generateTerminationNoticePdf = async (input: FollowUpDocumentInput): Promise<Uint8Array> => {
+  const { pdfDoc, page, regular, bold } = await loadPdfWithFonts();
+  const c = input.followUpCase;
+
+  let y = await drawCompanyHeader(pdfDoc, page, regular, bold, { includeEnglish: false, includeTaxId: false });
+
+  const title = "หนังสือแจ้งพ้นสภาพการเป็นพนักงาน";
+  const titleWidth = textWidth(bold, title, 15);
+  drawTextWithFallback(page, bold, title, { x: (PAGE_WIDTH - titleWidth) / 2, y, size: 15 });
+  y -= 24;
+
+  drawLabelLine(page, regular, { label: "เลขที่", value: "", x: MARGIN_X, y, lineEndX: MARGIN_X + 130, size: 9.5 });
+  drawLabelLine(page, regular, {
+    label: "วันที่",
+    value: thaiDateText(new Date().toISOString().slice(0, 10)),
+    x: PAGE_WIDTH - MARGIN_X - 190,
+    y,
+    lineEndX: PAGE_WIDTH - MARGIN_X,
+    size: 9.5,
+  });
+  y -= 18;
+  drawTextWithFallback(page, regular, "เขียนที่ บริษัท ซีเอ็มจี เอ็นจิเนียริ่ง แอนด์ คอนสตรัคชั่น จำกัด", { x: MARGIN_X, y, size: 9.5 });
+  y -= 22;
+
+  drawLabelLine(page, regular, { label: "เรียน", value: `คุณ ${c.employeeName}`, x: MARGIN_X, y, lineEndX: PAGE_WIDTH - MARGIN_X, size: 10 });
+  y -= 18;
+  drawLabelLine(page, regular, {
+    label: "เรื่อง",
+    value: "การพ้นสภาพการเป็นพนักงาน",
+    x: MARGIN_X,
+    y,
+    lineEndX: PAGE_WIDTH - MARGIN_X,
+    size: 10,
+  });
+  y -= 18;
+  drawLabelLine(page, regular, {
+    label: "อ้างถึง",
+    value: "ระเบียบข้อบังคับการทำงาน",
+    x: MARGIN_X,
+    y,
+    lineEndX: PAGE_WIDTH - MARGIN_X,
+    size: 10,
+  });
+  y -= 24;
+
+  const paragraph1 = `ตามที่บริษัท ซีเอ็มจี เอ็นจิเนียริ่ง แอนด์ คอนสตรัคชั่น จำกัด ได้ทำการว่าจ้างคุณ ${c.employeeName} เข้าทำงานในตำแหน่ง ${c.position || "-"} ตั้งแต่วันที่ ${thaiDateText(input.employmentStartDate)} เป็นต้นมา จนถึงวันสุดท้ายที่พบว่าพนักงานมาทำงานในวันที่ ${thaiDateText(input.lastWorkDate)} นั้น`;
+  y = drawParagraph(page, regular, paragraph1, { x: MARGIN_X, y, maxWidth: CONTENT_WIDTH, size: 10, lineHeight: 16 });
+  y -= 8;
+
+  const paragraph2 = `แต่ปรากฏว่า ตั้งแต่วันที่ ${thaiDateText(input.absenceStartDate || input.incidentDate)} ซึ่งเป็นระยะเวลา 3 วันทำงานติดต่อกันขึ้นไป ที่พนักงานมิได้มาปฏิบัติงานที่บริษัทฯ โดยมิได้แจ้งหรือชี้แจงเหตุผลในการหยุดงานให้ทางบริษัทฯ ทราบแต่อย่างใด ถือได้ว่าพนักงานมีเจตนาละทิ้งหน้าที่ติดต่อกันเป็นเวลา 3 วันทำงานขึ้นไป โดยไม่มีเหตุอันควร ทำให้บริษัทฯ ได้รับความเสียหาย เป็นความผิดตามกฎหมายแรงงาน และข้อบังคับในการทำงานของบริษัทฯ หมวด วินัย การลงโทษ และการร้องทุกข์ ข้อที่ 12 ห้ามละทิ้งหน้าที่ หรือขาดงาน`;
+  y = drawParagraph(page, regular, paragraph2, { x: MARGIN_X, y, maxWidth: CONTENT_WIDTH, size: 10, lineHeight: 16 });
+  y -= 8;
+
+  const paragraph3 = `ดังนั้น โดยหนังสือฉบับนี้ บริษัทฯ ได้พิจารณาแล้ว จึงขอเลิกจ้างคุณ ${c.employeeName} โดยไม่จ่ายเงินค่าชดเชยใดๆ ตามกฎหมาย และให้พนักงานพ้นสภาพการเป็นพนักงาน นับตั้งแต่วันที่ ${thaiDateText(input.terminationDate)} เป็นต้นไป`;
+  y = drawParagraph(page, regular, paragraph3, { x: MARGIN_X, y, maxWidth: CONTENT_WIDTH, size: 10, lineHeight: 16 });
+  y -= 8;
+
+  drawTextWithFallback(page, regular, "จึงแจ้งมาเพื่อทราบ", { x: MARGIN_X, y, size: 10 });
+  y -= 40;
+
+  await drawSignatureBlock(pdfDoc, page, regular, {
+    x: MARGIN_X,
+    y,
+    width: 240,
+    label: "ฝ่ายบุคคลรับทราบ",
+    name: HR_MANAGER_NAME,
+  });
+  y -= 50;
+  await drawSignatureBlock(pdfDoc, page, regular, {
+    x: MARGIN_X,
+    y,
+    width: 240,
+    label: "ผู้จัดการโครงการ",
+    name: input.approver?.name,
+    signer: input.approver,
+  });
+  y -= 50;
+  await drawSignatureBlock(pdfDoc, page, regular, {
+    x: MARGIN_X,
+    y,
+    width: 240,
+    label: "พนักงานเซ็นรับทราบ",
+  });
 
   return pdfDoc.save();
 };
@@ -383,7 +800,7 @@ export const generateAndDownloadFollowUpDocument = async (
   input: FollowUpDocumentInput
 ): Promise<FollowUpDocumentRecord> => {
   const bytes = await GENERATORS[templateKey](input);
-  const filename = `${FOLLOW_UP_TEMPLATE_LABELS[templateKey]} - ${input.followUpCase.employeeName}.pdf`;
+  const filename = `${FOLLOW_UP_TEMPLATE_LABELS[templateKey]}${input.isDraft ? " - ร่างตรวจสอบ" : ""} - ${input.followUpCase.employeeName}.pdf`;
   downloadBlob(bytes, filename);
   return {
     id: `${input.followUpCase.id}-${templateKey}-${Date.now()}`,
@@ -394,5 +811,15 @@ export const generateAndDownloadFollowUpDocument = async (
     generatedByName: input.preparer.name,
     usedSignatureOfUid: input.approver?.uid,
     usedSignatureOfName: input.approver?.name,
+    actionType: input.actionType,
   };
+};
+
+/** Opens the document in a new browser tab so the user can view it before deciding to download it. */
+export const generateAndPreviewFollowUpDocument = async (
+  templateKey: FollowUpTemplateKey,
+  input: FollowUpDocumentInput
+): Promise<void> => {
+  const bytes = await GENERATORS[templateKey](input);
+  openPdfInNewTab(bytes);
 };
