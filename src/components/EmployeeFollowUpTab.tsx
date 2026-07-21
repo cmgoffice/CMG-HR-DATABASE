@@ -1702,19 +1702,20 @@ export const EmployeeFollowUpTab = ({
     }
   };
 
-  const redownloadDocument = async (doc: FollowUpDocumentRecord) => {
-    if (!selectedCase) return;
-    const actionType = doc.actionType || selectedCase.pendingActionType || (lastExecutedEvent(selectedCase)?.type as FollowUpActionType | undefined);
+  const redownloadDocument = async (doc: FollowUpDocumentRecord, caseOverride?: EmployeeFollowUpCase) => {
+    const targetCase = caseOverride || selectedCase;
+    if (!targetCase) return;
+    const actionType = doc.actionType || targetCase.pendingActionType || (lastExecutedEvent(targetCase)?.type as FollowUpActionType | undefined);
     if (!actionType) {
       window.alert("ไม่พบข้อมูลการดำเนินการที่ใช้สร้างเอกสารนี้ ไม่สามารถดาวน์โหลดซ้ำได้");
       return;
     }
-    const draft = selectedCase.documentDraft;
-    const executedEvent = lastExecutedEvent(selectedCase);
+    const draft = targetCase.documentDraft;
+    const executedEvent = lastExecutedEvent(targetCase);
     setDocBusyKey(`redownload-${doc.id}`);
     try {
       await generateAndDownloadFollowUpDocument(doc.templateKey, {
-        followUpCase: selectedCase,
+        followUpCase: targetCase,
         actionType,
         note: draft?.facts || executedEvent?.note,
         violatedRule: draft?.violatedRule,
@@ -1727,7 +1728,7 @@ export const EmployeeFollowUpTab = ({
         employmentStartDate: draft?.employmentStartDate,
         lastWorkDate: draft?.lastWorkDate,
         absenceStartDate: draft?.absenceStartDate,
-        warningRound: executedEvent?.warningRound || selectedCase.warningRound,
+        warningRound: executedEvent?.warningRound || targetCase.warningRound,
         preparer: findSigner(doc.generatedByUid, doc.generatedByName),
         approver: doc.usedSignatureOfUid || doc.usedSignatureOfName
           ? findSigner(doc.usedSignatureOfUid, doc.usedSignatureOfName)
@@ -2161,10 +2162,15 @@ export const EmployeeFollowUpTab = ({
                   <th className="px-3 py-2 text-center font-semibold">แหล่งที่มา</th>
                   <th className="px-3 py-2 text-center font-semibold">หนังสือเตือนล่าสุด</th>
                   <th className="px-3 py-2 text-center font-semibold">อัปเดตล่าสุด</th>
+                  <th className="px-3 py-2 text-center font-semibold">เอกสาร</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {filteredCases.map((item) => (
+                {filteredCases.map((item) => {
+                  const latestDoc = item.documents && item.documents.length > 0
+                    ? [...item.documents].sort((a, b) => new Date(b.generatedAt).getTime() - new Date(a.generatedAt).getTime())[0]
+                    : undefined;
+                  return (
                   <tr
                     key={item.id}
                     onClick={() => openCaseModal(item.id)}
@@ -2207,8 +2213,31 @@ export const EmployeeFollowUpTab = ({
                     <td className="px-3 py-2 text-center text-[11px] text-slate-500">
                       {item.isSynthetic ? "รอการบันทึก" : formatDateTime(item.lastActionAt || item.updatedAt)}
                     </td>
+                    <td className="px-3 py-2 text-center">
+                      {latestDoc ? (
+                        <button
+                          type="button"
+                          disabled={busy || docBusyKey === `redownload-${latestDoc.id}`}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            void redownloadDocument(latestDoc, item);
+                          }}
+                          title={`ดาวน์โหลด ${latestDoc.templateLabel} ล่าสุด`}
+                          className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2 py-1 text-[11px] font-semibold text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+                        >
+                          {docBusyKey === `redownload-${latestDoc.id}` ? (
+                            <Loader2 size={12} className="animate-spin" />
+                          ) : (
+                            <Download size={12} />
+                          )}
+                        </button>
+                      ) : (
+                        <span className="text-[11px] text-slate-300">-</span>
+                      )}
+                    </td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           </div>
