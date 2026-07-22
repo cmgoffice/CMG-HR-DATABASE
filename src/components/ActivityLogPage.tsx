@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { getFirestore, collection, query, orderBy, onSnapshot, limit } from 'firebase/firestore';
 import { useAuth } from '../auth/AuthContext';
-import { Activity, Loader2, Filter, Calendar, User, FileText, Search } from 'lucide-react';
+import { Activity, Loader2, Filter, Calendar, User, FileText, Search, Megaphone } from 'lucide-react';
 import { InfoTooltip } from './InfoTooltip';
+import { WhatsNewBacklogTab } from './WhatsNewBacklogTab';
 
 interface LogRecord {
   id: string;
@@ -16,6 +17,7 @@ interface LogRecord {
 
 export const ActivityLogPage = () => {
   const { hasRole, userProfile } = useAuth();
+  const [tab, setTab] = useState<'logs' | 'whats_new_backlog'>('logs');
   const [logs, setLogs] = useState<LogRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
@@ -111,10 +113,37 @@ export const ActivityLogPage = () => {
           <InfoTooltip content="แสดงข้อมูลจาก activity_logs โดยเรียงตาม createdAt ล่าสุด และจำกัด 500 รายการล่าสุด สถิติด้านล่างคำนวณจากรายการที่ผ่านตัวกรองปัจจุบัน" />
         </h2>
         <p className="text-sm text-gray-600">
-          ติดตามการเปลี่ยนแปลงข้อมูลทั้งหมดในระบบ - แสดง {filteredLogs.length} จาก {logs.length} รายการ
+          ติดตามการเปลี่ยนแปลงข้อมูลทั้งหมดในระบบ{tab === 'logs' ? ` - แสดง ${filteredLogs.length} จาก ${logs.length} รายการ` : ''}
         </p>
       </div>
 
+      <div className="mb-4 flex items-center gap-1 border-b border-gray-200">
+        <button
+          type="button"
+          onClick={() => setTab('logs')}
+          className={`-mb-px flex items-center gap-1.5 border-b-2 px-4 py-2 text-sm font-semibold ${
+            tab === 'logs' ? 'border-orange-500 text-orange-600' : 'border-transparent text-gray-500 hover:text-gray-700'
+          }`}
+        >
+          <Activity size={15} />
+          บันทึกกิจกรรม
+        </button>
+        <button
+          type="button"
+          onClick={() => setTab('whats_new_backlog')}
+          className={`-mb-px flex items-center gap-1.5 border-b-2 px-4 py-2 text-sm font-semibold ${
+            tab === 'whats_new_backlog' ? 'border-orange-500 text-orange-600' : 'border-transparent text-gray-500 hover:text-gray-700'
+          }`}
+        >
+          <Megaphone size={15} />
+          Backlog ประกาศ
+        </button>
+      </div>
+
+      {tab === 'whats_new_backlog' ? (
+        <WhatsNewBacklogTab />
+      ) : (
+        <>
       {/* Filters */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4 mb-4">
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
@@ -284,6 +313,8 @@ export const ActivityLogPage = () => {
             </div>
           </div>
         </div>
+      )}
+        </>
       )}
     </div>
   );

@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { Sparkles, X } from "lucide-react";
 import { WHATS_NEW_ENTRIES } from "../config/whatsNew";
 import { useAuth } from "../auth/AuthContext";
+import { recordWhatsNewAcknowledgement } from "../utils/whatsNewAcknowledgements";
 
 const DISMISSED_IDS_KEY = "cmg_whats_new_dismissed_ids";
 const SNOOZE_UNTIL_KEY = "cmg_whats_new_snooze_until";
@@ -18,8 +19,10 @@ const readDismissedIds = (): string[] => {
 };
 
 export const WhatsNewModal = () => {
-  const { userProfile } = useAuth();
+  const { userProfile, firebaseUser } = useAuth();
   const [open, setOpen] = useState(false);
+  // คิวประกาศที่ผู้ใช้คนนี้ยังไม่รับทราบ เรียงเก่า -> ใหม่ (ตามลำดับใน WHATS_NEW_ENTRIES) แสดงทีละ 1 รายการ
+  // ต้องกด "รับทราบแล้ว" ให้ครบทุกรายการก่อน ถึงจะไม่มีป๊อปอัปนี้ขึ้นมาอีก (แต่ละรายการหายไปเฉพาะตัวที่กดรับทราบ)
   const [pendingIds, setPendingIds] = useState<string[]>([]);
 
   const userRoles = userProfile?.role || [];
@@ -45,8 +48,10 @@ export const WhatsNewModal = () => {
     () => WHATS_NEW_ENTRIES.filter((entry) => pendingIds.includes(entry.id)),
     [pendingIds]
   );
+  // แสดงประกาศเก่าสุดที่ยังไม่รับทราบก่อนเสมอ ทีละรายการ ไล่มาจนครบคิว
+  const currentEntry = pendingEntries[0];
 
-  if (!open || pendingEntries.length === 0) return null;
+  if (!open || !currentEntry) return null;
 
   const close = () => setOpen(false);
 
@@ -55,11 +60,25 @@ export const WhatsNewModal = () => {
     close();
   };
 
-  const handleDismissForever = () => {
+  // รับทราบเฉพาะรายการที่กำลังแสดงอยู่ (ไม่ใช่ทั้งคิว) แล้วเลื่อนไปแสดงรายการถัดไปในคิวต่อทันที
+  // ถ้าหมดคิวแล้วค่อยปิดหน้าต่าง — บันทึกฝั่งเซิร์ฟเวอร์ด้วยเพื่อให้ตรวจสอบย้อนหลังได้ว่าใครรับทราบแล้วบ้าง
+  const handleAcknowledgeCurrent = () => {
     const existing = new Set(readDismissedIds());
-    pendingIds.forEach((id) => existing.add(id));
+    existing.add(currentEntry.id);
     localStorage.setItem(DISMISSED_IDS_KEY, JSON.stringify(Array.from(existing)));
-    close();
+    if (firebaseUser) {
+      const userName = `${userProfile?.firstName || ""} ${userProfile?.lastName || ""}`.trim() || firebaseUser.email || firebaseUser.uid;
+      void recordWhatsNewAcknowledgement({
+        entryId: currentEntry.id,
+        uid: firebaseUser.uid,
+        userName,
+        userRoles: userProfile?.role || [],
+        acknowledgedAt: Date.now(),
+      });
+    }
+    const remaining = pendingIds.filter((id) => id !== currentEntry.id);
+    setPendingIds(remaining);
+    if (remaining.length === 0) close();
   };
 
   return (
@@ -69,6 +88,11 @@ export const WhatsNewModal = () => {
           <div className="flex items-center gap-2">
             <Sparkles size={20} />
             <h2 className="text-base font-bold">มีอัปเดตใหม่ในระบบ</h2>
+            {pendingEntries.length > 1 && (
+              <span className="rounded-full bg-white/20 px-2 py-0.5 text-[11px] font-semibold">
+                เหลืออีก {pendingEntries.length} รายการ
+              </span>
+            )}
           </div>
           <button
             type="button"
@@ -80,20 +104,19 @@ export const WhatsNewModal = () => {
           </button>
         </div>
 
-        <div className="flex-1 overflow-y-auto px-5 py-4 space-y-5">
-          {pendingEntries.map((entry) => (
-            <div key={entry.id} className="rounded-xl border border-slate-200 p-4">
-              <div className="flex items-center justify-between gap-2">
-                <h3 className="text-sm font-bold text-slate-900">{entry.title}</h3>
-                <span className="shrink-0 text-[11px] font-medium text-slate-400">{entry.date}</span>
-              </div>
-              <ul className="mt-2 list-disc space-y-1 pl-4 text-sm text-slate-600">
-                {entry.items.map((item, idx) => (
-                  <li key={idx}>{item}</li>
-                ))}
-              </ul>
+        <div className="flex-1 overflow-y-auto px-5 py-4">
+          <div className="rounded-xl border border-slate-200 p-4">
+            <div className="flex items-center justify-between gap-2">
+              <h3 className="text-sm font-bold text-slate-900">{currentEntry.title}</h3>
+              <span className="shrink-0 text-[11px] font-medium text-slate-400">{currentEntry.date}</span>
             </div>
-          ))}
+            <ul className="mt-2 list-disc space-y-1 pl-4 text-sm text-slate-600">
+              {currentEntry.items.map((item, idx) => (
+                <li key={idx}>{item}</li>
+              ))}
+            </ul>
+          </div>
+          {/* ต้องกด "รับทราบแล้ว" ทีละรายการให้ครบคิว ป๊อปอัปนี้จะเด้งขึ้นถัดไปทันทีจนกว่าจะรับทราบครบทุกรายการ */}
         </div>
 
         <div className="flex flex-wrap items-center justify-end gap-2 border-t border-slate-100 px-5 py-3">
@@ -113,10 +136,10 @@ export const WhatsNewModal = () => {
           </button>
           <button
             type="button"
-            onClick={handleDismissForever}
+            onClick={handleAcknowledgeCurrent}
             className="rounded-lg bg-sky-600 px-3 py-2 text-xs font-semibold text-white hover:bg-sky-700"
           >
-            รับทราบแล้ว ไม่ต้องแสดงอีก
+            รับทราบแล้ว{pendingEntries.length > 1 ? " (ไปรายการถัดไป)" : " ไม่ต้องแสดงอีก"}
           </button>
         </div>
       </div>

@@ -2958,67 +2958,6 @@ function MasterDatabaseApp() {
     );
 
 
-  if (activeModule === "activity_logs")
-    return (
-      <div className="flex bg-gray-50 min-h-screen font-sans overflow-x-hidden">
-        <Sidebar
-          activeModule={activeModule}
-          setActiveModule={setActiveModule}
-          dbConnected={dbConnected}
-          sidebarOpen={sidebarOpen}
-          onToggleSidebar={() => setSidebarOpen((o) => !o)}
-          isMobile={isMobile}
-        />
-        <main
-          className="flex-1 p-4 pt-16 sm:p-6 lg:p-8 lg:pt-8 min-w-0 overflow-x-hidden transition-[margin-left] duration-200 ease-in-out"
-          style={{ marginLeft: isMobile ? 0 : sidebarOpen ? SIDEBAR_WIDTH : SIDEBAR_COLLAPSED_WIDTH }}
-        >
-          <header className="mb-8">
-            <h1 className="text-3xl font-bold text-gray-800 flex items-center gap-3">
-              <Activity className="text-orange-500" /> บันทึกกิจกรรม
-              <InfoTooltip content="แสดงข้อมูลจาก activity_logs โดยเรียงตาม createdAt ล่าสุด และสรุปจากรายการที่ถูกดึงมาแสดง" />
-            </h1>
-          </header>
-          <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-x-auto overflow-y-hidden">
-            {dataLoading ? (
-              <div className="p-12 flex justify-center">
-                <Loader2 className="animate-spin" />
-              </div>
-            ) : (
-              <table className="w-full text-left border-collapse min-w-[600px]">
-                <thead className="bg-gray-100 text-gray-600 text-xs uppercase font-semibold">
-                  <tr>
-                    <th className="px-3 py-0.5 border-b w-14 text-center">ลำดับ</th>
-                    <th className="px-3 py-0.5 border-b">เวลา</th>
-                    <th className="px-3 py-0.5 border-b">ผู้ใช้</th>
-                    <th className="px-3 py-0.5 border-b">Module</th>
-                    <th className="px-3 py-0.5 border-b">กิจกรรม</th>
-                    <th className="px-3 py-0.5 border-b">รายละเอียด</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-100 text-sm text-gray-700">
-                  {logs.map((log, idx) => (
-                    <tr key={log.id} className="hover:bg-gray-50">
-                      <td className="px-3 py-0.5 text-center text-gray-500">{idx + 1}</td>
-                      <td className="px-3 py-0.5">{log.timestamp}</td>
-                      <td className="px-3 py-0.5 font-medium">{log.user}</td>
-                      <td className="px-3 py-0.5">
-                        <span className="px-2 py-0.5 bg-slate-100 rounded border">
-                          {log.module}
-                        </span>
-                      </td>
-                      <td className="px-3 py-0.5 text-blue-600">{log.action}</td>
-                      <td className="px-3 py-0.5 text-gray-500">{log.details}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
-          </div>
-        </main>
-      </div>
-    );
-
   if (activeModule === "role_permissions")
     return (
       <div className="flex bg-gray-50 min-h-screen font-sans overflow-x-hidden">
