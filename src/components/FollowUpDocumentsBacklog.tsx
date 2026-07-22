@@ -1,6 +1,9 @@
 import React, { useMemo, useState } from "react";
-import { Eye, FileText, Search } from "lucide-react";
-import type { EmployeeFollowUpCase, FollowUpDocumentRecord } from "./employeeFollowUpConfig";
+import { doc, getFirestore, updateDoc } from "firebase/firestore";
+import { Download, Eye, FileText, Loader2, Search, Trash2 } from "lucide-react";
+import { EMPLOYEE_FOLLOW_UP_COLLECTION } from "./employeeFollowUpConfig";
+import type { EmployeeFollowUpCase, FollowUpActionType, FollowUpDocumentRecord } from "./employeeFollowUpConfig";
+import { generateAndDownloadFollowUpDocument } from "../utils/followUpDocuments";
 
 interface FlatFollowUpDocument extends FollowUpDocumentRecord {
   caseId: string;
@@ -17,18 +20,118 @@ const TEMPLATE_FILTER_OPTIONS: { value: "all" | FollowUpDocumentRecord["template
 ];
 
 /**
+ * หา action ที่แท้จริงที่ใช้สร้างเอกสารฉบับนี้ (ข้าม action ประเภทเวิร์กโฟลว์ เช่น เสนอ/อนุมัติ/ส่งร่าง)
+ * เพื่อใช้ประกอบการ re-generate PDF ตอนดาวน์โหลดซ้ำจาก backlog
+ */
+const lastExecutedFollowUpEvent = (item: EmployeeFollowUpCase) =>
+  [...(item.actions || [])].reverse().find((event) =>
+    event.type !== "document_issued" &&
+    event.type !== "document_submitted" &&
+    event.type !== "document_approved" &&
+    event.type !== "document_commented" &&
+    event.type !== "hrm_approved" &&
+    event.type !== "hrm_commented" &&
+    event.type !== "proposed_action" &&
+    event.type !== "status_updated"
+  );
+
+/**
  * รายการเอกสารทั้งหมดที่เคยออกแล้ว (ไม่ใช่รายการเคส) รวมจากทุกเคสในระบบ ให้ HR/HRM ค้นหา/ตรวจสอบย้อนหลัง
- * และกด "ดูเคส" เพื่อกระโดดไปเปิดเคสต้นทางของเอกสารนั้นได้ทันที
+ * และกด "ดูเคส" เพื่อกระโดดไปเปิดเคสต้นทางของเอกสารนั้นได้ทันที หรือกด "ดาวน์โหลด" เพื่อโหลดไฟล์ PDF ฉบับนั้นได้ทันที
+ * โดยไม่ต้องเปิดเคสก่อน (สร้าง PDF ใหม่จากข้อมูลเดิมที่บันทึกไว้ ใช้เลขที่เอกสารเดิม ไม่ออกเลขใหม่)
  */
 export const FollowUpDocumentsBacklog = ({
   cases,
   onOpenCase,
+  canManage,
 }: {
   cases: EmployeeFollowUpCase[];
   onOpenCase: (caseId: string) => void;
+  /** ลบบันทึกเอกสารได้เฉพาะ HR/HRM (สิทธิ์เดียวกับที่จัดการเคสได้) */
+  canManage: boolean;
 }) => {
   const [search, setSearch] = useState("");
   const [templateFilter, setTemplateFilter] = useState<"all" | FollowUpDocumentRecord["templateKey"]>("all");
+  const [downloadBusyId, setDownloadBusyId] = useState<string>("");
+  const [deleteBusyId, setDeleteBusyId] = useState<string>("");
+
+  const downloadDocument = async (docItem: FlatFollowUpDocument) => {
+    const sourceCase = cases.find((item) => item.id === docItem.caseId);
+    if (!sourceCase) {
+      window.alert("ไม่พบเคสต้นทางของเอกสารนี้ ไม่สามารถดาวน์โหลดได้");
+      return;
+    }
+    const actionType: FollowUpActionType | undefined =
+      docItem.actionType || sourceCase.pendingActionType || (lastExecutedFollowUpEvent(sourceCase)?.type as FollowUpActionType | undefined);
+    if (!actionType) {
+      window.alert("ไม่พบข้อมูลการดำเนินการที่ใช้สร้างเอกสารนี้ ไม่สามารถดาวน์โหลดซ้ำได้");
+      return;
+    }
+    const draft = sourceCase.documentDraft;
+    const executedEvent = lastExecutedFollowUpEvent(sourceCase);
+    setDownloadBusyId(docItem.id);
+    try {
+      await generateAndDownloadFollowUpDocument(docItem.templateKey, {
+        followUpCase: sourceCase,
+        actionType,
+        note: draft?.facts || executedEvent?.note,
+        violatedRule: draft?.violatedRule,
+        incidentDate: draft?.incidentDate,
+        incidentTime: draft?.incidentTime,
+        suspensionStartDate: draft?.suspensionStartDate,
+        suspensionEndDate: draft?.suspensionEndDate,
+        suspensionTotalDays: executedEvent?.suspensionDays,
+        terminationDate: draft?.terminationDate,
+        employmentStartDate: draft?.employmentStartDate,
+        lastWorkDate: draft?.lastWorkDate,
+        absenceStartDate: draft?.absenceStartDate,
+        warningRound: executedEvent?.warningRound || sourceCase.warningRound,
+        preparer: { uid: docItem.generatedByUid, name: docItem.generatedByName },
+        approver:
+          docItem.usedSignatureOfUid || docItem.usedSignatureOfName
+            ? { uid: docItem.usedSignatureOfUid || "", name: docItem.usedSignatureOfName || "" }
+            : undefined,
+        // ใช้เลขที่เอกสารเดิมที่เคยออกไว้แล้ว ห้ามออกเลขใหม่ตอนดาวน์โหลดซ้ำ
+        documentNumber: docItem.documentNumber,
+        attachments: draft?.attachments,
+      });
+    } catch (error) {
+      window.alert(`ดาวน์โหลดเอกสารไม่สำเร็จ: ${error instanceof Error ? error.message : "เกิดข้อผิดพลาดที่ไม่คาดคิด"}`);
+    } finally {
+      setDownloadBusyId("");
+    }
+  };
+
+  /**
+   * ลบบันทึกเอกสารฉบับเดียวออกจากประวัติเคสต้นทาง (ไม่ลบทั้งเคส) ใช้เมื่อออกเอกสารทดสอบผิดพลาด
+   * เลขที่เอกสารเดิมจะไม่ถูกนำมาใช้ซ้ำ (ตัวนับเดินหน้าต่อไปเรื่อยๆ) เพื่อไม่ให้เลขที่ซ้ำกับเอกสารจริงที่อาจพิมพ์ไปแล้ว
+   */
+  const deleteDocument = async (docItem: FlatFollowUpDocument) => {
+    const sourceCase = cases.find((item) => item.id === docItem.caseId);
+    if (!sourceCase) {
+      window.alert("ไม่พบเคสต้นทางของเอกสารนี้ ไม่สามารถลบได้");
+      return;
+    }
+    if (
+      !window.confirm(
+        `ยืนยันลบบันทึกเอกสาร "${docItem.templateLabel}${
+          docItem.documentNumber ? ` (เลขที่ ${docItem.documentNumber})` : ""
+        }" ของ ${docItem.employeeName} ออกจากประวัติเคส? (เลขที่เอกสารเดิมจะไม่ถูกนำมาใช้ซ้ำ)`
+      )
+    ) {
+      return;
+    }
+    setDeleteBusyId(docItem.id);
+    try {
+      const nextDocuments = (sourceCase.documents || []).filter((item) => item.id !== docItem.id);
+      const caseRef = doc(getFirestore(), "CMG-HR-Database", "root", EMPLOYEE_FOLLOW_UP_COLLECTION, sourceCase.id);
+      await updateDoc(caseRef, { documents: nextDocuments, updatedAt: Date.now() });
+    } catch (error) {
+      window.alert(`ลบไม่สำเร็จ: ${error instanceof Error ? error.message : "เกิดข้อผิดพลาดที่ไม่คาดคิด"}`);
+    } finally {
+      setDeleteBusyId("");
+    }
+  };
 
   const flatDocuments = useMemo<FlatFollowUpDocument[]>(() => {
     const list: FlatFollowUpDocument[] = [];
@@ -136,14 +239,45 @@ export const FollowUpDocumentsBacklog = ({
                     {new Date(docItem.generatedAt).toLocaleString("th-TH")}
                   </td>
                   <td className="px-4 py-3 text-right">
-                    <button
-                      type="button"
-                      onClick={() => onOpenCase(docItem.caseId)}
-                      className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-50"
-                    >
-                      <Eye size={13} />
-                      ดูเคส
-                    </button>
+                    <div className="flex items-center justify-end gap-2">
+                      <button
+                        type="button"
+                        disabled={downloadBusyId === docItem.id}
+                        onClick={() => void downloadDocument(docItem)}
+                        title={`ดาวน์โหลด ${docItem.templateLabel}`}
+                        className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+                      >
+                        {downloadBusyId === docItem.id ? (
+                          <Loader2 size={13} className="animate-spin" />
+                        ) : (
+                          <Download size={13} />
+                        )}
+                        ดาวน์โหลด
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => onOpenCase(docItem.caseId)}
+                        className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-50"
+                      >
+                        <Eye size={13} />
+                        ดูเคส
+                      </button>
+                      {canManage && (
+                        <button
+                          type="button"
+                          disabled={deleteBusyId === docItem.id}
+                          onClick={() => void deleteDocument(docItem)}
+                          title="ลบบันทึกเอกสารฉบับนี้ออกจากประวัติเคส (เลขที่เอกสารจะไม่ถูกนำมาใช้ซ้ำ)"
+                          className="inline-flex items-center gap-1.5 rounded-lg border border-rose-200 bg-rose-50 px-3 py-1.5 text-xs font-semibold text-rose-700 hover:bg-rose-100 disabled:opacity-50"
+                        >
+                          {deleteBusyId === docItem.id ? (
+                            <Loader2 size={13} className="animate-spin" />
+                          ) : (
+                            <Trash2 size={13} />
+                          )}
+                        </button>
+                      )}
+                    </div>
                   </td>
                 </tr>
               ))

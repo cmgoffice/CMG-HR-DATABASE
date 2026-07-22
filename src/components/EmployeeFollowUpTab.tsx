@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { addDoc, collection, doc, getFirestore, onSnapshot, setDoc, deleteField } from "firebase/firestore";
+import { addDoc, collection, deleteDoc, doc, getFirestore, onSnapshot, setDoc, deleteField } from "firebase/firestore";
 import {
   AlertTriangle,
   ArrowRight,
@@ -12,6 +12,7 @@ import {
   Loader2,
   Search,
   ShieldAlert,
+  Trash2,
   Upload,
   UserCircle2,
   X,
@@ -1805,6 +1806,76 @@ export const EmployeeFollowUpTab = ({
     }
   };
 
+  /**
+   * ลบเคสออกจากระบบทั้งหมด (ทั้งประวัติการดำเนินการและบันทึกเอกสารทุกฉบับในเคสนี้) ใช้เมื่อสร้าง/ทดสอบผิดพลาด
+   * จำกัดสิทธิ์เฉพาะ HR/HRM (canManage) เพราะเป็นการลบถาวรและกระทบเคสได้ทุกที่มา (ทั้งสร้างเองและจากการตรวจจับความเสี่ยง
+   * — ถ้าเคสยังถูกตรวจพบจากความเสี่ยงอยู่ ลบแล้วจะกลับมาเป็นรายการ "ยังไม่บันทึก" ในคิวใหม่ ไม่ได้แปลว่าเคสหายไปจริง
+   * จนกว่าเงื่อนไขความเสี่ยงจะหายไปเอง) พยายามลบภาพหลักฐานที่แนบไว้ใน Storage ไปด้วยเพื่อไม่ให้เป็นไฟล์ค้าง
+   */
+  const deleteCase = async () => {
+    if (!selectedCase || !canManage || selectedCase.isSynthetic) return;
+    const hasIssuedDocuments = (selectedCase.documents || []).length > 0;
+    const confirmMessage = hasIssuedDocuments
+      ? `เคสนี้มีเอกสารที่ออกไปแล้ว (${selectedCase.documents?.length} ฉบับ) การลบเคสจะลบประวัติทั้งหมดออกจากระบบอย่างถาวร ยืนยันลบ "${selectedCase.employeeName}: ${selectedCase.issueLabel}"?`
+      : `ยืนยันลบเคส "${selectedCase.employeeName}: ${selectedCase.issueLabel}"? การลบไม่สามารถกู้คืนได้`;
+    if (!window.confirm(confirmMessage)) return;
+    setBusy(true);
+    try {
+      const attachments = selectedCase.documentDraft?.attachments || [];
+      await Promise.all(attachments.map((url) => removeFollowUpAttachment(url)));
+      await deleteDoc(doc(db, "CMG-HR-Database", "root", EMPLOYEE_FOLLOW_UP_COLLECTION, selectedCase.id));
+      await logActivity("ลบเคส", `${selectedCase.employeeName} (${selectedCase.employeeCode}) · ${selectedCase.issueLabel}`);
+      closeCaseModal();
+      showToast("ลบเคสแล้ว");
+    } catch (error) {
+      window.alert(`ลบเคสไม่สำเร็จ: ${error instanceof Error ? error.message : "เกิดข้อผิดพลาดที่ไม่คาดคิด"}`);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  /**
+   * ลบบันทึกเอกสารฉบับเดียวออกจากประวัติของเคส (ไม่ลบทั้งเคส) ใช้เมื่อออกเอกสารทดสอบผิดพลาดแต่เคสยังต้องเก็บไว้
+   * หมายเหตุ: เลขที่เอกสารที่เคยออกไปแล้วจะไม่ถูกนำมาใช้ซ้ำ (ตัวนับเลขเอกสารเดินหน้าต่อไปเรื่อยๆ ไม่ลดถอยหลัง)
+   * เพื่อไม่ให้เลขที่ซ้ำกับเอกสารจริงที่อาจถูกพิมพ์/แจกไปแล้ว
+   */
+  const deleteDocumentRecord = async (docRecord: FollowUpDocumentRecord) => {
+    if (!selectedCase || !canManage || !actor) return;
+    if (
+      !window.confirm(
+        `ยืนยันลบบันทึกเอกสาร "${docRecord.templateLabel}${
+          docRecord.documentNumber ? ` (เลขที่ ${docRecord.documentNumber})` : ""
+        }" ออกจากประวัติเคสนี้? (เลขที่เอกสารเดิมจะไม่ถูกนำมาใช้ซ้ำ)`
+      )
+    ) {
+      return;
+    }
+    setBusy(true);
+    try {
+      const now = Date.now();
+      const baseCase = materializeSelectedCase(selectedCase, now);
+      if (!baseCase) throw new Error("ไม่พบข้อมูลเคส");
+      const nextCase: EmployeeFollowUpCase = {
+        ...baseCase,
+        documents: (baseCase.documents || []).filter((item) => item.id !== docRecord.id),
+        updatedAt: now,
+        updatedByUid: actor.uid,
+        updatedByName: actor.name,
+        updatedByRole: actor.role,
+      };
+      await persistCase(
+        nextCase,
+        "ลบบันทึกเอกสาร",
+        `${selectedCase.employeeName} · ${docRecord.templateLabel}${docRecord.documentNumber ? ` (${docRecord.documentNumber})` : ""}`
+      );
+      showToast("ลบบันทึกเอกสารแล้ว");
+    } catch (error) {
+      window.alert(`ลบไม่สำเร็จ: ${error instanceof Error ? error.message : "เกิดข้อผิดพลาดที่ไม่คาดคิด"}`);
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const findSigner = (uid?: string, name?: string): { uid: string; name: string; signatureImageUrl?: string } => {
     const match = uid ? users.find((user) => user.uid === uid) : undefined;
     return {
@@ -2473,6 +2544,17 @@ export const EmployeeFollowUpTab = ({
                         แก้ไข/เริ่มกระบวนการใหม่
                       </button>
                     )}
+                    {canManage && !selectedCase.isSynthetic && (
+                      <button
+                        type="button"
+                        disabled={busy}
+                        onClick={() => void deleteCase()}
+                        title="ลบเคสนี้ออกจากระบบทั้งหมดอย่างถาวร (ใช้เมื่อสร้าง/ทดสอบผิดพลาด)"
+                        className="rounded-full border border-rose-200 bg-rose-50 px-2 py-1 text-[11px] font-semibold text-rose-700 hover:bg-rose-100 disabled:opacity-50"
+                      >
+                        ลบเคส
+                      </button>
+                    )}
                   </div>
                   <button
                     type="button"
@@ -3054,20 +3136,33 @@ export const EmployeeFollowUpTab = ({
                             {doc.documentNumber ? ` · เลขที่ ${doc.documentNumber}` : ""} · {doc.generatedByName} ·{" "}
                             {formatDateTime(doc.generatedAt)}
                           </span>
-                          <button
-                            type="button"
-                            disabled={busy || docBusyKey === redownloadKey}
-                            onClick={() => redownloadDocument(doc)}
-                            title="ดาวน์โหลดเอกสารนี้อีกครั้ง"
-                            className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-slate-200 bg-white px-2 py-1 text-[11px] font-semibold text-slate-600 hover:bg-slate-50 disabled:opacity-50"
-                          >
-                            {docBusyKey === redownloadKey ? (
-                              <Loader2 size={12} className="animate-spin" />
-                            ) : (
-                              <Download size={12} />
+                          <div className="flex shrink-0 items-center gap-1">
+                            <button
+                              type="button"
+                              disabled={busy || docBusyKey === redownloadKey}
+                              onClick={() => redownloadDocument(doc)}
+                              title="ดาวน์โหลดเอกสารนี้อีกครั้ง"
+                              className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2 py-1 text-[11px] font-semibold text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+                            >
+                              {docBusyKey === redownloadKey ? (
+                                <Loader2 size={12} className="animate-spin" />
+                              ) : (
+                                <Download size={12} />
+                              )}
+                              ดาวน์โหลด
+                            </button>
+                            {canManage && (
+                              <button
+                                type="button"
+                                disabled={busy}
+                                onClick={() => void deleteDocumentRecord(doc)}
+                                title="ลบบันทึกเอกสารฉบับนี้ออกจากประวัติเคส (เลขที่เอกสารจะไม่ถูกนำมาใช้ซ้ำ)"
+                                className="inline-flex items-center gap-1 rounded-lg border border-rose-200 bg-rose-50 px-2 py-1 text-[11px] font-semibold text-rose-700 hover:bg-rose-100 disabled:opacity-50"
+                              >
+                                <Trash2 size={12} />
+                              </button>
                             )}
-                            ดาวน์โหลด
-                          </button>
+                          </div>
                         </div>
                       );
                     })}

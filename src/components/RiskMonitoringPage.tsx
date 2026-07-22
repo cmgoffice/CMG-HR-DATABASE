@@ -8,6 +8,7 @@ import { FollowUpDocumentsBacklog } from "./FollowUpDocumentsBacklog";
 import { InfoTooltip } from "./InfoTooltip";
 import { ManpowerDashboard } from "./ManpowerDashboard";
 import {
+  canManageFollowUpModule,
   EMPLOYEE_FOLLOW_UP_COLLECTION,
   EmployeeFollowUpCase,
   FOLLOW_UP_POLICY_COLLECTION,
@@ -64,6 +65,8 @@ export const RiskMonitoringPage = ({ projectOptions }: { projectOptions: string[
   // Backlog / นโยบายเป็นภาพรวมระดับองค์กร ไม่เปิดให้ Admin Site ที่เห็นได้เฉพาะแท็บ "การติดตามพนักงาน" แบบจำกัดขอบเขต
   const canViewOrgWideTabs = canViewRiskMonitoringSettings(roles);
   const canEditSettings = canEditRiskMonitoringSettings(roles);
+  // ลบเอกสาร/เคสได้เฉพาะ HR/HRM (ไม่ใช่ทุก role ที่แค่ "ดูได้" อย่าง MD/GM/PD)
+  const canManageFollowUp = canManageFollowUpModule(roles);
   const riskSettings = useMemo<RiskMonitoringSettings>(
     () => normalizeRiskMonitoringSettings(settingsDoc, legacyPolicyDoc),
     [legacyPolicyDoc, settingsDoc]
@@ -268,7 +271,11 @@ export const RiskMonitoringPage = ({ projectOptions }: { projectOptions: string[
           onSave={saveRiskSettings}
         />
       ) : tab === "documents" ? (
-        <FollowUpDocumentsBacklog cases={followUpCases} onOpenCase={handleOpenCaseFromDocuments} />
+        <FollowUpDocumentsBacklog
+          cases={followUpCases}
+          onOpenCase={handleOpenCaseFromDocuments}
+          canManage={canManageFollowUp}
+        />
       ) : (
         <EmployeeFollowUpTab
           view={tab === "backlog" ? "backlog" : "queue"}
