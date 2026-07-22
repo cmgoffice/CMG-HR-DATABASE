@@ -4,6 +4,7 @@ import { ShieldAlert } from "lucide-react";
 import { useAuth } from "../auth/AuthContext";
 import { EmployeeFollowUpPolicyTab } from "./EmployeeFollowUpPolicyTab";
 import { EmployeeFollowUpTab } from "./EmployeeFollowUpTab";
+import { FollowUpDocumentsBacklog } from "./FollowUpDocumentsBacklog";
 import { InfoTooltip } from "./InfoTooltip";
 import { ManpowerDashboard } from "./ManpowerDashboard";
 import {
@@ -36,7 +37,7 @@ export const RiskMonitoringPage = ({ projectOptions }: { projectOptions: string[
   const { firebaseUser, userProfile } = useAuth();
   const db = getFirestore();
 
-  const [tab, setTab] = useState<"risk" | "follow_up" | "backlog" | "policy">("risk");
+  const [tab, setTab] = useState<"risk" | "follow_up" | "backlog" | "documents" | "policy">("risk");
   const [followUpCases, setFollowUpCases] = useState<EmployeeFollowUpCase[]>([]);
   const [detectedRiskSeeds, setDetectedRiskSeeds] = useState<FollowUpRiskSeed[]>([]);
   const [settingsDoc, setSettingsDoc] = useState<unknown>(null);
@@ -132,6 +133,11 @@ export const RiskMonitoringPage = ({ projectOptions }: { projectOptions: string[
     return detectedIssueIds.size + activePersistedOutsideCurrentRisk;
   }, [detectedIssueIds, followUpCases]);
 
+  const documentsCount = useMemo(
+    () => followUpCases.reduce((sum, item) => sum + (item.documents?.length || 0), 0),
+    [followUpCases]
+  );
+
   const backlogCount = useMemo(
     () =>
       followUpCases.filter((item) => {
@@ -190,6 +196,11 @@ export const RiskMonitoringPage = ({ projectOptions }: { projectOptions: string[
     setTab("follow_up");
   };
 
+  const handleOpenCaseFromDocuments = (caseId: string) => {
+    setOpenCaseId(caseId);
+    setTab("follow_up");
+  };
+
   return (
     <div className="space-y-4 p-6">
       <div className="rounded-xl border border-slate-200 bg-white px-5 py-4 shadow-sm">
@@ -229,6 +240,11 @@ export const RiskMonitoringPage = ({ projectOptions }: { projectOptions: string[
                 onClick={() => setTab("backlog")}
                 label={`Backlog / ประวัติ${backlogCount > 0 ? ` (${backlogCount})` : ""}`}
               />
+              <TabButton
+                active={tab === "documents"}
+                onClick={() => setTab("documents")}
+                label={`Backlog เอกสาร${documentsCount > 0 ? ` (${documentsCount})` : ""}`}
+              />
               <TabButton active={tab === "policy"} onClick={() => setTab("policy")} label="ตั้งค่า Risk Monitoring" />
             </>
           )}
@@ -251,6 +267,8 @@ export const RiskMonitoringPage = ({ projectOptions }: { projectOptions: string[
           saving={settingsSaving}
           onSave={saveRiskSettings}
         />
+      ) : tab === "documents" ? (
+        <FollowUpDocumentsBacklog cases={followUpCases} onOpenCase={handleOpenCaseFromDocuments} />
       ) : (
         <EmployeeFollowUpTab
           view={tab === "backlog" ? "backlog" : "queue"}

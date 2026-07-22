@@ -491,6 +491,28 @@ export const EmployeeFollowUpPolicyTab = ({
           </FieldBlock>
         </div>
 
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 xl:col-span-2">
+          <div className="text-sm font-black text-slate-900">ระเบียบ/ข้อบังคับสำหรับ Dropdown ในหนังสือเตือน</div>
+          <div className="mt-1 text-xs text-slate-500">
+            รายการนี้จะปรากฏเป็น Dropdown ให้ HR เลือกในขั้นตอน "จัดทำรายละเอียดเอกสาร" ของหนังสือเตือน (FM-HR-018) แทนการพิมพ์เอง
+            แก้ไข 1 บรรทัดต่อ 1 ข้อ เพื่อให้สอดคล้องกับคู่มือพนักงานที่อาจปรับปรุงในอนาคต
+          </div>
+          <FieldBlock className="mt-4" label={`รายการระเบียบ/ข้อบังคับ (${draft.followUpPolicy.disciplinaryRuleOptions.length} รายการ)`}>
+            <textarea
+              rows={10}
+              value={listToTextArea(draft.followUpPolicy.disciplinaryRuleOptions)}
+              disabled={!canEdit || saving}
+              onChange={(e) =>
+                withDraft((current) => ({
+                  ...current,
+                  followUpPolicy: { ...current.followUpPolicy, disciplinaryRuleOptions: textAreaToList(e.target.value) },
+                }))
+              }
+              className={textAreaClass(canEdit, saving)}
+            />
+          </FieldBlock>
+        </div>
+
         <div className="rounded-2xl border border-slate-200 bg-white p-5">
           <div className="text-sm font-black text-slate-900">ชุด action ที่ workflow รองรับ</div>
           <div className="mt-4 space-y-3">

@@ -8,6 +8,7 @@ import {
   ClipboardList,
   Download,
   FileText,
+  ImagePlus,
   Loader2,
   Search,
   ShieldAlert,
@@ -63,6 +64,7 @@ import {
   FollowUpRiskSeed,
   FollowUpStatus,
   buildFollowUpCaseFromRiskSeed,
+  buildManualFollowUpCase,
   canSelectFollowUpAction,
   getDefaultHrmReviewStatus,
   getFollowUpActionOption,
@@ -81,7 +83,9 @@ import {
   generateAndPreviewFollowUpDocument,
   resolveFollowUpTemplateKeys,
 } from "../utils/followUpDocuments";
+import { getNextFollowUpDocumentNumber } from "../utils/documentNumbering";
 import { uploadUserSignature } from "../utils/signatureStorage";
+import { removeFollowUpAttachment, uploadFollowUpAttachment } from "../utils/followUpAttachments";
 
 interface AppUser {
   uid: string;
@@ -93,6 +97,21 @@ interface AppUser {
   assignedProjects?: string[];
   signatureImageUrl?: string;
 }
+
+/** ข้อมูลพนักงานจากฐานข้อมูลกลาง (collection "employee_data") ใช้เฉพาะฟิลด์ที่ต้องใช้เลือกพนักงานตอนสร้างเคสด้วยตนเอง */
+interface DirectoryEmployee {
+  id: string;
+  employeeCode: string;
+  employeeName: string;
+  position: string;
+  employeeType: string;
+  projectNames: string[];
+}
+
+const parseEmployeeProjectList = (value: string | string[] | undefined): string[] => {
+  if (Array.isArray(value)) return value.filter(Boolean);
+  return value ? [value] : [];
+};
 
 const normalizeProjectKey = (value: string): string => String(value || "").trim().split(" - ")[0].trim().toLowerCase();
 
@@ -141,6 +160,7 @@ interface DocumentDraftForm {
   employmentStartDate: string;
   lastWorkDate: string;
   absenceStartDate: string;
+  attachments: string[];
 }
 
 interface FollowUpQueueItem extends EmployeeFollowUpCase {
@@ -149,6 +169,9 @@ interface FollowUpQueueItem extends EmployeeFollowUpCase {
   isCurrentlyDetected: boolean;
   detectionWindowLabel?: string;
 }
+
+// Sentinel value (ไม่ถูกบันทึกจริง) ใช้เพื่อสลับ dropdown ระเบียบ/ข้อบังคับไปโหมด "พิมพ์เอง"
+const CUSTOM_RULE_OPTION_VALUE = "__custom_rule__";
 
 const SYSTEM_ACTOR: FollowUpActorSnapshot = {
   uid: "system",
@@ -173,6 +196,7 @@ const buildDocumentDraftForm = (item?: EmployeeFollowUpCase): DocumentDraftForm 
   employmentStartDate: item?.documentDraft?.employmentStartDate || "",
   lastWorkDate: item?.documentDraft?.lastWorkDate || "",
   absenceStartDate: item?.documentDraft?.absenceStartDate || item?.latestIncidentDate || "",
+  attachments: item?.documentDraft?.attachments || [],
 });
 
 const buildStatusDraft = (item: FollowUpQueueItem): StatusDraft => ({
@@ -620,6 +644,99 @@ export const EmployeeFollowUpTab = ({
     });
     return () => unsub();
   }, [db]);
+
+  // ใช้เฉพาะตอนสร้างเคสด้วยตนเอง (เลือกพนักงานที่ไม่ได้อยู่ในคิวความเสี่ยง) จึงโหลดฟิลด์เท่าที่จำเป็นเท่านั้น
+  const [employeeDirectory, setEmployeeDirectory] = useState<DirectoryEmployee[]>([]);
+  useEffect(() => {
+    if (!canPropose) return;
+    const unsub = onSnapshot(collection(db, "CMG-HR-Database", "root", "employee_data"), (snap) => {
+      const list = snap.docs
+        .map((item) => item.data() as any)
+        .filter((data) => data["สถานะพนักงาน"] === "ทำงาน")
+        .map((data): DirectoryEmployee => ({
+          id: String(data["รหัสพนักงาน"] || data.id || ""),
+          employeeCode: String(data["รหัสพนักงาน"] || ""),
+          employeeName: `${data["ชื่อตัว"] || ""} ${data["ชื่อสกุล"] || ""}`.trim(),
+          position: String(data["ตำแหน่ง"] || ""),
+          employeeType: String(data.employee_type || ""),
+          projectNames: parseEmployeeProjectList(data["สถานะโครงการ"]),
+        }))
+        .filter((emp) => emp.id && emp.employeeName);
+      setEmployeeDirectory(list);
+    });
+    return () => unsub();
+  }, [db, canPropose]);
+
+  const [isManualCaseModalOpen, setIsManualCaseModalOpen] = useState(false);
+  const [manualCaseSearch, setManualCaseSearch] = useState("");
+  const [manualCaseEmployeeId, setManualCaseEmployeeId] = useState("");
+  const [manualCaseIssueLabel, setManualCaseIssueLabel] = useState("");
+  const [manualCaseIssueReason, setManualCaseIssueReason] = useState("");
+  const [manualCaseBusy, setManualCaseBusy] = useState(false);
+
+  const manualCaseEmployeeOptions = useMemo(() => {
+    // Admin Site สร้างเคสด้วยตนเองได้เฉพาะพนักงานในโครงการที่ตนรับผิดชอบเท่านั้น เพื่อไม่ให้เห็น/แก้ข้อมูลข้ามโครงการ
+    const scoped = isAdminSiteOnly
+      ? employeeDirectory.filter((emp) => emp.projectNames.some((project) => isProjectAssigned(myAssignedProjects, project)))
+      : employeeDirectory;
+    const query = manualCaseSearch.trim().toLowerCase();
+    if (!query) return scoped.slice(0, 30);
+    return scoped
+      .filter(
+        (emp) =>
+          emp.employeeName.toLowerCase().includes(query) ||
+          emp.employeeCode.toLowerCase().includes(query)
+      )
+      .slice(0, 30);
+  }, [employeeDirectory, isAdminSiteOnly, myAssignedProjects, manualCaseSearch]);
+
+  const resetManualCaseDraft = () => {
+    setIsManualCaseModalOpen(false);
+    setManualCaseSearch("");
+    setManualCaseEmployeeId("");
+    setManualCaseIssueLabel("");
+    setManualCaseIssueReason("");
+  };
+
+  const createManualCase = async () => {
+    if (!actor) return;
+    const employee = employeeDirectory.find((emp) => emp.id === manualCaseEmployeeId);
+    if (!employee) {
+      window.alert("กรุณาเลือกพนักงานก่อน");
+      return;
+    }
+    if (!manualCaseIssueLabel.trim()) {
+      window.alert("กรุณาระบุเรื่อง/ประเด็น");
+      return;
+    }
+    setManualCaseBusy(true);
+    try {
+      const now = Date.now();
+      const nextCase = buildManualFollowUpCase(
+        {
+          employeeId: employee.id,
+          employeeCode: employee.employeeCode,
+          employeeName: employee.employeeName,
+          position: employee.position,
+          employeeType: employee.employeeType,
+          projectName: employee.projectNames[0] || "",
+          projectNames: employee.projectNames,
+          issueLabel: manualCaseIssueLabel.trim(),
+          issueReason: manualCaseIssueReason.trim(),
+        },
+        actor,
+        now
+      );
+      await persistCase(nextCase, "สร้างเคสด้วยตนเอง", `${employee.employeeName}: ${manualCaseIssueLabel.trim()}`);
+      resetManualCaseDraft();
+      openCaseModal(nextCase.id);
+      showToast("สร้างเคสด้วยตนเองสำเร็จ");
+    } catch (error) {
+      window.alert(`สร้างเคสไม่สำเร็จ: ${error instanceof Error ? error.message : "เกิดข้อผิดพลาดที่ไม่คาดคิด"}`);
+    } finally {
+      setManualCaseBusy(false);
+    }
+  };
 
   const operatorUsers = useMemo(
     () =>
@@ -1385,6 +1502,38 @@ export const EmployeeFollowUpTab = ({
 
   const [signatureBusy, setSignatureBusy] = useState(false);
   const signatureInputRef = useRef<HTMLInputElement | null>(null);
+  const [attachmentBusy, setAttachmentBusy] = useState(false);
+  const attachmentInputRef = useRef<HTMLInputElement | null>(null);
+
+  // อัพโหลดภาพหลักฐาน/ประกอบเหตุการณ์แนบกับร่างเอกสาร (แนบได้หลายภาพ) เก็บ URL ไว้ใน documentDraft.attachments
+  const handleAttachmentFilesSelected = async (files: FileList | null) => {
+    if (!files || files.length === 0 || !selectedCase) return;
+    setAttachmentBusy(true);
+    try {
+      const uploaded: string[] = [];
+      for (const file of Array.from(files)) {
+        if (!file.type.startsWith("image/")) continue;
+        const url = await uploadFollowUpAttachment(selectedCase.id, file);
+        uploaded.push(url);
+      }
+      if (uploaded.length > 0) {
+        setDocumentDraft((prev) => ({ ...prev, attachments: [...prev.attachments, ...uploaded] }));
+      }
+    } catch (error) {
+      window.alert(`แนบภาพไม่สำเร็จ: ${error instanceof Error ? error.message : "เกิดข้อผิดพลาดที่ไม่คาดคิด"}`);
+    } finally {
+      setAttachmentBusy(false);
+      if (attachmentInputRef.current) attachmentInputRef.current.value = "";
+    }
+  };
+
+  const removeAttachmentAt = (index: number) => {
+    setDocumentDraft((prev) => {
+      const target = prev.attachments[index];
+      if (target) void removeFollowUpAttachment(target);
+      return { ...prev, attachments: prev.attachments.filter((_, i) => i !== index) };
+    });
+  };
 
   const openCaseModal = (caseId: string) => {
     setSelectedCaseId(caseId);
@@ -1692,6 +1841,7 @@ export const EmployeeFollowUpTab = ({
         absenceStartDate: draft.absenceStartDate,
         warningRound: previewRound,
         preparer: findSigner(draft.preparedByUid, draft.preparedByName),
+        attachments: draft.attachments,
         isDraft: true,
       });
       showToast("เปิดตัวอย่างเอกสารในแท็บใหม่แล้ว");
@@ -1733,6 +1883,9 @@ export const EmployeeFollowUpTab = ({
         approver: doc.usedSignatureOfUid || doc.usedSignatureOfName
           ? findSigner(doc.usedSignatureOfUid, doc.usedSignatureOfName)
           : undefined,
+        // ใช้เลขที่เอกสารเดิมที่เคยออกไว้แล้ว ห้ามออกเลขใหม่ตอนดาวน์โหลดซ้ำ
+        documentNumber: doc.documentNumber,
+        attachments: draft?.attachments,
       });
       showToast(`ดาวน์โหลด ${doc.templateLabel} แล้ว`);
     } catch (error) {
@@ -1764,6 +1917,8 @@ export const EmployeeFollowUpTab = ({
         : baseCase;
       const issuedEvent = lastExecutedEvent(issuedCase);
       const draft = issuedCase.documentDraft;
+      // ออกเลขที่เอกสารจริง ณ ตอนนี้เท่านั้น (ไม่ใช่ตอนพรีวิว/ร่าง) เพื่อไม่ให้เลขกระโดดข้ามโดยไม่มีเอกสารจริงรองรับ
+      const documentNumber = await getNextFollowUpDocumentNumber(db, templateKey, now);
       const docRecord = await generateAndDownloadFollowUpDocument(templateKey, {
         followUpCase: issuedCase,
         actionType,
@@ -1781,6 +1936,8 @@ export const EmployeeFollowUpTab = ({
         warningRound: issuedEvent?.warningRound || issuedCase.warningRound,
         preparer,
         approver,
+        documentNumber,
+        attachments: draft?.attachments,
       });
 
       if (issuedCase) {
@@ -1861,6 +2018,17 @@ export const EmployeeFollowUpTab = ({
           <h3 className="text-lg font-black text-slate-900">{pageTitle}</h3>
           {pageDescription && <p className="text-xs text-slate-400">{pageDescription}</p>}
         </div>
+        {!isBacklogView && canPropose && (
+          <button
+            type="button"
+            onClick={() => setIsManualCaseModalOpen(true)}
+            className="inline-flex items-center gap-1.5 rounded-full border border-sky-200 bg-sky-50 px-3 py-1 text-xs font-semibold text-sky-700 hover:bg-sky-100"
+            title="สร้างเคสสำหรับเรื่องที่ไม่ได้อยู่ในคิวความเสี่ยงจากระบบ (เช่น ทะเลาะวิวาท ฝ่าฝืนระเบียบอื่นๆ) เพื่อเดินตาม flow เสนอ/อนุมัติ/ออกเอกสารเดียวกัน และได้เลขที่เอกสารต่อเนื่องกับเคสอื่น"
+          >
+            <FileText size={13} />
+            สร้างเคสด้วยตนเอง
+          </button>
+        )}
         {canManage && (
           <button
             type="button"
@@ -2706,13 +2874,78 @@ export const EmployeeFollowUpTab = ({
                 )}
                 <div className="grid gap-3 md:grid-cols-2">
                   <label className="md:col-span-2 text-xs font-semibold text-slate-600">
-                    ข้อเท็จจริงสำหรับเอกสาร <span className="text-rose-500">*</span>
+                    บันทึกการสอบสวน <span className="text-rose-500">*</span>
                     <textarea rows={3} value={documentDraft.facts} onChange={(e) => setDocumentDraft((prev) => ({ ...prev, facts: e.target.value }))} className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm font-normal outline-none focus:ring-2 focus:ring-indigo-100" />
                   </label>
                   <label className="md:col-span-2 text-xs font-semibold text-slate-600">
-                    ระเบียบ/ข้อบังคับที่เกี่ยวข้อง
-                    <input value={documentDraft.violatedRule} onChange={(e) => setDocumentDraft((prev) => ({ ...prev, violatedRule: e.target.value }))} className="mt-1 h-10 w-full rounded-xl border border-slate-200 px-3 text-sm font-normal outline-none focus:ring-2 focus:ring-indigo-100" />
+                    ระเบียบ/ข้อบังคับที่เกี่ยวข้อง (เลือกจากรายการที่ HR/HRM กำหนดไว้)
+                    <select
+                      value={
+                        documentDraft.violatedRule && !policyConfig.disciplinaryRuleOptions.includes(documentDraft.violatedRule)
+                          ? CUSTOM_RULE_OPTION_VALUE
+                          : documentDraft.violatedRule
+                      }
+                      onChange={(e) =>
+                        setDocumentDraft((prev) => ({
+                          ...prev,
+                          violatedRule: e.target.value === CUSTOM_RULE_OPTION_VALUE ? (prev.violatedRule || " ").trim() : e.target.value,
+                        }))
+                      }
+                      className="mt-1 h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-normal outline-none focus:ring-2 focus:ring-indigo-100"
+                    >
+                      <option value="">-- เลือกระเบียบ/ข้อบังคับ --</option>
+                      {policyConfig.disciplinaryRuleOptions.map((rule) => (
+                        <option key={rule} value={rule}>
+                          {rule}
+                        </option>
+                      ))}
+                      <option value={CUSTOM_RULE_OPTION_VALUE}>อื่นๆ (พิมพ์รายละเอียดเอง)</option>
+                    </select>
+                    {(documentDraft.violatedRule === "" || !policyConfig.disciplinaryRuleOptions.includes(documentDraft.violatedRule)) && (
+                      <textarea
+                        rows={2}
+                        value={documentDraft.violatedRule}
+                        onChange={(e) => setDocumentDraft((prev) => ({ ...prev, violatedRule: e.target.value }))}
+                        placeholder="พิมพ์รายละเอียดระเบียบ/ข้อบังคับเพิ่มเติม (ใช้เมื่อเลือก 'อื่นๆ' หรือไม่พบข้อที่ตรงกันในรายการ)"
+                        className="mt-2 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm font-normal outline-none focus:ring-2 focus:ring-indigo-100"
+                      />
+                    )}
                   </label>
+                  <div className="md:col-span-2 text-xs font-semibold text-slate-600">
+                    ภาพประกอบ/หลักฐาน (แนบได้หลายภาพ)
+                    <div className="mt-1 flex flex-wrap gap-2">
+                      {documentDraft.attachments.map((url, index) => (
+                        <div key={url} className="group relative h-20 w-20 overflow-hidden rounded-lg border border-slate-200">
+                          <img src={url} alt={`หลักฐาน ${index + 1}`} className="h-full w-full object-cover" />
+                          <button
+                            type="button"
+                            onClick={() => removeAttachmentAt(index)}
+                            title="ลบภาพนี้"
+                            className="absolute right-0.5 top-0.5 rounded-full bg-slate-900/70 p-0.5 text-white opacity-0 transition group-hover:opacity-100"
+                          >
+                            <X size={12} />
+                          </button>
+                        </div>
+                      ))}
+                      <button
+                        type="button"
+                        disabled={attachmentBusy}
+                        onClick={() => attachmentInputRef.current?.click()}
+                        className="flex h-20 w-20 flex-col items-center justify-center gap-1 rounded-lg border border-dashed border-slate-300 text-slate-400 hover:border-indigo-300 hover:text-indigo-500 disabled:opacity-50"
+                      >
+                        {attachmentBusy ? <Loader2 size={16} className="animate-spin" /> : <ImagePlus size={16} />}
+                        <span className="text-[10px]">เพิ่มภาพ</span>
+                      </button>
+                      <input
+                        ref={attachmentInputRef}
+                        type="file"
+                        accept="image/*"
+                        multiple
+                        className="hidden"
+                        onChange={(e) => void handleAttachmentFilesSelected(e.target.files)}
+                      />
+                    </div>
+                  </div>
                   <label className="text-xs font-semibold text-slate-600">วันที่เกิดเหตุ<input type="date" value={documentDraft.incidentDate} onChange={(e) => setDocumentDraft((prev) => ({ ...prev, incidentDate: e.target.value }))} className="mt-1 h-10 w-full rounded-xl border border-slate-200 px-3 text-sm font-normal" /></label>
                   <label className="text-xs font-semibold text-slate-600">เวลาเกิดเหตุ<input type="time" value={documentDraft.incidentTime} onChange={(e) => setDocumentDraft((prev) => ({ ...prev, incidentTime: e.target.value }))} className="mt-1 h-10 w-full rounded-xl border border-slate-200 px-3 text-sm font-normal" /></label>
                   {selectedActionType?.startsWith("suspension_") && (
@@ -2757,6 +2990,15 @@ export const EmployeeFollowUpTab = ({
                   {selectedCase.documentDraft.suspensionStartDate && <div className="mt-1 text-xs text-slate-500">พักงาน {formatDate(selectedCase.documentDraft.suspensionStartDate)} - {formatDate(selectedCase.documentDraft.suspensionEndDate)}</div>}
                   {selectedCase.documentDraft.terminationDate && <div className="mt-1 text-xs text-slate-500">มีผลพ้นสภาพ {formatDate(selectedCase.documentDraft.terminationDate)}</div>}
                   {selectedCase.documentDraft.lastWorkDate && <div className="mt-1 text-xs text-slate-500">เริ่มงาน {formatDate(selectedCase.documentDraft.employmentStartDate)} · ทำงานล่าสุด {formatDate(selectedCase.documentDraft.lastWorkDate)} · เริ่มขาด {formatDate(selectedCase.documentDraft.absenceStartDate)}</div>}
+                  {selectedCase.documentDraft.attachments && selectedCase.documentDraft.attachments.length > 0 && (
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      {selectedCase.documentDraft.attachments.map((url, index) => (
+                        <a key={url} href={url} target="_blank" rel="noreferrer" className="block h-16 w-16 overflow-hidden rounded-lg border border-slate-200">
+                          <img src={url} alt={`หลักฐาน ${index + 1}`} className="h-full w-full object-cover" />
+                        </a>
+                      ))}
+                    </div>
+                  )}
                 </div>
                 <div className="mt-3 flex flex-wrap gap-2">
                   {selectedActionType && resolveFollowUpTemplateKeys(selectedActionType, selectedCase.issueType).map((key) => (
@@ -2808,7 +3050,9 @@ export const EmployeeFollowUpTab = ({
                       return (
                         <div key={doc.id} className="flex items-center justify-between gap-2">
                           <span>
-                            สร้างแล้ว: {doc.templateLabel} · {doc.generatedByName} · {formatDateTime(doc.generatedAt)}
+                            สร้างแล้ว: {doc.templateLabel}
+                            {doc.documentNumber ? ` · เลขที่ ${doc.documentNumber}` : ""} · {doc.generatedByName} ·{" "}
+                            {formatDateTime(doc.generatedAt)}
                           </span>
                           <button
                             type="button"
@@ -2938,6 +3182,93 @@ export const EmployeeFollowUpTab = ({
               >
                 {busy ? <Loader2 size={15} className="animate-spin" /> : <CheckCircle2 size={15} />}
                 ส่งข้อเสนอให้ HRM พิจารณา
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {isManualCaseModalOpen && (
+        <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/50 p-3" onClick={resetManualCaseDraft}>
+          <div className="w-full max-w-lg rounded-2xl bg-white shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-start justify-between gap-3 border-b border-slate-200 px-4 py-4">
+              <div>
+                <div className="text-base font-bold text-slate-900">สร้างเคสด้วยตนเอง</div>
+                <div className="text-xs text-slate-500">
+                  ใช้สำหรับเรื่องที่ไม่ได้อยู่ในคิวความเสี่ยงจากระบบ เคสนี้จะเดินตาม flow เสนอ/HRM อนุมัติ/ออกเอกสารเหมือนเคสอื่นทุกขั้น
+                  และได้เลขที่เอกสารต่อเนื่องกับเคสอื่น
+                </div>
+              </div>
+              <button type="button" onClick={resetManualCaseDraft} className="text-slate-400 hover:text-rose-500">
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="space-y-4 px-4 py-4">
+              <div>
+                <label className="mb-1 block text-xs font-semibold text-slate-600">พนักงาน</label>
+                <div className="relative mb-2">
+                  <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                  <input
+                    value={manualCaseSearch}
+                    onChange={(e) => setManualCaseSearch(e.target.value)}
+                    placeholder="ค้นหาชื่อหรือรหัสพนักงาน"
+                    className="h-10 w-full rounded-xl border border-slate-200 pl-9 pr-3 text-sm outline-none focus:ring-2 focus:ring-sky-100"
+                  />
+                </div>
+                <select
+                  value={manualCaseEmployeeId}
+                  onChange={(e) => setManualCaseEmployeeId(e.target.value)}
+                  size={6}
+                  className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-sky-100"
+                >
+                  {manualCaseEmployeeOptions.length === 0 && <option disabled>ไม่พบพนักงานที่ตรงกับคำค้นหา</option>}
+                  {manualCaseEmployeeOptions.map((emp) => (
+                    <option key={emp.id} value={emp.id}>
+                      {emp.employeeCode ? `${emp.employeeCode} · ` : ""}
+                      {emp.employeeName}
+                      {emp.position ? ` (${emp.position})` : ""}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-semibold text-slate-600">เรื่อง/ประเด็น</label>
+                <input
+                  value={manualCaseIssueLabel}
+                  onChange={(e) => setManualCaseIssueLabel(e.target.value)}
+                  placeholder="เช่น ทะเลาะวิวาทในที่ทำงาน, ฝ่าฝืนระเบียบความปลอดภัย"
+                  className="h-10 w-full rounded-xl border border-slate-200 px-3 text-sm outline-none focus:ring-2 focus:ring-sky-100"
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-semibold text-slate-600">รายละเอียดเหตุการณ์</label>
+                <textarea
+                  rows={3}
+                  value={manualCaseIssueReason}
+                  onChange={(e) => setManualCaseIssueReason(e.target.value)}
+                  placeholder="สรุปเหตุการณ์ วันเวลา และรายละเอียดที่เกี่ยวข้อง"
+                  className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-sky-100"
+                />
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 border-t border-slate-200 px-4 py-4">
+              <button
+                type="button"
+                onClick={resetManualCaseDraft}
+                className="rounded-xl border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-50"
+              >
+                ยกเลิก
+              </button>
+              <button
+                type="button"
+                disabled={manualCaseBusy || !manualCaseEmployeeId || !manualCaseIssueLabel.trim()}
+                onClick={() => void createManualCase()}
+                className="inline-flex items-center gap-1.5 rounded-xl bg-sky-600 px-4 py-2 text-sm font-semibold text-white hover:bg-sky-700 disabled:opacity-50"
+              >
+                {manualCaseBusy ? <Loader2 size={15} className="animate-spin" /> : <CheckCircle2 size={15} />}
+                สร้างเคส
               </button>
             </div>
           </div>

@@ -10,7 +10,11 @@ export type RiskRuleKey =
   | "absence_rate"
   | "monday_friday_pattern"
   | "missing_attendance"
-  | "wrong_project_pattern";
+  | "wrong_project_pattern"
+  // เคสที่ HR/Admin Site สร้างขึ้นเองสำหรับเรื่องที่ไม่ได้มาจากระบบตรวจจับความเสี่ยงด้านการมาทำงาน
+  // (เช่น ทะเลาะวิวาท ฝ่าฝืนระเบียบอื่นๆ) เพื่อให้เดินตาม flow เสนอ/อนุมัติ/ออกเอกสารเดียวกัน
+  // และใช้เลขที่เอกสารจาก counter เดียวกันกับเคสอื่นๆ (ต่อเนื่องกันตามฟอร์ม ไม่แยกชุดเลข)
+  | "manual";
 
 export type FollowUpStatus =
   | "pending"
@@ -58,6 +62,8 @@ export interface FollowUpDocumentRecord {
   id: string;
   templateKey: "warning_memo" | "warning_letter" | "termination_notice";
   templateLabel: string;
+  /** เลขที่เอกสารที่ระบบออกให้ ณ ตอนออกเอกสารจริง เช่น "FM-HR-018-005/2569" */
+  documentNumber?: string;
   generatedAt: number;
   generatedByUid: string;
   generatedByName: string;
@@ -77,6 +83,8 @@ export interface FollowUpDocumentDraft {
   employmentStartDate?: string;
   lastWorkDate?: string;
   absenceStartDate?: string;
+  /** URL รูปภาพหลักฐาน/ประกอบเหตุการณ์ที่แนบมากับเอกสาร (แนบได้หลายภาพ) จะถูกแปะเป็นหน้าต่อท้าย PDF ตอนออกเอกสารจริง */
+  attachments?: string[];
   preparedAt: number;
   preparedByUid: string;
   preparedByName: string;
@@ -219,6 +227,9 @@ export interface FollowUpPolicyConfig {
   allowSeriousOffenseFastTrack: boolean;
   actionOptions: FollowUpDisciplinaryActionOption[];
   advisoryNotes: string[];
+  // รายการระเบียบ/ข้อบังคับที่ใช้อ้างอิงในหนังสือเตือน (Dropdown ให้ HR เลือก แทนการพิมพ์เอง)
+  // แก้ไขได้ที่หน้าตั้งค่า Risk Monitoring > นโยบายการติดตาม เพื่อให้สอดคล้องกับคู่มือพนักงานที่อาจปรับปรุงในอนาคต
+  disciplinaryRuleOptions: string[];
 }
 
 export const FOLLOW_UP_OPERATOR_ROLES = ["HR", "HRM"] as const;
@@ -399,6 +410,56 @@ export const DEFAULT_FOLLOW_UP_DISCIPLINARY_ACTIONS: FollowUpDisciplinaryActionO
   },
 ];
 
+/**
+ * รายการระเบียบข้อบังคับอ้างอิงจาก "คู่มือพนักงาน และระเบียบข้อบังคับสำหรับพนักงานประจำรายเดือน"
+ * หมวด "วินัย การลงโทษ และการร้องทุกข์" (หน้า 16-18) ใช้เป็นค่าเริ่มต้นของ Dropdown ให้ HR เลือก
+ * แทนการพิมพ์เองในหนังสือเตือน ทั้งนี้ HRM/MasterAdmin สามารถแก้ไขรายการนี้ได้ที่หน้าตั้งค่า
+ * Risk Monitoring > นโยบายการติดตาม หากคู่มือพนักงานมีการปรับปรุงในอนาคต
+ */
+export const DEFAULT_DISCIPLINARY_RULE_OPTIONS: string[] = [
+  "ข้อ 1 - ปฏิบัติงานด้วยความซื่อสัตย์ ขยันหมั่นเพียร และเต็มความสามารถ",
+  "ข้อ 2 - ปฏิบัติตามคำแนะนำหรือคำสั่งโดยชอบธรรมของผู้บังคับบัญชา และให้ความนับถือผู้บังคับบัญชา/พนักงานที่มีอาวุโสสูงกว่า",
+  "ข้อ 3 - รักษาและปฏิบัติตามระเบียบข้อบังคับของบริษัทฯ อย่างเคร่งครัด และให้ความร่วมมือกับเพื่อนร่วมงานอย่างเต็มที่",
+  "ข้อ 4 - มีกิริยาสุภาพเรียบร้อยต่อผู้บังคับบัญชา เพื่อนพนักงาน และผู้ที่มาติดต่อกับบริษัทฯ",
+  "ข้อ 5 - ปฏิบัติงานตามกำหนดเวลาทำงาน และความรับผิดชอบที่ได้รับมอบหมายโดยเคร่งครัด",
+  "ข้อ 6 - รักษาทรัพย์สินของบริษัทฯ/ที่บริษัทฯ จัดหาให้ และรักษาความสะอาดบริเวณที่ทำงาน ประหยัดการใช้วัสดุอุปกรณ์",
+  "ข้อ 7 - แต่งกายสุภาพในระหว่างการทำงาน",
+  "ข้อ 8 - ละเว้นการกระทำที่อาจก่อให้เกิดความแตกความสามัคคีระหว่างเพื่อนพนักงาน",
+  "ข้อ 9 - ห้ามทำงานให้กับบุคคลหรือองค์กรอื่นใด อันอาจกระทบต่อการทำงานให้บริษัทฯ",
+  "ข้อ 10 - ห้ามนำบุคคลภายนอกเข้ามาภายในบริเวณบริษัทฯ โดยไม่ได้รับอนุญาต",
+  "ข้อ 11 - ห้ามใช้เครื่องมือ เครื่องจักรโดยไม่มีหน้าที่เกี่ยวข้อง",
+  "ข้อ 12 - ห้ามละทิ้งหน้าที่ หรือขาดงาน",
+  "ข้อ 13 - ต้องปฏิบัติตามคำสั่งของผู้บังคับบัญชาในกรณีเลื่อนตำแหน่ง โยกย้าย หรือการมอบหมายงาน",
+  "ข้อ 14 - ต้องปฏิบัติตามระเบียบความปลอดภัยในการทำงาน",
+  "ข้อ 15 - ต้องสวมใส่หรือใช้อุปกรณ์ความปลอดภัยและสุขอนามัย",
+  "ข้อ 16 - ต้องศึกษาและทำความเข้าใจวิธีการใช้/คำแนะนำด้านความปลอดภัยของทรัพย์สินบริษัทฯ ก่อนใช้งานเสมอ",
+  "ข้อ 17 - แสดงเจตนาทำงานล่วงเวลา/วันหยุดแล้วไม่มาปฏิบัติงานโดยไม่มีเหตุอันควร ทำให้บริษัทฯ ได้รับความเสียหาย",
+  "ข้อ 18 - ทะเลาะวิวาทหรือทำร้ายร่างกายกันและกันในบริเวณบริษัทฯ",
+  "ข้อ 19 - ต้องรักษาความลับของลูกค้าของบริษัทฯ พนักงานอื่น หรือบุคคลเกี่ยวข้องกับบริษัทฯ",
+  "ข้อ 20 - ต้องรักษาความลับและชื่อเสียงของบริษัทฯ",
+  "ข้อ 21 - ห้ามเปิดเผยค่าจ้าง/เงินเดือน หรืออัตราการขึ้นเงินเดือนของตนเองหรือผู้อื่น",
+  "ข้อ 22 - ห้ามเข้าไปเกี่ยวข้องในการประกอบธุรกิจอื่นใดที่กระทบผลประโยชน์หรือแข่งขันกับบริษัทฯ",
+  "ข้อ 23 - ต้องให้ความร่วมมือกับบริษัทฯ ในการสอบสวนเรื่องราวต่างๆ ด้วยความสุจริต",
+  "ข้อ 24 - ห้ามอาศัยอำนาจหน้าที่หรือโอกาสในการทำงานเพื่อแสวงหาประโยชน์โดยขัดจรรยาบรรณ/กฎหมาย/ประโยชน์บริษัทฯ",
+  "ข้อ 25 - ห้ามแจ้งข้อความเท็จหรือลาป่วยเท็จต่อผู้บังคับบัญชาหรือบริษัทฯ",
+  "ข้อ 26 - ห้ามปกปิดหรือบิดเบือนความจริงเพื่อได้มาซึ่งประโยชน์ส่วนตนและผู้อื่น",
+  "ข้อ 27 - ต้องบริการลูกค้าเต็มความสามารถ และรักษาผลประโยชน์ของบริษัทฯ อย่างสูงสุด",
+  "การกระทำอันเป็นความผิด ข้อ 3 - ละทิ้งหน้าที่ ละเลย หรือหลีกเลี่ยงการทำงาน หรือขาดงานโดยไม่มีเหตุอันสมควร",
+  "การกระทำอันเป็นความผิด ข้อ 4 - เจตนาหน่วงเหนี่ยวหรือปฏิบัติงานล่าช้า",
+  "การกระทำอันเป็นความผิด ข้อ 5 - ไม่ปฏิบัติตามหรือละเมิดระเบียบข้อบังคับ",
+  "การกระทำอันเป็นความผิด ข้อ 6 - เล่นการพนัน เสพยาเสพติด เสพสุราหรือของมึนเมาในบริเวณบริษัทฯ หรือในเวลาทำงาน",
+  "การกระทำอันเป็นความผิด ข้อ 9 - ทำลาย ต่อเติม หรือแก้ไขข้อความในประกาศ/แผ่นป้ายของบริษัทฯ หรือติด/เผยแพร่ข้อความโดยไม่ได้รับอนุญาต",
+  "การกระทำอันเป็นความผิด ข้อ 10 - ให้ร้ายผู้อื่น บิดเบือนข้อเท็จจริง หรือก่อให้เกิดการแตกความสามัคคีระหว่างพนักงาน",
+  "การกระทำอันเป็นความผิด ข้อ 11 - ปฏิเสธที่จะตอบคำถามของบริษัทฯ ระหว่างการสอบสวนหาข้อเท็จจริง",
+  "การกระทำอันเป็นความผิด ข้อ 12 - จงใจหรือประมาทเลินเล่อทำให้เกิดความเสียหายต่อทรัพย์สินของบริษัทฯ หรือบุคคลอื่น",
+  "การกระทำอันเป็นความผิด ข้อ 16 - ทำลายหรือใช้ทรัพย์สินของบริษัทฯ ในทางที่ไม่สมควร หรือเพื่อประโยชน์ส่วนตัว",
+  "โทษทางวินัยขั้นร้ายแรง ข้อ 1 - ทุจริตต่อหน้าที่ หรือกระทำผิดทางอาญาโดยเจตนาต่อบริษัทฯ",
+  "โทษทางวินัยขั้นร้ายแรง ข้อ 2 - จงใจให้บริษัทฯ ได้รับความเสียหาย หรือทำให้เสื่อมเสียชื่อเสียง",
+  "โทษทางวินัยขั้นร้ายแรง ข้อ 3 - ฝ่าฝืนระเบียบข้อบังคับ/คำสั่งอันชอบด้วยกฎหมาย ทั้งที่เคยตักเตือนเป็นลายลักษณ์อักษรแล้ว",
+  "โทษทางวินัยขั้นร้ายแรง ข้อ 4 - ละทิ้งหน้าที่เป็นเวลา 3 วันทำงานติดต่อกันโดยไม่มีเหตุอันสมควร",
+  "โทษทางวินัยขั้นร้ายแรง ข้อ 5 - ประมาทเลินเล่ออันเป็นเหตุให้บริษัทฯ ได้รับความเสียหาย",
+];
+
 export const DEFAULT_FOLLOW_UP_POLICY_CONFIG: FollowUpPolicyConfig = {
   primaryLanguage: "th",
   maxSuspensionDays: 7,
@@ -406,6 +467,7 @@ export const DEFAULT_FOLLOW_UP_POLICY_CONFIG: FollowUpPolicyConfig = {
   allowNonSequentialEscalation: true,
   allowSeriousOffenseFastTrack: true,
   actionOptions: DEFAULT_FOLLOW_UP_DISCIPLINARY_ACTIONS,
+  disciplinaryRuleOptions: DEFAULT_DISCIPLINARY_RULE_OPTIONS,
   advisoryNotes: [
     "หนังสือเตือนมีผล 1 ปีตามนโยบายที่ใช้เป็นฐานใน MVP นี้",
     "การพักงานชั่วคราวต้องไม่เกิน 7 วัน",
@@ -421,10 +483,19 @@ export const FOLLOW_UP_ISSUE_LABELS: Record<RiskRuleKey, string> = {
   monday_friday_pattern: "รูปแบบขาดวันจันทร์/ศุกร์",
   missing_attendance: "ค้างลงเวลา",
   wrong_project_pattern: "ลงผิดโครงการ",
+  manual: "อื่นๆ (สร้างเคสด้วยตนเอง)",
 };
 
 export const getFollowUpDocId = (employeeId: string, issueType: RiskRuleKey): string =>
   `${sanitizeFollowUpKey(employeeId)}__${issueType}`;
+
+/**
+ * id ของเคสที่สร้างด้วยตนเอง (issueType "manual") ต้อง "ไม่ใช่ singleton" ต่างจาก getFollowUpDocId ปกติ
+ * (ที่ผูก 1 เคสต่อพนักงานต่อ issueType เดิม) เพราะพนักงานคนเดียวอาจถูกสร้างเคสแบบนี้ได้หลายครั้ง/หลายเรื่อง
+ * จึงผสม timestamp เข้าไปในตัว id เพื่อกันชนกัน
+ */
+export const getManualFollowUpDocId = (employeeId: string, now: number): string =>
+  `${sanitizeFollowUpKey(employeeId)}__manual-${now}`;
 
 export const sanitizeFollowUpKey = (value: string): string =>
   String(value || "")
@@ -826,6 +897,10 @@ export const normalizeFollowUpPolicyConfig = (value: unknown): FollowUpPolicyCon
     allowSeriousOffenseFastTrack:
       source.allowSeriousOffenseFastTrack ?? DEFAULT_FOLLOW_UP_POLICY_CONFIG.allowSeriousOffenseFastTrack,
     actionOptions,
+    disciplinaryRuleOptions:
+      Array.isArray(source.disciplinaryRuleOptions) && source.disciplinaryRuleOptions.length > 0
+        ? source.disciplinaryRuleOptions.map((rule) => String(rule))
+        : DEFAULT_DISCIPLINARY_RULE_OPTIONS,
     advisoryNotes: Array.isArray(source.advisoryNotes)
       ? source.advisoryNotes.map((note) => String(note))
       : DEFAULT_FOLLOW_UP_POLICY_CONFIG.advisoryNotes,
@@ -895,3 +970,77 @@ export const buildFollowUpCaseFromRiskSeed = (
     ...overrides,
   };
 };
+
+export interface ManualFollowUpCaseInput {
+  employeeId: string;
+  employeeCode: string;
+  employeeName: string;
+  position: string;
+  employeeType: string;
+  projectName: string;
+  projectNames: string[];
+  /** เรื่อง/ประเด็นที่ HR พิมพ์เอง (ไม่ได้มาจาก issue ที่ระบบตรวจจับ) */
+  issueLabel: string;
+  /** รายละเอียดเหตุการณ์ที่ HR พิมพ์เอง */
+  issueReason: string;
+}
+
+/**
+ * สร้างเคสด้วยตนเองสำหรับเรื่องที่ไม่ได้อยู่ในระบบตรวจจับความเสี่ยงด้านการมาทำงาน (เช่น ทะเลาะวิวาท
+ * ฝ่าฝืนระเบียบอื่นๆ) เคสนี้เดินตาม flow เสนอ/HRM อนุมัติ/ออกเอกสารเดียวกันกับเคสปกติทุกขั้นตอน
+ * (รวมถึงใช้ getNextFollowUpDocumentNumber ตัวเดียวกัน จึงได้เลขที่เอกสารต่อเนื่องกับเคสอื่นๆ)
+ */
+export const buildManualFollowUpCase = (
+  input: ManualFollowUpCaseInput,
+  actor: FollowUpActorSnapshot,
+  now: number
+): EmployeeFollowUpCase => ({
+  id: getManualFollowUpDocId(input.employeeId, now),
+  employeeId: input.employeeId,
+  employeeCode: input.employeeCode,
+  employeeName: input.employeeName,
+  position: input.position,
+  employeeType: input.employeeType,
+  projectName: input.projectName,
+  projectNames: input.projectNames,
+  issueType: "manual",
+  issueLabel: input.issueLabel,
+  issueReason: input.issueReason,
+  sourceRiskRuleKeys: [],
+  sourceRiskReasons: [],
+  riskScoreSnapshot: 0,
+  severitySnapshot: "normal",
+  status: "pending",
+  ownerUid: "",
+  ownerName: "",
+  ownerRole: "",
+  warningRound: 0,
+  actions: [],
+  noActionReason: "",
+  closeReason: "",
+  closeState: undefined,
+  escalationState: "none",
+  hrmReviewStatus: "not_requested",
+  hrmReviewComment: "",
+  hrmReviewedAt: 0,
+  hrmReviewedByUid: "",
+  hrmReviewedByName: "",
+  hrmReviewedByRole: "",
+  documentReviewStatus: "not_prepared",
+  documentReviewComment: "",
+  documentReviewedAt: 0,
+  documentReviewedByUid: "",
+  documentReviewedByName: "",
+  nextFollowUpDate: "",
+  latestIncidentDate: undefined,
+  lastActionAt: 0,
+  documents: [],
+  createdAt: now,
+  updatedAt: now,
+  createdByUid: actor.uid,
+  createdByName: actor.name,
+  createdByRole: actor.role,
+  updatedByUid: actor.uid,
+  updatedByName: actor.name,
+  updatedByRole: actor.role,
+});
