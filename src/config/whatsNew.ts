@@ -4,7 +4,11 @@ export interface WhatsNewEntry {
   id: string;
   date: string;
   title: string;
+  // ประกาศบางฉบับเป็นภาพโปสเตอร์ล้วน (ไม่มี bullet รายละเอียด) ใช้ items: [] ได้ในกรณีนี้
   items: string[];
+  // ถ้าระบุ จะแสดงภาพโปสเตอร์/รูปประกอบไว้เหนือรายละเอียด (path ใต้ public/ เช่น "/whats-new/xxx.png")
+  imageSrc?: string;
+  imageAlt?: string;
   // ถ้าไม่ระบุ = แสดงให้ทุก role เห็น ถ้าระบุ = แสดงเฉพาะผู้ใช้ที่มี role ใด role หนึ่งในนี้เท่านั้น
   targetRoles?: UserRole[];
 }
@@ -12,6 +16,20 @@ export interface WhatsNewEntry {
 // เพิ่มรายการใหม่ไว้ "บนสุด" ของ array เฉพาะเรื่องที่ตกลงกับผู้ใช้แล้วว่าจะประกาศ (ไม่ใช่ทุกการแก้ไข)
 // ผู้ใช้แต่ละคนจะเห็นเฉพาะรายการที่ตรงกับ role ของตน และยังไม่เคยกด "รับทราบแล้ว" (เก็บสถานะไว้ใน localStorage ของเบราว์เซอร์นั้นๆ)
 export const WHATS_NEW_ENTRIES: WhatsNewEntry[] = [
+  {
+    id: "2026-07-23-project-dashboard-focus",
+    date: "23 ก.ค. 2569",
+    title: "ประกาศ: ใช้ Project Dashboard ช่วยโฟกัสและดูแนวโน้มโครงการ",
+    imageSrc: "/whats-new/project-dashboard-poster.png",
+    imageAlt: "โปสเตอร์ประกาศชวน PM/PD ใช้งาน Project Dashboard เพื่อโฟกัสและดูแนวโน้มโครงการ",
+    items: [
+      "เข้าเมนู \"Project Dashboard\" เลือกโครงการของท่าน จะเห็น KPI คนมา/ขาด/ลา/ค้างลงเวลา/OT ในหน้าเดียว",
+      "ดูกราฟ Coverage Trend รายวัน เพื่อมองแนวโน้มว่ากำลังคนกำลังดีขึ้นหรือแย่ลง ก่อนปัญหาจะบานปลาย",
+      "ใช้ Coverage ตามประเภทพนักงาน และ Critical Role Coverage เพื่อโฟกัสจุดที่ต้องตามก่อน",
+      "แนะนำให้แวะดูเป็นประจำทุกวัน/ทุกสัปดาห์ ติดขัดตรงไหนติดต่อฝ่าย HR ได้เลย",
+    ],
+    targetRoles: ["MasterAdmin", "PM", "PD", "CM", "GM", "MD"],
+  },
   {
     id: "2026-07-22-followup-system-intro",
     date: "22 ก.ค. 2569",

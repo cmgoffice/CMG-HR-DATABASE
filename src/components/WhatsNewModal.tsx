@@ -105,16 +105,25 @@ export const WhatsNewModal = () => {
         </div>
 
         <div className="flex-1 overflow-y-auto px-5 py-4">
+          {currentEntry.imageSrc && (
+            <img
+              src={currentEntry.imageSrc}
+              alt={currentEntry.imageAlt || currentEntry.title}
+              className="mb-3 w-full rounded-xl border border-slate-200 object-contain"
+            />
+          )}
           <div className="rounded-xl border border-slate-200 p-4">
             <div className="flex items-center justify-between gap-2">
               <h3 className="text-sm font-bold text-slate-900">{currentEntry.title}</h3>
               <span className="shrink-0 text-[11px] font-medium text-slate-400">{currentEntry.date}</span>
             </div>
-            <ul className="mt-2 list-disc space-y-1 pl-4 text-sm text-slate-600">
-              {currentEntry.items.map((item, idx) => (
-                <li key={idx}>{item}</li>
-              ))}
-            </ul>
+            {currentEntry.items.length > 0 && (
+              <ul className="mt-2 list-disc space-y-1 pl-4 text-sm text-slate-600">
+                {currentEntry.items.map((item, idx) => (
+                  <li key={idx}>{item}</li>
+                ))}
+              </ul>
+            )}
           </div>
           {/* ต้องกด "รับทราบแล้ว" ทีละรายการให้ครบคิว ป๊อปอัปนี้จะเด้งขึ้นถัดไปทันทีจนกว่าจะรับทราบครบทุกรายการ */}
         </div>
