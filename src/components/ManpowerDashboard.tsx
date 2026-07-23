@@ -51,6 +51,7 @@ interface Employee {
   สถานะพนักงาน?: string;
   สถานะกลุ่มงาน?: string;
   สถานะโครงการ?: string | string[];
+  โครงการปัจจุบัน?: string;
   employee_type?: string;
   gender?: string;
   เพศ?: string;
@@ -1667,7 +1668,7 @@ export const ManpowerDashboard = ({
           employeeCode: String(emp["รหัสพนักงาน"] || emp.id),
           fullName: getEmployeeName(emp),
           projectNames: parseProjectList(emp.สถานะโครงการ),
-          primaryProject: parseProjectList(emp.สถานะโครงการ)[0],
+          primaryProject: String(emp.โครงการปัจจุบัน || "").trim() || parseProjectList(emp.สถานะโครงการ)[0],
           position: String(emp["ตำแหน่ง"] || "-"),
           employeeType: normalizeEmployeeType(emp),
           metrics,

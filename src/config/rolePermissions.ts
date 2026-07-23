@@ -54,7 +54,9 @@ export const ROLE_PERMISSION_MODULES: RolePermissionModule[] = [
   { key: "overtime", label: "ลง Overtime" },
   { key: "day_off", label: "วันหยุด (Day Off)" },
   { key: "evaluation", label: "ประเมินผลพนักงาน" },
+  { key: "approval_center", label: "ศูนย์อนุมัติ" },
   { key: "risk_monitoring", label: "Risk Monitoring" },
+  { key: "project_transfer", label: "ย้ายโครงการ" },
   { key: "activity_logs", label: "Activity Logs" },
   { key: ROLE_PERMISSIONS_MODULE_KEY, label: "จัดการสิทธิ์การเข้าถึงตาม Role" },
 ];
@@ -94,8 +96,13 @@ export const MODULE_DEFAULT_ROLES: Record<string, UserRole[] | "*"> = {
   overtime: ["MasterAdmin", "MD", "GM", "PD", "HRM", "HR", "Admin Site"],
   day_off: ["MasterAdmin", "MD", "GM", "PD", "HRM", "HR"],
   evaluation: ["MasterAdmin", "MD", "GM", "PD", "PM", "CM", "HRM", "HR"],
+  // ศูนย์อนุมัติ: ทุก role ที่มีสิทธิ์อนุมัติ/ดำเนินการในเรื่องใดเรื่องหนึ่ง
+  // (Staff ที่ถูก assign เป็นผู้ประเมิน Tier 1/2 มี runtime rule เพิ่มใน App.tsx เหมือน evaluation)
+  approval_center: ["MasterAdmin", "MD", "GM", "PD", "PM", "CM", "HRM", "HR", "Admin Site", "Safety"],
   // Admin Site เห็นได้แบบจำกัดขอบเขตเฉพาะโครงการของตัวเอง (ดูการกรองใน ManpowerDashboard.tsx / EmployeeFollowUpTab.tsx)
   risk_monitoring: ["MasterAdmin", "MD", "GM", "PD", "HRM", "HR", "Admin Site"],
+  // Admin Site เห็นเฉพาะโครงการตัวเอง; Safety เห็นเพื่อรับเรื่องหลังอนุมัติ; PM/CM เห็นคำขอที่ถูกเลือกเป็นผู้อนุมัติ
+  project_transfer: ["MasterAdmin", "MD", "GM", "PD", "PM", "CM", "HRM", "HR", "Admin Site", "Safety"],
   activity_logs: ["MasterAdmin", "MD", "GM", "HRM"],
   [ROLE_PERMISSIONS_MODULE_KEY]: ["MasterAdmin"],
 };

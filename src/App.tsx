@@ -208,6 +208,8 @@ import {
   RefreshCw,
   Menu,
   ShieldCheck,
+  ArrowLeftRight,
+  ListChecks,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
@@ -465,6 +467,8 @@ import { DayOffPage } from './components/DayOffPage';
 import { ActivityLogPage } from './components/ActivityLogPage';
 import { RiskMonitoringPage } from './components/RiskMonitoringPage';
 import { EvaluationPage } from './components/EvaluationPage';
+import { ProjectTransferPage } from './components/ProjectTransferPage';
+import { ApprovalCenterPage } from './components/ApprovalCenterPage';
 import { InfoTooltip } from './components/InfoTooltip';
 import { ColumnMappingModal } from './components/ColumnMappingModal';
 import { ImportPreviewModal } from './components/ImportPreviewModal';
@@ -607,6 +611,18 @@ const Sidebar = ({ activeModule, setActiveModule, dbConnected, sidebarOpen, onTo
   // Dashboard is visible to everyone by default; config can still override it.
   const showDashboard = canSee("manpower_dashboard", true);
 
+  // ศูนย์อนุมัติ: รวมรายการรออนุมัติ/รอดำเนินการจากทุกเรื่องไว้หน้าเดียว
+  // ค่าเริ่มต้น: ทุก role ที่มีสิทธิ์อนุมัติ/ดำเนินการในเรื่องใดเรื่องหนึ่ง หรือถูก assign เป็นผู้ประเมิน Tier 1/2
+  const approvalCenterItem: SidebarLinkItem = {
+    id: "approval_center",
+    label: "ศูนย์อนุมัติ",
+    icon: ListChecks,
+  };
+  const dfApprovalCenter =
+    hasRole(["MasterAdmin", "MD", "GM", "PD", "PM", "CM", "HRM", "HR", "Admin Site", "Safety"]) ||
+    isAssignedEvaluator;
+  const showApprovalCenter = canSee("approval_center", dfApprovalCenter);
+
   const manpowerItems: SidebarMenuItem[] = [
     ...(canSee("attendance", dfAttendance)
       ? [{ id: "attendance", label: "ลงเวลาการมาทำงาน", icon: Clock } as SidebarLinkItem]
@@ -616,6 +632,12 @@ const Sidebar = ({ activeModule, setActiveModule, dbConnected, sidebarOpen, onTo
       : []),
     ...(canSee("day_off", dfDayOff)
       ? [{ id: "day_off", label: "วันหยุด (Day Off)", icon: Calendar } as SidebarLinkItem]
+      : []),
+    ...(canSee(
+      "project_transfer",
+      hasRole(["MasterAdmin", "MD", "GM", "PD", "PM", "CM", "HRM", "HR", "Admin Site", "Safety"])
+    )
+      ? [{ id: "project_transfer", label: "ย้ายโครงการ", icon: ArrowLeftRight } as SidebarLinkItem]
       : []),
   ];
 
@@ -903,7 +925,8 @@ const Sidebar = ({ activeModule, setActiveModule, dbConnected, sidebarOpen, onTo
 
       <nav className="flex-1 p-2 space-y-1 min-w-0">
         {showDashboard && renderMenuItem(dashboardItem)}
-        {showDashboard && <div className="border-t border-slate-800 my-1.5 mx-2" />}
+        {showApprovalCenter && renderMenuItem(approvalCenterItem)}
+        {(showDashboard || showApprovalCenter) && <div className="border-t border-slate-800 my-1.5 mx-2" />}
 
         {renderSection("management_section", "การจัดการ", Settings, managementItems)}
         {renderSection("manpower_section", "Manpower", Clock, manpowerItems)}
@@ -2992,9 +3015,11 @@ function MasterDatabaseApp() {
     overtime: "ข้อมูล OT รายวัน ใช้สรุปชั่วโมง OT รายบุคคล รายโครงการ และภาระงาน",
     manpower_dashboard: "Dashboard สรุป KPI ฝั่ง HR และโครงการ โดยคำนวณจากช่วงวันที่ที่เลือก",
     risk_monitoring: "หน้าแสดงเฉพาะความเสี่ยงของพนักงานและโครงการ โดยใช้ risk score เดียวกับ dashboard",
+    project_transfer: "คำขอย้าย/ไปช่วยงาน สายอนุมัติ PM-CM → PD → HRM แล้วเตรียมเอกสาร/ตรวจสุขภาพ/อบรม ส่ง Safety และออกบัตรเข้าโครงการ",
     evaluation: "ประเมินผลพนักงานกลุ่ม Supply manpower / Sub contractor / DC Daily - Worker ตามเกณฑ์ 5 ด้าน (ถ่วงน้ำหนัก) รอบทดลองงาน 14 วันแรกและรายเดือน",
     activity_logs: "บันทึกกิจกรรมการเปลี่ยนแปลงข้อมูลในระบบ เรียงตามเวลาล่าสุด",
     day_off: "วันหยุดบริษัทที่ใช้เป็นฐานตัดวันทำงานในหน้าลงเวลาและหน้า OT",
+    approval_center: "รวมรายการรออนุมัติ/รอดำเนินการจากทุกเรื่อง (ย้ายโครงการ ติดตามพนักงาน ประเมินผล ผู้ใช้ใหม่) ไว้หน้าเดียว คลิกรายการเพื่อไปอนุมัติที่หน้าเรื่องนั้นโดยตรง",
   };
   const moduleTooltipContent =
     moduleTooltipMap[activeModule] ||
@@ -3049,8 +3074,12 @@ function MasterDatabaseApp() {
                     ? 'Manpower Dashboard'
                     : activeModule === 'risk_monitoring'
                       ? 'Risk Monitoring'
+                    : activeModule === 'project_transfer'
+                      ? 'ย้ายโครงการ'
                     : activeModule === 'evaluation'
                       ? 'ประเมินผลพนักงาน'
+                    : activeModule === 'approval_center'
+                      ? 'ศูนย์อนุมัติ'
                     : activeModule === 'activity_logs'
                       ? 'บันทึกกิจกรรมระบบ (Activity Logs)'
                       : config.label}
@@ -3067,7 +3096,7 @@ function MasterDatabaseApp() {
             </div>
           )}
           
-          {activeModule !== 'attendance' && activeModule !== 'overtime' && activeModule !== 'manpower_dashboard' && activeModule !== 'risk_monitoring' && activeModule !== 'evaluation' && activeModule !== 'activity_logs' && (
+          {activeModule !== 'attendance' && activeModule !== 'overtime' && activeModule !== 'manpower_dashboard' && activeModule !== 'risk_monitoring' && activeModule !== 'project_transfer' && activeModule !== 'evaluation' && activeModule !== 'approval_center' && activeModule !== 'activity_logs' && (
             <>
               <div className="w-px h-5 bg-gray-200 shrink-0" />
 
@@ -3358,8 +3387,12 @@ function MasterDatabaseApp() {
               </div>
             ) : activeModule === 'risk_monitoring' ? (
               <RiskMonitoringPage projectOptions={projectStatusOptions} />
+            ) : activeModule === 'project_transfer' ? (
+              <ProjectTransferPage projectOptions={projectStatusOptions} />
             ) : activeModule === 'evaluation' ? (
               <EvaluationPage projectOptions={projectStatusOptions} />
+            ) : activeModule === 'approval_center' ? (
+              <ApprovalCenterPage setActiveModule={setActiveModule} />
             ) : activeModule === 'attendance' ? (
               <div className="p-6">
                 <AttendancePage projectOptions={projectStatusOptions} />

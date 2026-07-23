@@ -22,11 +22,19 @@ export type FollowUpNotificationType =
   | "owner_assigned"
   | "case_reset";
 
+export type TransferNotificationType =
+  | "transfer_submitted"
+  | "transfer_status_changed"
+  | "transfer_closed";
+
+export type AppNotificationType = FollowUpNotificationType | TransferNotificationType;
+export type AppNotificationModule = "follow_up" | "project_transfer";
+
 export interface AppNotification {
   id: string;
   recipientUid: string;
-  module: "follow_up";
-  type: FollowUpNotificationType;
+  module: AppNotificationModule;
+  type: AppNotificationType;
   title: string;
   message: string;
   caseId: string;
@@ -37,8 +45,8 @@ export interface AppNotification {
 }
 
 export interface CreateNotificationPayload {
-  module: "follow_up";
-  type: FollowUpNotificationType;
+  module: AppNotificationModule;
+  type: AppNotificationType;
   title: string;
   message: string;
   caseId: string;
