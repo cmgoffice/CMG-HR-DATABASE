@@ -22,3 +22,16 @@ export const removeFollowUpAttachment = async (url: string): Promise<void> => {
     // ไม่มีสิทธิ์ลบไฟล์เดิม หรือ URL ไม่ตรงรูปแบบ path ของ storage — ปล่อยผ่าน ไม่กระทบการล้างค่าที่บันทึกไว้
   }
 };
+
+/**
+ * อัปโหลดเอกสารที่เซ็นแล้ว (เช่น PDF หรือภาพถ่ายที่พนักงานเซ็นรับทราบ) เพื่อเก็บไว้ในประวัติ
+ */
+export const uploadSignedFollowUpDocument = async (caseId: string, documentId: string, file: File): Promise<string> => {
+  const storage = getStorage();
+  const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
+  const path = `follow-up-signed-documents/${caseId}/${documentId}/${Date.now()}-${safeName}`;
+  const storageRef = ref(storage, path);
+  await uploadBytes(storageRef, file, { contentType: file.type || "application/pdf" });
+  return getDownloadURL(storageRef);
+};
+

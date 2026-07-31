@@ -1,9 +1,10 @@
-import React, { useMemo, useState } from "react";
+import React, { useMemo, useRef, useState } from "react";
 import { doc, getFirestore, updateDoc } from "firebase/firestore";
-import { Download, Eye, FileText, Loader2, Search, Trash2 } from "lucide-react";
+import { Download, Eye, FileText, Loader2, Search, Trash2, Upload, ExternalLink } from "lucide-react";
 import { EMPLOYEE_FOLLOW_UP_COLLECTION } from "./employeeFollowUpConfig";
 import type { EmployeeFollowUpCase, FollowUpActionType, FollowUpDocumentRecord } from "./employeeFollowUpConfig";
 import { generateAndDownloadFollowUpDocument } from "../utils/followUpDocuments";
+import { uploadSignedFollowUpDocument, removeFollowUpAttachment } from "../utils/followUpAttachments";
 
 interface FlatFollowUpDocument extends FollowUpDocumentRecord {
   caseId: string;
@@ -54,6 +55,48 @@ export const FollowUpDocumentsBacklog = ({
   const [templateFilter, setTemplateFilter] = useState<"all" | FollowUpDocumentRecord["templateKey"]>("all");
   const [downloadBusyId, setDownloadBusyId] = useState<string>("");
   const [deleteBusyId, setDeleteBusyId] = useState<string>("");
+  const [uploadBusyId, setUploadBusyId] = useState<string>("");
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [targetUploadDoc, setTargetUploadDoc] = useState<FlatFollowUpDocument | null>(null);
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !targetUploadDoc) return;
+    
+    // reset input value so the same file can be selected again
+    if (fileInputRef.current) fileInputRef.current.value = "";
+
+    const sourceCase = cases.find((item) => item.id === targetUploadDoc.caseId);
+    if (!sourceCase) {
+      window.alert("ไม่พบเคสต้นทางของเอกสารนี้");
+      setTargetUploadDoc(null);
+      return;
+    }
+
+    setUploadBusyId(targetUploadDoc.id);
+    try {
+      const url = await uploadSignedFollowUpDocument(sourceCase.id, targetUploadDoc.id, file);
+      
+      const nextDocuments = (sourceCase.documents || []).map((docRecord) => {
+        if (docRecord.id === targetUploadDoc.id) {
+          return {
+            ...docRecord,
+            signedDocumentUrl: url,
+            signedDocumentUploadedAt: Date.now(),
+          };
+        }
+        return docRecord;
+      });
+
+      const caseRef = doc(getFirestore(), "CMG-HR-Database", "root", EMPLOYEE_FOLLOW_UP_COLLECTION, sourceCase.id);
+      await updateDoc(caseRef, { documents: nextDocuments, updatedAt: Date.now() });
+    } catch (error) {
+      window.alert(`อัปโหลดเอกสารไม่สำเร็จ: ${error instanceof Error ? error.message : "เกิดข้อผิดพลาดที่ไม่คาดคิด"}`);
+    } finally {
+      setUploadBusyId("");
+      setTargetUploadDoc(null);
+    }
+  };
 
   const downloadDocument = async (docItem: FlatFollowUpDocument) => {
     const sourceCase = cases.find((item) => item.id === docItem.caseId);
@@ -123,6 +166,9 @@ export const FollowUpDocumentsBacklog = ({
     }
     setDeleteBusyId(docItem.id);
     try {
+      if (docItem.signedDocumentUrl) {
+        void removeFollowUpAttachment(docItem.signedDocumentUrl);
+      }
       const nextDocuments = (sourceCase.documents || []).filter((item) => item.id !== docItem.id);
       const caseRef = doc(getFirestore(), "CMG-HR-Database", "root", EMPLOYEE_FOLLOW_UP_COLLECTION, sourceCase.id);
       await updateDoc(caseRef, { documents: nextDocuments, updatedAt: Date.now() });
@@ -214,13 +260,14 @@ export const FollowUpDocumentsBacklog = ({
               <th className="px-4 py-3">โครงการ</th>
               <th className="px-4 py-3">ออกโดย</th>
               <th className="px-4 py-3">วันที่ออก</th>
+              <th className="px-4 py-3 text-center">เอกสารที่เซ็นแล้ว</th>
               <th className="px-4 py-3 text-right">การดำเนินการ</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
             {filteredDocuments.length === 0 ? (
               <tr>
-                <td colSpan={7} className="px-4 py-10 text-center text-sm text-slate-400">
+                <td colSpan={8} className="px-4 py-10 text-center text-sm text-slate-400">
                   ไม่พบเอกสารที่ตรงกับเงื่อนไข
                 </td>
               </tr>
@@ -237,6 +284,38 @@ export const FollowUpDocumentsBacklog = ({
                   <td className="px-4 py-3 text-xs text-slate-500">{docItem.generatedByName}</td>
                   <td className="px-4 py-3 text-xs text-slate-500">
                     {new Date(docItem.generatedAt).toLocaleString("th-TH")}
+                  </td>
+                  <td className="px-4 py-3 text-center">
+                    {docItem.signedDocumentUrl ? (
+                      <a
+                        href={docItem.signedDocumentUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-700 hover:bg-emerald-100"
+                        title="ดูเอกสารที่เซ็นแล้ว"
+                      >
+                        <ExternalLink size={13} />
+                        เปิดดู
+                      </a>
+                    ) : (
+                      <button
+                        type="button"
+                        disabled={uploadBusyId === docItem.id}
+                        onClick={() => {
+                          setTargetUploadDoc(docItem);
+                          fileInputRef.current?.click();
+                        }}
+                        className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+                        title="อัปโหลดเอกสารที่เซ็นแล้ว"
+                      >
+                        {uploadBusyId === docItem.id ? (
+                          <Loader2 size={13} className="animate-spin" />
+                        ) : (
+                          <Upload size={13} />
+                        )}
+                        อัปโหลด
+                      </button>
+                    )}
                   </td>
                   <td className="px-4 py-3 text-right">
                     <div className="flex items-center justify-end gap-2">
@@ -285,6 +364,13 @@ export const FollowUpDocumentsBacklog = ({
           </tbody>
         </table>
       </div>
+      <input
+        type="file"
+        ref={fileInputRef}
+        onChange={handleFileChange}
+        accept="application/pdf,image/*"
+        className="hidden"
+      />
     </div>
   );
 };

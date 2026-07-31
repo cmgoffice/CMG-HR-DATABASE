@@ -70,6 +70,8 @@ export interface FollowUpDocumentRecord {
   usedSignatureOfUid?: string;
   usedSignatureOfName?: string;
   actionType?: FollowUpActionType;
+  signedDocumentUrl?: string;
+  signedDocumentUploadedAt?: number;
 }
 
 export interface FollowUpDocumentDraft {
