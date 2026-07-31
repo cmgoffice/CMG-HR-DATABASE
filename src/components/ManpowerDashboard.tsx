@@ -1056,6 +1056,23 @@ export const ManpowerDashboard = ({
     return map;
   }, [followUpCases]);
 
+  const overdueFollowUpCases = useMemo(() => {
+    const now = Date.now();
+    const threeDaysMs = 3 * 24 * 60 * 60 * 1000;
+    return followUpCases
+      .filter((item) => {
+        if (!isFollowUpOpenStatus(item.status)) return false;
+        const lastActivity = item.lastActionAt || item.createdAt;
+        return now - lastActivity > threeDaysMs;
+      })
+      .map((item) => {
+        const lastActivity = item.lastActionAt || item.createdAt;
+        const overdueDays = Math.floor((now - lastActivity) / (24 * 60 * 60 * 1000));
+        return { ...item, _overdueDays: overdueDays };
+      })
+      .sort((a, b) => b._overdueDays - a._overdueDays);
+  }, [followUpCases]);
+
   useEffect(() => {
     if (!canSeeHrDashboard) setDashboardMode("project");
   }, [canSeeHrDashboard]);
@@ -4196,6 +4213,46 @@ export const ManpowerDashboard = ({
                 <HorizontalBreakdown items={topProjectAssignments} total={employees.length} accent="bg-indigo-400" />
               </SectionCard>
             )}
+            {showOnlyRiskMonitoring && (
+              <SectionCard
+                title="แจ้งเตือนการติดตามล่าช้า"
+                subtitle="เคสติดตามที่ค้างอยู่และไม่มีการอัปเดตเกิน 3 วัน"
+                tooltip="แสดงเคสติดตามที่ยังไม่ถูกปิด และไม่มีความเคลื่อนไหวใดๆ นานเกิน 3 วัน"
+              >
+                <div className="space-y-2 max-h-[220px] overflow-y-auto pr-1 custom-scrollbar">
+                  {overdueFollowUpCases.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center py-6 text-sm text-slate-500">
+                      <CheckCircle className="h-8 w-8 text-emerald-400 mb-2 opacity-50" />
+                      <p>ไม่มีเคสติดตามที่ล่าช้า</p>
+                    </div>
+                  ) : (
+                    overdueFollowUpCases.slice(0, 5).map((c) => (
+                      <div
+                        key={c.id}
+                        className="block w-full rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-left transition-colors hover:bg-rose-100"
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="min-w-0 truncate text-xs font-semibold text-rose-800">
+                            {c.employeeName || c.employeeCode}
+                          </div>
+                          <span className="shrink-0 inline-flex rounded-full bg-rose-100 px-2 py-0.5 text-[10px] font-bold text-rose-700">
+                            ค้าง {c._overdueDays} วัน
+                          </span>
+                        </div>
+                        <div className="mt-0.5 min-w-0 truncate text-[10px] text-rose-600 font-medium">
+                          {c.projectName} • {c.issueLabel || c.issueReason || "-"}
+                        </div>
+                      </div>
+                    ))
+                  )}
+                  {overdueFollowUpCases.length > 5 && (
+                    <div className="text-center text-xs text-rose-600 font-bold pt-1 pb-1">
+                      และอีก {overdueFollowUpCases.length - 5} เคสที่ล่าช้า
+                    </div>
+                  )}
+                </div>
+              </SectionCard>
+            )}
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-2 lg:gap-4">
@@ -4959,35 +5016,33 @@ export const ManpowerDashboard = ({
               <div className="text-sm text-slate-500">ยังไม่มีข้อมูล coverage รายวันในช่วงนี้</div>
             ) : (
               <div className="space-y-2 lg:space-y-3">
-                <div className="overflow-x-auto">
-                  <div className="flex min-w-max items-end gap-1 lg:gap-1.5 rounded-xl border border-slate-200 bg-slate-50 p-2 lg:p-3">
-                    {projectData.coverageTrend.map((row) => {
-                      const tone = getCoverageRiskTone(row.coverageRate);
-                      const isTodayMarker = isSingleDayView && row.date === todayReferenceDate;
-                      const barPct = row.coverageRate <= 0
-                        ? 12
-                        : Math.max(18, Math.min(row.coverageRate * 100, 100));
-                      return (
-                        <div
-                          key={row.date}
-                          className={`flex w-8 lg:w-10 shrink-0 flex-col items-center rounded-md px-0.5 py-1 lg:px-1 ${isTodayMarker ? "bg-sky-100 ring-1 ring-sky-300" : ""}`}
-                        >
-                          <div className={`mb-1 inline-flex rounded px-1 py-0.5 text-[8px] lg:text-[9px] font-bold ${tone.emphasis}`}>
-                            {formatPercent(row.present, row.required)}
-                          </div>
-                          <div className="flex h-12 lg:h-20 w-full items-end justify-center">
-                            <div
-                              className={`w-4 lg:w-5 rounded-t ${tone.bar} ${isTodayMarker ? "ring-2 ring-sky-500 ring-offset-1 ring-offset-sky-100" : ""}`}
-                              style={{ height: `${barPct}%` }}
-                              title={`${row.label}: ${row.present}/${row.required} | gap ${row.gapHeadcount} คน`}
-                            />
-                          </div>
-                          <div className={`mt-1 text-[9px] lg:text-[10px] font-medium ${isTodayMarker ? "text-sky-800" : "text-slate-700"}`}>{row.label}</div>
-                          <div className={`text-[8px] lg:text-[9px] ${tone.subtext}`}>{row.present}/{row.required}</div>
+                <div className="flex flex-wrap items-end gap-1 lg:gap-1.5 rounded-xl border border-slate-200 bg-slate-50 p-2 lg:p-3">
+                  {projectData.coverageTrend.map((row) => {
+                    const tone = getCoverageRiskTone(row.coverageRate);
+                    const isTodayMarker = isSingleDayView && row.date === todayReferenceDate;
+                    const barPct = row.coverageRate <= 0
+                      ? 12
+                      : Math.max(18, Math.min(row.coverageRate * 100, 100));
+                    return (
+                      <div
+                        key={row.date}
+                        className={`flex min-w-[1.75rem] flex-1 basis-8 flex-col items-center rounded-md px-0.5 py-1 lg:px-1 ${isTodayMarker ? "bg-sky-100 ring-1 ring-sky-300" : ""}`}
+                      >
+                        <div className={`mb-1 inline-flex rounded px-1 py-0.5 text-[8px] lg:text-[9px] font-bold ${tone.emphasis}`}>
+                          {formatPercent(row.present, row.required)}
                         </div>
-                      );
-                    })}
-                  </div>
+                        <div className="flex h-12 lg:h-20 w-full items-end justify-center">
+                          <div
+                            className={`w-4 lg:w-5 rounded-t ${tone.bar} ${isTodayMarker ? "ring-2 ring-sky-500 ring-offset-1 ring-offset-sky-100" : ""}`}
+                            style={{ height: `${barPct}%` }}
+                            title={`${row.label}: ${row.present}/${row.required} | gap ${row.gapHeadcount} คน`}
+                          />
+                        </div>
+                        <div className={`mt-1 text-[9px] lg:text-[10px] font-medium ${isTodayMarker ? "text-sky-800" : "text-slate-700"}`}>{row.label}</div>
+                        <div className={`text-[8px] lg:text-[9px] ${tone.subtext}`}>{row.present}/{row.required}</div>
+                      </div>
+                    );
+                  })}
                 </div>
 
                 {projectData.coverageTrend.some((row) => row.coverageRate < 0.95) ? (
