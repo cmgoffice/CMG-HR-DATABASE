@@ -261,6 +261,7 @@ export const RiskMonitoringPage = ({ projectOptions }: { projectOptions: string[
           riskSettings={riskSettings}
           followUpCases={followUpCases}
           onOpenFollowUp={handleOpenFollowUp}
+          onOpenFollowUpCase={handleOpenCaseFromDocuments}
           onFollowUpQueueSeedsChange={setDetectedRiskSeeds}
         />
       ) : tab === "policy" ? (

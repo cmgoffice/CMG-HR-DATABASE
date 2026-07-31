@@ -978,6 +978,7 @@ export const ManpowerDashboard = ({
   riskSettings = DEFAULT_RISK_MONITORING_SETTINGS,
   followUpCases = [],
   onOpenFollowUp,
+  onOpenFollowUpCase,
   onFollowUpQueueSeedsChange,
 }: {
   projectOptions: string[];
@@ -985,6 +986,7 @@ export const ManpowerDashboard = ({
   riskSettings?: RiskMonitoringSettings;
   followUpCases?: EmployeeFollowUpCase[];
   onOpenFollowUp?: (seed: FollowUpRiskSeed, preferredIssueKey?: RiskRuleKey) => void;
+  onOpenFollowUpCase?: (caseId: string) => void;
   onFollowUpQueueSeedsChange?: (seeds: FollowUpRiskSeed[]) => void;
 }) => {
   const { userProfile, hasRole } = useAuth();
@@ -4227,9 +4229,12 @@ export const ManpowerDashboard = ({
                     </div>
                   ) : (
                     overdueFollowUpCases.slice(0, 5).map((c) => (
-                      <div
+                      <button
                         key={c.id}
-                        className="block w-full rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-left transition-colors hover:bg-rose-100"
+                        type="button"
+                        onClick={() => onOpenFollowUpCase?.(c.id)}
+                        className="block w-full rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-left transition-colors hover:bg-rose-100 disabled:opacity-80 disabled:cursor-default"
+                        disabled={!onOpenFollowUpCase}
                       >
                         <div className="flex items-center justify-between gap-2">
                           <div className="min-w-0 truncate text-xs font-semibold text-rose-800">
@@ -4242,7 +4247,7 @@ export const ManpowerDashboard = ({
                         <div className="mt-0.5 min-w-0 truncate text-[10px] text-rose-600 font-medium">
                           {c.projectName} • {c.issueLabel || c.issueReason || "-"}
                         </div>
-                      </div>
+                      </button>
                     ))
                   )}
                   {overdueFollowUpCases.length > 5 && (
