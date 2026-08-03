@@ -18,6 +18,8 @@ export type RiskMetricKey =
   | "absenceRate"
   | "payCycleAbsenceRate"
   | "mondayFridayAbsenceCount"
+  | "alternateDayAbsenceCount"
+  | "monthStart14AbsenceRate"
   | "notRecordedDays"
   | "wrongProjectDays";
 
@@ -27,6 +29,8 @@ export interface RiskMetricSnapshotLike {
   absenceRate: number;
   payCycleAbsenceRate: number;
   mondayFridayAbsenceCount: number;
+  alternateDayAbsenceCount: number;
+  monthStart14AbsenceRate: number;
   notRecordedDays: number;
   wrongProjectDays: number;
 }
@@ -134,6 +138,8 @@ const metricLabelMap: Record<RiskMetricKey, string> = {
   absenceRate: "อัตราขาด",
   payCycleAbsenceRate: "อัตราขาด (รอบจ่ายค่าแรง)",
   mondayFridayAbsenceCount: "ขาดวันจันทร์/ศุกร์",
+  alternateDayAbsenceCount: "ขาดวันเว้นวัน",
+  monthStart14AbsenceRate: "อัตราขาด (14 วันแรกของเดือน)",
   notRecordedDays: "ค้างลงเวลา",
   wrongProjectDays: "ลงผิดโครงการ",
 };
@@ -179,6 +185,24 @@ const defaultIssueTypes: RiskIssueTypeConfig[] = [
     category: "รูปแบบพฤติกรรม",
     description:
       "เป็นเพียงรูปแบบ (pattern) ของวันที่ขาดงานซึ่งนับซ้ำกับวันขาดงานที่ถูกนับในกลุ่มขาดต่อเนื่อง/ขาดสะสม/อัตราขาดสูงอยู่แล้ว ไม่ใช่หลักฐานผิดวินัยเพิ่มเติมด้วยตัวเอง จึงไม่ถูกส่งเข้าคิวติดตามพนักงานอัตโนมัติ ใช้เป็นสัญญาณเฝ้าระวังบน dashboard เท่านั้น",
+    enabled: true,
+  },
+  {
+    key: "alternate_day_absence",
+    label: "ขาดงานวันเว้นวัน",
+    shortLabel: "ขาดวันเว้นวัน",
+    category: "รูปแบบพฤติกรรม",
+    description:
+      "เป็นเพียงรูปแบบ (pattern) ของวันที่ขาดงานสลับกับวันที่มาทำงาน ซึ่งนับซ้ำกับวันขาดงานที่ถูกนับในกลุ่มขาดต่อเนื่อง/ขาดสะสม/อัตราขาดสูงอยู่แล้ว ไม่ใช่หลักฐานผิดวินัยเพิ่มเติมด้วยตัวเอง จึงไม่ถูกส่งเข้าคิวติดตามพนักงานอัตโนมัติ ใช้เป็นสัญญาณเฝ้าระวังบน dashboard เท่านั้น",
+    enabled: true,
+  },
+  {
+    key: "month_start_low_attendance",
+    label: "มาทำงานน้อยกว่า 50% ใน 14 วันแรกของเดือน",
+    shortLabel: "มาน้อย 14 วันต้นเดือน",
+    category: "การมาทำงาน",
+    description:
+      "คำนวณจากอัตราขาดงานในช่วงวันที่ 1-14 ของเดือนปัจจุบันเท่านั้น (ไม่ใช่ช่วงวันที่ที่เลือกดูรายงาน) เพื่อจับสัญญาณเริ่มต้นเดือนที่มาทำงานน้อยผิดปกติ ซ้ำกับวันขาดงานที่ถูกนับในกลุ่มขาดต่อเนื่อง/ขาดสะสม/อัตราขาดสูงอยู่แล้ว ไม่ใช่หลักฐานผิดวินัยเพิ่มเติมด้วยตัวเอง จึงไม่ถูกส่งเข้าคิวติดตามพนักงานอัตโนมัติ ใช้เป็นสัญญาณเฝ้าระวังบน dashboard เท่านั้น",
     enabled: true,
   },
   {
@@ -255,6 +279,33 @@ const defaultRiskRules: RiskRuleConfig[] = [
     tiers: [
       { id: "monday_friday_pattern_3", minValue: 3, score: 20, severityImpact: "high", enabled: true },
       { id: "monday_friday_pattern_2", minValue: 2, score: 10, severityImpact: "watch", enabled: true },
+    ],
+  },
+  {
+    key: "alternate_day_absence",
+    issueTypeKey: "alternate_day_absence",
+    metricKey: "alternateDayAbsenceCount",
+    valueFormat: "count",
+    description: "ให้คะแนนเมื่อพนักงานมีรูปแบบขาดงานสลับกับมาทำงานติดกัน (ขาด-มา-ขาด-มา-ขาด...) ตั้งแต่ 3 ครั้งขึ้นไปในรูปแบบเดียวกัน",
+    enabled: true,
+    scoreGroup: "absence_days",
+    tiers: [
+      { id: "alternate_day_absence_4", minValue: 4, score: 35, severityImpact: "high", enabled: true },
+      { id: "alternate_day_absence_3", minValue: 3, score: 25, severityImpact: "risk", enabled: true },
+    ],
+  },
+  {
+    key: "month_start_low_attendance",
+    issueTypeKey: "month_start_low_attendance",
+    metricKey: "monthStart14AbsenceRate",
+    valueFormat: "percent",
+    description:
+      "ให้คะแนนเมื่ออัตราขาดงานในช่วงวันที่ 1-14 ของเดือนปัจจุบันเกินเกณฑ์ (มาทำงานน้อยกว่า 50%) ต้องมีวันทำงานผ่านไปแล้วอย่างน้อย 3 วันในช่วงนี้จึงจะเริ่มประเมิน",
+    enabled: true,
+    scoreGroup: "absence_days",
+    tiers: [
+      { id: "month_start_low_attendance_70", minValue: 0.7, score: 40, severityImpact: "critical", enabled: true },
+      { id: "month_start_low_attendance_50", minValue: 0.5, score: 25, severityImpact: "risk", enabled: true },
     ],
   },
   {

@@ -159,12 +159,16 @@ interface RiskMetrics {
   mondayAbsenceCount: number;
   fridayAbsenceCount: number;
   mondayFridayAbsenceCount: number;
+  alternateDayAbsenceCount: number;
   absenceRate: number;
   leaveRate: number;
   notRecordedRate: number;
   payCycleAbsentDays: number;
   payCycleWorkDays: number;
   payCycleAbsenceRate: number;
+  monthStart14AbsentDays: number;
+  monthStart14WorkDays: number;
+  monthStart14AbsenceRate: number;
   latestIncidentDate?: string;
 }
 
@@ -606,6 +610,25 @@ const getPayCycleRange = (referenceDateStr: string): { start: string; end: strin
   return { start: formatDateInput(start), end: formatDateInput(end), label: `${formatThaiDate(formatDateInput(start))} - ${formatThaiDate(formatDateInput(end))}` };
 };
 
+/**
+ * Fixed calendar window covering the 1st to the 14th of the month
+ * containing referenceDateStr, used to evaluate month_start_low_attendance
+ * against a consistent early-month checkpoint instead of the dashboard's
+ * selected report range. The window stops expanding past day 14 (stays
+ * fixed at 1-14 for the rest of the month) so the rule keeps evaluating the
+ * same early-month period even after it has fully elapsed.
+ */
+const getMonthStart14DayRange = (referenceDateStr: string): { start: string; end: string; label: string } => {
+  const ref = new Date(`${referenceDateStr}T00:00:00`);
+  const base = Number.isNaN(ref.getTime()) ? new Date() : ref;
+  const year = base.getFullYear();
+  const month = base.getMonth();
+  const day = base.getDate();
+  const start = new Date(year, month, 1);
+  const end = new Date(year, month, Math.min(14, day));
+  return { start: formatDateInput(start), end: formatDateInput(end), label: `${formatThaiDate(formatDateInput(start))} - ${formatThaiDate(formatDateInput(end))}` };
+};
+
 const getTrailingStartDate = (endDateStr: string, days: number) => {
   const end = new Date(`${endDateStr}T00:00:00`);
   if (Number.isNaN(end.getTime())) return endDateStr;
@@ -647,15 +670,23 @@ const formatShortThaiDate = (dateStr?: string): string => {
  * every matched condition is still listed in the combined reason text.
  */
 /**
- * absence_rate is evaluated against the current pay-cycle window rather than
- * the dashboard's selected report range. Append the cycle date range to its
- * reason text so the figure is self-explanatory wherever it's shown (chips,
- * Rule Breakdown), without requiring the user to open the methodology popup.
+ * absence_rate is evaluated against the current pay-cycle window, and
+ * month_start_low_attendance against the fixed 1-14 window of the current
+ * month, rather than the dashboard's selected report range. Append each
+ * fixed date range to its reason text so the figure is self-explanatory
+ * wherever it's shown (chips, Rule Breakdown), without requiring the user
+ * to open the methodology popup.
  */
-const annotatePayCycleReason = (rules: RiskRuleResult[], payCycleLabel: string): RiskRuleResult[] =>
-  rules.map((rule) =>
-    rule.key === "absence_rate" ? { ...rule, reason: `${rule.reason} (รอบจ่ายค่าแรง ${payCycleLabel})` } : rule
-  );
+const annotatePayCycleReason = (
+  rules: RiskRuleResult[],
+  payCycleLabel: string,
+  monthStart14Label: string
+): RiskRuleResult[] =>
+  rules.map((rule) => {
+    if (rule.key === "absence_rate") return { ...rule, reason: `${rule.reason} (รอบจ่ายค่าแรง ${payCycleLabel})` };
+    if (rule.key === "month_start_low_attendance") return { ...rule, reason: `${rule.reason} (${monthStart14Label})` };
+    return rule;
+  });
 
 const consolidateRulesByScoreGroup = (rules: RiskRuleResult[]): RiskRuleResult[] => {
   const groups = new Map<string, RiskRuleResult[]>();
@@ -692,7 +723,14 @@ const consolidateRulesByScoreGroup = (rules: RiskRuleResult[]): RiskRuleResult[]
  * - monday_friday_pattern: a behavioral pattern flag over the same absence
  *   days, not an independent violation; also kept as a dashboard-only
  *   watch signal.
- * All four still contribute to the risk score/dashboard as signals, just
+ * - alternate_day_absence: same idea as monday_friday_pattern but for an
+ *   alternating (ขาด-มา-ขาด-มา...) pattern; also a dashboard-only watch
+ *   signal over the same underlying absence days.
+ * - month_start_low_attendance: an aggregate rate over the fixed 1-14
+ *   window of the current month, derived from the same absence days
+ *   already covered by ขาดต่อเนื่อง/ขาดสะสม; kept as a dashboard-only watch
+ *   signal for the same reason as absence_rate.
+ * All six still contribute to the risk score/dashboard as signals, just
  * not as employee tracking cases.
  */
 const EMPLOYEE_FOLLOW_UP_EXCLUDED_ISSUE_KEYS: readonly RiskRuleKey[] = [
@@ -700,6 +738,8 @@ const EMPLOYEE_FOLLOW_UP_EXCLUDED_ISSUE_KEYS: readonly RiskRuleKey[] = [
   "missing_attendance",
   "absence_rate",
   "monday_friday_pattern",
+  "alternate_day_absence",
+  "month_start_low_attendance",
 ];
 
 const buildFollowUpRiskSeed = (risk: EmployeeRiskScore): FollowUpRiskSeed => ({
@@ -740,6 +780,41 @@ const maxConsecutiveAbsence = (
     }
   });
   return maxStreak;
+};
+
+/**
+ * Detects the longest run of alternating absent/present workdays starting
+ * with an absence (ไม่มา -> มา -> ไม่มา -> มา -> ไม่มา...) and returns the
+ * number of "ไม่มา" days within that run (e.g. จขาด พมา อขาด พฤมา ศขาด = 3).
+ * Any status other than the exact expected value breaks the pattern; if the
+ * break itself is an absence, a new alternating run restarts from there.
+ */
+const maxAlternateDayAbsenceCount = (
+  workDates: string[],
+  attendanceByDate: Record<string, Record<string, AttendanceEntry>>,
+  employeeId: string
+): number => {
+  let maxAbsences = 0;
+  let currentAbsences = 0;
+  let expectedStatus: "ไม่มา" | "มา" = "ไม่มา";
+  workDates.forEach((date) => {
+    const status = attendanceByDate[date]?.[employeeId]?.status;
+    if (status === expectedStatus) {
+      if (expectedStatus === "ไม่มา") {
+        currentAbsences += 1;
+        maxAbsences = Math.max(maxAbsences, currentAbsences);
+      }
+      expectedStatus = expectedStatus === "ไม่มา" ? "มา" : "ไม่มา";
+    } else if (status === "ไม่มา") {
+      currentAbsences = 1;
+      maxAbsences = Math.max(maxAbsences, currentAbsences);
+      expectedStatus = "มา";
+    } else {
+      currentAbsences = 0;
+      expectedStatus = "ไม่มา";
+    }
+  });
+  return maxAbsences;
 };
 
 const evaluateRiskRules = (metrics: RiskMetrics, settings: RiskMonitoringSettings): RiskRuleResult[] =>
@@ -1283,6 +1358,22 @@ export const ManpowerDashboard = ({
   );
   const payCycleWorkDates = useMemo(() => payCycleDateRange.filter((date) => !dayOffs[date]), [payCycleDateRange, dayOffs]);
   const PAY_CYCLE_MIN_WORKDAYS = 3;
+  // มาทำงานน้อยกว่า 50% ใน 14 วันแรกของเดือนใช้หน้าต่างวันที่ 1-14 ของเดือนปัจจุบันเสมอ ไม่ผูกกับ
+  // ช่วงวันที่ที่เลือกดูรายงาน (เหมือนอัตราขาดงานสูงที่ใช้รอบจ่ายค่าแรงของตัวเอง)
+  const monthStart14Range = useMemo(() => getMonthStart14DayRange(todayReferenceDate), [todayReferenceDate]);
+  const monthStart14DateRange = useMemo(
+    () =>
+      enumerateDates(
+        monthStart14Range.start,
+        monthStart14Range.end < todayReferenceDate ? monthStart14Range.end : todayReferenceDate
+      ),
+    [monthStart14Range, todayReferenceDate]
+  );
+  const monthStart14WorkDates = useMemo(
+    () => monthStart14DateRange.filter((date) => !dayOffs[date]),
+    [monthStart14DateRange, dayOffs]
+  );
+  const MONTH_START_14_MIN_WORKDAYS = 3;
 
   const employeeTypeCounts = useMemo(() => {
     const counts: Record<string, number> = {};
@@ -1332,12 +1423,16 @@ export const ManpowerDashboard = ({
         mondayAbsenceCount: 0,
         fridayAbsenceCount: 0,
         mondayFridayAbsenceCount: 0,
+        alternateDayAbsenceCount: 0,
         absenceRate: 0,
         leaveRate: 0,
         notRecordedRate: 0,
         payCycleAbsentDays: 0,
         payCycleWorkDays: payCycleWorkDates.length,
         payCycleAbsenceRate: 0,
+        monthStart14AbsentDays: 0,
+        monthStart14WorkDays: monthStart14WorkDates.length,
+        monthStart14AbsenceRate: 0,
       };
       followUpRiskMetricsByEmployee[emp.id] = {
         scheduledDays: followUpWorkDates.length,
@@ -1353,12 +1448,16 @@ export const ManpowerDashboard = ({
         mondayAbsenceCount: 0,
         fridayAbsenceCount: 0,
         mondayFridayAbsenceCount: 0,
+        alternateDayAbsenceCount: 0,
         absenceRate: 0,
         leaveRate: 0,
         notRecordedRate: 0,
         payCycleAbsentDays: 0,
         payCycleWorkDays: payCycleWorkDates.length,
         payCycleAbsenceRate: 0,
+        monthStart14AbsentDays: 0,
+        monthStart14WorkDays: monthStart14WorkDates.length,
+        monthStart14AbsenceRate: 0,
       };
     });
 
@@ -1613,6 +1712,7 @@ export const ManpowerDashboard = ({
     scopeEmployees.forEach((emp) => {
       const metrics = riskMetricsByEmployee[emp.id];
       metrics.consecutiveAbsentDays = maxConsecutiveAbsence(workDates, attendanceByDate, emp.id);
+      metrics.alternateDayAbsenceCount = maxAlternateDayAbsenceCount(workDates, attendanceByDate, emp.id);
       workDates.forEach((date) => {
         if (attendanceByDate[date]?.[emp.id]?.status === "ไม่มา") {
           const dayOfWeek = new Date(`${date}T00:00:00`).getDay();
@@ -1631,6 +1731,7 @@ export const ManpowerDashboard = ({
     scopeEmployees.forEach((emp) => {
       const metrics = followUpRiskMetricsByEmployee[emp.id];
       metrics.consecutiveAbsentDays = maxConsecutiveAbsence(followUpWorkDates, attendanceByDate, emp.id);
+      metrics.alternateDayAbsenceCount = maxAlternateDayAbsenceCount(followUpWorkDates, attendanceByDate, emp.id);
       followUpWorkDates.forEach((date) => {
         if (attendanceByDate[date]?.[emp.id]?.status === "ไม่มา") {
           const dayOfWeek = new Date(`${date}T00:00:00`).getDay();
@@ -1675,11 +1776,41 @@ export const ManpowerDashboard = ({
       }
     });
 
+    // มาทำงานน้อยกว่า 50% ใน 14 วันแรกของเดือนใช้หน้าต่างวันที่ 1-14 ของเดือนปัจจุบันเสมอ (ไม่ผูกกับ
+    // workDates/followUpWorkDates ของมุมมองที่เลือก) นับเฉพาะ "ไม่มา" เป็นขาด (ลา/ค้างลงเวลาไม่นับ)
+    // ต้องมีวันทำงานผ่านไปแล้วอย่างน้อย MONTH_START_14_MIN_WORKDAYS วัน เพื่อลดสัญญาณรบกวนช่วงต้นเดือน
+    scopeEmployees.forEach((emp) => {
+      const monthStart14AbsentDays = monthStart14WorkDates.reduce(
+        (count, date) => (attendanceByDate[date]?.[emp.id]?.status === "ไม่มา" ? count + 1 : count),
+        0
+      );
+      // วันที่เป็น "H" (วันหยุดพนักงาน) ในหน้าต่างนี้ ให้ตัดออกจากตัวหารด้วยเช่นกัน
+      const monthStart14DayOffDays = monthStart14WorkDates.reduce(
+        (count, date) => (attendanceByDate[date]?.[emp.id]?.status === "H" ? count + 1 : count),
+        0
+      );
+      const monthStart14EffectiveWorkDays = Math.max(monthStart14WorkDates.length - monthStart14DayOffDays, 0);
+      const monthStart14AbsenceRate =
+        monthStart14WorkDates.length >= MONTH_START_14_MIN_WORKDAYS && monthStart14EffectiveWorkDays > 0
+          ? monthStart14AbsentDays / monthStart14EffectiveWorkDays
+          : 0;
+      if (riskMetricsByEmployee[emp.id]) {
+        riskMetricsByEmployee[emp.id].monthStart14AbsentDays = monthStart14AbsentDays;
+        riskMetricsByEmployee[emp.id].monthStart14WorkDays = monthStart14WorkDates.length;
+        riskMetricsByEmployee[emp.id].monthStart14AbsenceRate = monthStart14AbsenceRate;
+      }
+      if (followUpRiskMetricsByEmployee[emp.id]) {
+        followUpRiskMetricsByEmployee[emp.id].monthStart14AbsentDays = monthStart14AbsentDays;
+        followUpRiskMetricsByEmployee[emp.id].monthStart14WorkDays = monthStart14WorkDates.length;
+        followUpRiskMetricsByEmployee[emp.id].monthStart14AbsenceRate = monthStart14AbsenceRate;
+      }
+    });
+
     const evaluatedAt = new Date().toISOString();
     const allRiskRows: EmployeeRiskScore[] = scopeEmployees
       .map((emp) => {
         const metrics = followUpRiskMetricsByEmployee[emp.id];
-        const rules = annotatePayCycleReason(evaluateRiskRules(metrics, riskSettings), payCycleRange.label);
+        const rules = annotatePayCycleReason(evaluateRiskRules(metrics, riskSettings), payCycleRange.label, monthStart14Range.label);
         const totalScore = computeRiskTotalScore(rules);
         const severityInfo = deriveSeverity(totalScore, rules, riskSettings);
         return {
@@ -1705,7 +1836,7 @@ export const ManpowerDashboard = ({
 
     const employeeAttendanceRows: EmployeeAttendanceSummaryRow[] = scopeEmployees.map((emp) => {
       const metrics = riskMetricsByEmployee[emp.id];
-      const rules = annotatePayCycleReason(evaluateRiskRules(metrics, riskSettings), payCycleRange.label);
+      const rules = annotatePayCycleReason(evaluateRiskRules(metrics, riskSettings), payCycleRange.label, monthStart14Range.label);
       const totalScore = computeRiskTotalScore(rules);
       const severityInfo = deriveSeverity(totalScore, rules, riskSettings);
       return {
@@ -1856,7 +1987,7 @@ export const ManpowerDashboard = ({
       lateDataAvailable,
       todayAbsentLeaveRows: todayAbsentLeaveRows.sort((a, b) => (a.status === b.status ? a.fullName.localeCompare(b.fullName, "th") : a.status === "ไม่มา" ? -1 : 1)),
     };
-  }, [employees, workDates, followUpWorkDates, payCycleWorkDates, attendanceByDate, overtimeByDate, followUpStartDate, endDate, todayReferenceDate]);
+  }, [employees, workDates, followUpWorkDates, payCycleWorkDates, monthStart14WorkDates, attendanceByDate, overtimeByDate, followUpStartDate, endDate, todayReferenceDate]);
 
   useEffect(() => {
     if (!onFollowUpQueueSeedsChange) return;
@@ -3291,7 +3422,9 @@ export const ManpowerDashboard = ({
 
               <div className="rounded-xl border border-slate-200 p-4">
                 <div className="text-sm font-black text-slate-900">Rule Breakdown</div>
-                <div className="mt-1 text-xs text-slate-500">กฎที่ trigger จริงของพนักงานคนนี้ พร้อมคะแนนและเหตุผล</div>
+                <div className="mt-1 text-xs text-slate-500">
+                  กฎที่ trigger จริงของพนักงานคนนี้ พร้อมคะแนนและเหตุผล (กฎที่มาจากวันขาดงานเดียวกันจะถูกรวมเป็นแถวเดียว)
+                </div>
                 <div className="mt-3 overflow-x-auto">
                   <table className="w-full min-w-[620px] text-xs">
                     <thead>
@@ -3303,7 +3436,7 @@ export const ManpowerDashboard = ({
                       </tr>
                     </thead>
                     <tbody>
-                      {activeRisk.rules.map((rule) => (
+                      {consolidateRulesByScoreGroup(activeRisk.rules).map((rule) => (
                         <tr key={`${activeRisk.employeeId}-${rule.key}`} className="border-t border-slate-100">
                           <td className="px-3 py-2 font-medium text-slate-800">{rule.label}</td>
                           <td className="px-3 py-2 text-slate-700">{rule.reason}</td>
@@ -3330,8 +3463,8 @@ export const ManpowerDashboard = ({
                   <div className="text-sm font-black text-slate-900">Follow-up Queue by Issue</div>
                   <div className="mt-1 text-xs text-slate-500">
                     เปิดรายการติดตามรายประเด็นจาก risk rule ที่ trigger จริง โดยไม่ต้องสร้างเคสเองก่อน (เฉพาะขาดต่อเนื่องและขาดสะสมเท่านั้นที่เข้าคิวนี้ได้
-                    ส่วนอัตราขาดสูง ขาดจันทร์-ศุกร์ ลงผิดโครงการ และค้างลงเวลา ไม่แสดงในคิวนี้ เพราะเป็นเพียงสัญญาณเฝ้าระวัง/คุณภาพข้อมูลบน dashboard เท่านั้น
-                    ไม่ใช่ฐานให้ดำเนินการทางวินัยกับพนักงานได้ด้วยตัวเอง)
+                    ส่วนอัตราขาดสูง ขาดจันทร์-ศุกร์ ขาดวันเว้นวัน มาน้อยกว่า 50% ใน 14 วันแรกของเดือน ลงผิดโครงการ และค้างลงเวลา ไม่แสดงในคิวนี้
+                    เพราะเป็นเพียงสัญญาณเฝ้าระวัง/คุณภาพข้อมูลบน dashboard เท่านั้น ไม่ใช่ฐานให้ดำเนินการทางวินัยกับพนักงานได้ด้วยตัวเอง)
                   </div>
                   <div className="mt-3 grid gap-2 xl:grid-cols-2">
                     {consolidateRulesByScoreGroup(

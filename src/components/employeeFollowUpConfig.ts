@@ -9,6 +9,8 @@ export type RiskRuleKey =
   | "total_absence"
   | "absence_rate"
   | "monday_friday_pattern"
+  | "alternate_day_absence"
+  | "month_start_low_attendance"
   | "missing_attendance"
   | "wrong_project_pattern"
   // เคสที่ HR/Admin Site สร้างขึ้นเองสำหรับเรื่องที่ไม่ได้มาจากระบบตรวจจับความเสี่ยงด้านการมาทำงาน
@@ -483,6 +485,8 @@ export const FOLLOW_UP_ISSUE_LABELS: Record<RiskRuleKey, string> = {
   total_absence: "ขาดงานสะสม",
   absence_rate: "อัตราขาดงานสูง",
   monday_friday_pattern: "รูปแบบขาดวันจันทร์/ศุกร์",
+  alternate_day_absence: "ขาดงานวันเว้นวัน",
+  month_start_low_attendance: "มาทำงานน้อยกว่า 50% ใน 14 วันแรกของเดือน",
   missing_attendance: "ค้างลงเวลา",
   wrong_project_pattern: "ลงผิดโครงการ",
   manual: "อื่นๆ (สร้างเคสด้วยตนเอง)",
@@ -546,13 +550,19 @@ export const getNextWarningRoundForAction = (
  * written warnings, suspension, and termination require the case to have
  * escalated to a stronger issue type (e.g. consecutive/total absence).
  *
- * NOTE: absence_rate and monday_friday_pattern are currently also excluded
- * from being seeded into the follow-up queue at all (they're dashboard-only
- * watch signals - see EMPLOYEE_FOLLOW_UP_EXCLUDED_ISSUE_KEYS in
- * ManpowerDashboard.tsx), so this restriction mainly guards against any
- * future/manual case creation with these issue types.
+ * NOTE: absence_rate, monday_friday_pattern, alternate_day_absence, and
+ * month_start_low_attendance are currently also excluded from being seeded
+ * into the follow-up queue at all (they're dashboard-only watch signals -
+ * see EMPLOYEE_FOLLOW_UP_EXCLUDED_ISSUE_KEYS in ManpowerDashboard.tsx), so
+ * this restriction mainly guards against any future/manual case creation
+ * with these issue types.
  */
-export const WATCH_ONLY_ISSUE_TYPES: readonly RiskRuleKey[] = ["absence_rate", "monday_friday_pattern"];
+export const WATCH_ONLY_ISSUE_TYPES: readonly RiskRuleKey[] = [
+  "absence_rate",
+  "monday_friday_pattern",
+  "alternate_day_absence",
+  "month_start_low_attendance",
+];
 
 export const isWatchOnlyIssueType = (issueType?: RiskRuleKey): boolean =>
   !!issueType && WATCH_ONLY_ISSUE_TYPES.includes(issueType);

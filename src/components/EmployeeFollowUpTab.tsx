@@ -691,6 +691,11 @@ export const EmployeeFollowUpTab = ({
       .slice(0, 30);
   }, [employeeDirectory, isAdminSiteOnly, myAssignedProjects, manualCaseSearch]);
 
+  const manualCaseSelectedEmployee = useMemo(
+    () => employeeDirectory.find((emp) => emp.id === manualCaseEmployeeId) || null,
+    [employeeDirectory, manualCaseEmployeeId]
+  );
+
   const resetManualCaseDraft = () => {
     setIsManualCaseModalOpen(false);
     setManualCaseSearch("");
@@ -3302,30 +3307,58 @@ export const EmployeeFollowUpTab = ({
             <div className="space-y-4 px-4 py-4">
               <div>
                 <label className="mb-1 block text-xs font-semibold text-slate-600">พนักงาน</label>
-                <div className="relative mb-2">
-                  <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-                  <input
-                    value={manualCaseSearch}
-                    onChange={(e) => setManualCaseSearch(e.target.value)}
-                    placeholder="ค้นหาชื่อหรือรหัสพนักงาน"
-                    className="h-10 w-full rounded-xl border border-slate-200 pl-9 pr-3 text-sm outline-none focus:ring-2 focus:ring-sky-100"
-                  />
-                </div>
-                <select
-                  value={manualCaseEmployeeId}
-                  onChange={(e) => setManualCaseEmployeeId(e.target.value)}
-                  size={6}
-                  className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-sky-100"
-                >
-                  {manualCaseEmployeeOptions.length === 0 && <option disabled>ไม่พบพนักงานที่ตรงกับคำค้นหา</option>}
-                  {manualCaseEmployeeOptions.map((emp) => (
-                    <option key={emp.id} value={emp.id}>
-                      {emp.employeeCode ? `${emp.employeeCode} · ` : ""}
-                      {emp.employeeName}
-                      {emp.position ? ` (${emp.position})` : ""}
-                    </option>
-                  ))}
-                </select>
+                {manualCaseSelectedEmployee ? (
+                  <div className="flex items-center justify-between gap-2 rounded-xl border border-sky-200 bg-sky-50 px-3 py-2.5">
+                    <div className="flex items-center gap-2 text-sm">
+                      <CheckCircle2 size={16} className="shrink-0 text-sky-600" />
+                      <span className="font-semibold text-slate-900">
+                        {manualCaseSelectedEmployee.employeeCode ? `${manualCaseSelectedEmployee.employeeCode} · ` : ""}
+                        {manualCaseSelectedEmployee.employeeName}
+                      </span>
+                      {manualCaseSelectedEmployee.position && (
+                        <span className="text-xs text-slate-500">({manualCaseSelectedEmployee.position})</span>
+                      )}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setManualCaseEmployeeId("")}
+                      className="shrink-0 rounded-lg px-2 py-1 text-xs font-semibold text-sky-700 hover:bg-sky-100"
+                    >
+                      เปลี่ยน
+                    </button>
+                  </div>
+                ) : (
+                  <>
+                    <div className="relative mb-2">
+                      <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                      <input
+                        value={manualCaseSearch}
+                        onChange={(e) => setManualCaseSearch(e.target.value)}
+                        placeholder="ค้นหาชื่อหรือรหัสพนักงาน"
+                        className="h-10 w-full rounded-xl border border-slate-200 pl-9 pr-3 text-sm outline-none focus:ring-2 focus:ring-sky-100"
+                      />
+                    </div>
+                    <div className="max-h-52 overflow-y-auto rounded-xl border border-slate-200">
+                      {manualCaseEmployeeOptions.length === 0 && (
+                        <div className="px-3 py-2.5 text-sm text-slate-400">ไม่พบพนักงานที่ตรงกับคำค้นหา</div>
+                      )}
+                      {manualCaseEmployeeOptions.map((emp) => (
+                        <button
+                          key={emp.id}
+                          type="button"
+                          onClick={() => setManualCaseEmployeeId(emp.id)}
+                          className="block w-full border-b border-slate-100 px-3 py-2.5 text-left text-sm last:border-b-0 hover:bg-sky-50"
+                        >
+                          <span className="font-semibold text-slate-900">
+                            {emp.employeeCode ? `${emp.employeeCode} · ` : ""}
+                            {emp.employeeName}
+                          </span>
+                          {emp.position && <span className="text-slate-500"> ({emp.position})</span>}
+                        </button>
+                      ))}
+                    </div>
+                  </>
+                )}
               </div>
               <div>
                 <label className="mb-1 block text-xs font-semibold text-slate-600">เรื่อง/ประเด็น</label>
