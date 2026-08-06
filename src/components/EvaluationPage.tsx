@@ -585,6 +585,11 @@ export const EvaluationPage = ({ projectOptions }: { projectOptions: string[] })
           assignments={assignments}
           users={users}
           onSaved={logActivity}
+          rounds={rounds}
+          scores={scores}
+          criteria={criteria}
+          selectedPeriod={selectedPeriod}
+          myRoles={myRoles}
         />
       ) : (
         <>
@@ -786,12 +791,18 @@ const TierProgress = ({ round }: { round: EvalRound }) => (
 // ================= Assignment tab =================
 const AssignmentTab = ({
   projectOptions, employees, assignments, users, onSaved,
+  rounds, scores, criteria, selectedPeriod, myRoles,
 }: {
   projectOptions: string[];
   employees: Employee[];
   assignments: EvalAssignment[];
   users: AppUser[];
   onSaved: (action: string, details: string) => void;
+  rounds: EvalRound[];
+  scores: EvalScoreRecord[];
+  criteria: EvalCriterion[];
+  selectedPeriod: string;
+  myRoles: string[];
 }) => {
   const { firebaseUser } = useAuth();
   const db = getFirestore();
@@ -836,6 +847,37 @@ const AssignmentTab = ({
   const assignmentFor = (group: string): EvalAssignment | undefined =>
     assignments.find((a) => a.id === assignmentId(projectSel, group));
 
+  // เห็นสถานะ "ประเมินแล้ว/ยังไม่ประเมิน" ได้เฉพาะผู้มีสิทธิ์ Tier 3 ขึ้นไป (HR/HRM/MD/GM/PD/MasterAdmin)
+  const canSeeCompletion = canActTier(myRoles, 3) || canActTier(myRoles, 4);
+
+  const roundFor = (group: string): EvalRound | undefined =>
+    selectedPeriod ? rounds.find((r) => r.id === roundId(projectSel, group, selectedPeriod)) : undefined;
+
+  const groupMembers = (group: string): Employee[] =>
+    employees.filter((e) => (parseProjectList(e.สถานะโครงการ)[0] || NO_PROJECT) === projectSel && (String(e["ชื่อชุด"] || "").trim() || NO_GROUP) === group);
+
+  // Tier 1: ผู้ประเมิน uid นี้ ส่งครบทุกคนในชุดแล้วหรือยัง (รอบที่กำลังเลือกอยู่)
+  const tier1Submitted = (group: string, uid: string): boolean => {
+    if (!selectedPeriod) return false;
+    const members = groupMembers(group);
+    if (members.length === 0) return false;
+    return members.every((m) => {
+      const rec = scores.find(
+        (s) => s.project === projectSel && s.group === group && s.period === selectedPeriod &&
+          s.employeeId === m.id && s.tier === 1 && s.evaluatorUid === uid && s.status === "submitted"
+      );
+      return !!rec && isEvalComplete(rec.scores, criteria);
+    });
+  };
+
+  // Tier 2: ยึดจาก actors ของรอบ (ผู้กระทำล่าสุดของ Tier 2) เทียบชื่อกับผู้ใช้
+  const tier2Submitted = (group: string, uid: string): boolean => {
+    const round = roundFor(group);
+    if (!round?.actors?.[2]) return false;
+    const u = userById.get(uid);
+    return round.actors[2] === userName(u);
+  };
+
   const toggleAssignee = async (group: string, tier: 1 | 2, uid: string) => {
     const id = assignmentId(projectSel, group);
     const existing = assignmentFor(group);
@@ -866,6 +908,11 @@ const AssignmentTab = ({
       <div className="flex flex-wrap items-center gap-2 rounded-xl border border-slate-200 bg-white p-2 lg:p-3">
         <FilterSelect label="โครงการ" value={projectSel} onChange={setProjectSel}
           options={projectOptions.map((p) => ({ value: p, label: p }))} />
+        {selectedPeriod && (
+          <span className="inline-flex items-center gap-1 rounded-full bg-indigo-50 px-2.5 py-1 text-[11px] font-semibold text-indigo-700">
+            รอบเดือนประเมิน: {monthLabelTh(selectedPeriod)}
+          </span>
+        )}
         <span className="text-[11px] text-slate-500 flex items-center gap-1"><Info size={12} /> เลือกผู้ประเมินและผู้ตรวจของแต่ละชุด โดยเลือกได้จากผู้ใช้ที่อนุมัติแล้วในระบบ</span>
       </div>
 
@@ -893,13 +940,19 @@ const AssignmentTab = ({
           const a = assignmentFor(g);
           const t1 = a?.tier1Uids || [];
           const t2 = a?.tier2Uids || [];
-          const memberCount = employees.filter((e) => (parseProjectList(e.สถานะโครงการ)[0] || NO_PROJECT) === projectSel && (String(e["ชื่อชุด"] || "").trim() || NO_GROUP) === g).length;
+          const memberCount = groupMembers(g).length;
+          const round = roundFor(g);
           return (
             <div key={g} className="rounded-xl border border-slate-200 bg-white p-3">
               <div className="flex items-center gap-2">
                 <Users2 size={15} className="text-indigo-500" />
                 <span className="font-semibold text-slate-800 text-sm">{g}</span>
                 <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] text-slate-500">{memberCount} คน</span>
+                {selectedPeriod && (
+                  <span className="rounded-full bg-slate-50 border border-slate-200 px-2 py-0.5 text-[10px] text-slate-500">
+                    {monthLabelTh(selectedPeriod)} · {roundStatusText(round || null)}
+                  </span>
+                )}
               </div>
 
               {/* Tier 1 */}
@@ -922,12 +975,22 @@ const AssignmentTab = ({
                 </div>
                 <div className="mt-1.5 flex flex-wrap gap-1.5">
                   {t1.length === 0 ? <span className="text-[11px] text-slate-400">ยังไม่ได้เลือก</span> :
-                    t1.map((uid) => (
-                      <span key={uid} className="inline-flex items-center gap-1 rounded-full border border-indigo-500 bg-indigo-50 px-2.5 py-1 text-xs font-medium text-indigo-700">
-                        {userName(userById.get(uid))}
-                        <button onClick={() => toggleAssignee(g, 1, uid)} className="text-indigo-400 hover:text-rose-500"><X size={12} /></button>
-                      </span>
-                    ))}
+                    t1.map((uid) => {
+                      const done = canSeeCompletion ? tier1Submitted(g, uid) : null;
+                      return (
+                        <span key={uid} className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-medium ${
+                          done === true ? "border-emerald-500 bg-emerald-50 text-emerald-700"
+                            : done === false ? "border-rose-300 bg-rose-50 text-rose-600"
+                            : "border-indigo-500 bg-indigo-50 text-indigo-700"
+                        }`}>
+                          {done === true && <CheckCircle2 size={12} className="text-emerald-600" />}
+                          {userName(userById.get(uid))}
+                          {done === true && <span className="text-[9px] font-semibold">ประเมินแล้ว</span>}
+                          {done === false && <span className="text-[9px] font-semibold">ยังไม่ประเมิน</span>}
+                          <button onClick={() => toggleAssignee(g, 1, uid)} className="text-current opacity-60 hover:opacity-100 hover:text-rose-600"><X size={12} /></button>
+                        </span>
+                      );
+                    })}
                 </div>
               </div>
 
@@ -949,12 +1012,22 @@ const AssignmentTab = ({
                 </div>
                 <div className="mt-1.5 flex flex-wrap gap-1.5">
                   {t2.length === 0 ? <span className="text-[11px] text-slate-400">ยังไม่ได้เลือก</span> :
-                    t2.map((uid) => (
-                      <span key={uid} className="inline-flex items-center gap-1 rounded-full border border-emerald-500 bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700">
-                        {userName(userById.get(uid))}
-                        <button onClick={() => toggleAssignee(g, 2, uid)} className="text-emerald-400 hover:text-rose-500"><X size={12} /></button>
-                      </span>
-                    ))}
+                    t2.map((uid) => {
+                      const done = canSeeCompletion ? tier2Submitted(g, uid) : null;
+                      return (
+                        <span key={uid} className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-medium ${
+                          done === true ? "border-emerald-500 bg-emerald-50 text-emerald-700"
+                            : done === false ? "border-rose-300 bg-rose-50 text-rose-600"
+                            : "border-emerald-500 bg-emerald-50 text-emerald-700"
+                        }`}>
+                          {done === true && <CheckCircle2 size={12} className="text-emerald-600" />}
+                          {userName(userById.get(uid))}
+                          {done === true && <span className="text-[9px] font-semibold">ประเมินแล้ว</span>}
+                          {done === false && <span className="text-[9px] font-semibold">ยังไม่ประเมิน</span>}
+                          <button onClick={() => toggleAssignee(g, 2, uid)} className="text-current opacity-60 hover:opacity-100 hover:text-rose-600"><X size={12} /></button>
+                        </span>
+                      );
+                    })}
                 </div>
               </div>
             </div>
