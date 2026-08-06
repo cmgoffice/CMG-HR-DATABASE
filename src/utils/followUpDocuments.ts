@@ -573,9 +573,9 @@ export const generateWarningMemoPdf = async (input: FollowUpDocumentInput): Prom
     x: PAGE_WIDTH - MARGIN_X - 200,
     y,
     width: 200,
-    label: "ผู้มีอำนาจ",
-    name: input.approver?.name,
-    signer: input.approver,
+    label: "ผู้ขอออกหนังสือตักเตือน",
+    name: input.preparer?.name,
+    signer: input.preparer,
   });
 
   await appendAttachmentPages(pdfDoc, bold, input.attachments);
