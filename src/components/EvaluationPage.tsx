@@ -427,18 +427,21 @@ export const EvaluationPage = ({ projectOptions }: { projectOptions: string[] })
       const round = rounds.find((r) => r.id === rid) || emptyRound(row.project, row.group, selectedPeriod, periodType);
       const assignment = assignments.find((a) => a.id === assignmentId(row.project, row.group)) || null;
 
-      // per-member final scores
+      // per-member final scores — ผูกกับ employeeId + รอบ (period) เท่านั้น ไม่บังคับ group ตรงกัน
+      // (คะแนนต้องติดตัวพนักงานแม้ย้ายชุด/โครงการระหว่างรอบ)
       let scored = 0;
       let sum = 0;
       row.members.forEach((m) => {
-        const recs = scores.filter((s) => s.project === row.project && s.group === row.group && s.period === selectedPeriod && s.employeeId === m.id);
+        const recs = scores.filter((s) => s.period === selectedPeriod && s.employeeId === m.id);
         const fin = finalPersonScore(recs);
-        if (fin) {
+        // นับเฉพาะคนที่คะแนนครบทุกด้านเข้าค่าเฉลี่ย ไม่ให้คะแนนไม่ครบ (เช่น ระหว่างรอ Tier ที่สูงกว่าเติมให้ครบ) มาลากค่าเฉลี่ยผิดเพี้ยน
+        if (fin && isEvalComplete(fin.scores, criteria)) {
           scored++;
           sum += fin.total;
         }
       });
       // จำนวนผู้ประเมิน Tier 1 ที่ "ส่งครบทุกคน" (นับตาม uid ที่ไม่ซ้ำ)
+      // สมาชิกที่ย้ายเข้ามาแต่มีคะแนนสมบูรณ์ติดตัวมาจากชุดเดิมแล้ว ไม่ต้องให้ผู้ประเมินชุดนี้ประเมินซ้ำ
       const t1ByUid = new Map<string, EvalScoreRecord[]>();
       scores
         .filter((s) => s.project === row.project && s.group === row.group && s.period === selectedPeriod && s.tier === 1 && s.status === "submitted")
@@ -451,7 +454,9 @@ export const EvaluationPage = ({ projectOptions }: { projectOptions: string[] })
       t1ByUid.forEach((recs) => {
         const complete = row.members.every((m) => {
           const r = recs.find((x) => x.employeeId === m.id);
-          return !!r && isEvalComplete(r.scores, criteria);
+          if (r && isEvalComplete(r.scores, criteria)) return true;
+          const carriedFin = finalPersonScore(scores.filter((s) => s.period === selectedPeriod && s.employeeId === m.id));
+          return !!carriedFin && isEvalComplete(carriedFin.scores, criteria);
         });
         if (complete) tier1Submitters++;
       });
@@ -1139,6 +1144,35 @@ const GroupModal = ({
   const recsFor = (empId: string) =>
     scores.filter((s) => s.project === row.project && s.group === row.group && s.period === period && s.employeeId === empId);
 
+  // คะแนนของพนักงานในรอบ (period) นี้ ไม่ผูกกับ group — คะแนนต้องติดตัวคนแม้ย้ายชุด/โครงการระหว่างรอบ
+  const finalRecsFor = (empId: string) =>
+    scores.filter((s) => s.period === period && s.employeeId === empId);
+
+  // สมาชิกที่เข้ามาใหม่/ย้ายเข้ามา "หลัง" Tier 1 ของรอบนี้ปิดไปแล้ว (ไม่มีคะแนน Tier 1 ติดตัวมาจากที่ไหนเลย)
+  // ไม่ต้องถูกประเมินในรอบนี้ — ให้รอประเมินในรอบถัดไปแทน จึงตัดออกจากรายการที่ต้องให้ Tier 2-4 พิจารณา
+  const isLatecomer = (m: Employee): boolean => {
+    if (round.currentTier <= 1) return false;
+    return !finalPersonScore(finalRecsFor(m.id));
+  };
+
+  const reviewMembers = useMemo(
+    () => (round.currentTier <= 1 ? row.members : row.members.filter((m) => !isLatecomer(m))),
+    [row, round, scores, period]
+  );
+  const latecomers = useMemo(
+    () => (round.currentTier <= 1 ? [] : row.members.filter((m) => isLatecomer(m))),
+    [row, round, scores, period]
+  );
+
+  // สมาชิกที่ยังไม่มีคะแนนสุดท้าย หรือคะแนนยังไม่ครบทุกด้าน (ใช้เช็คก่อนอนุมัติ Tier 2-4) — ไม่รวมคนเข้าใหม่ระหว่างทาง
+  const incompleteMembers = useMemo(() => {
+    if (isTier1) return [];
+    return reviewMembers.filter((m) => {
+      const fin = finalPersonScore(finalRecsFor(m.id));
+      return !fin || !isEvalComplete(fin.scores, criteria);
+    });
+  }, [reviewMembers, scores, period, criteria, isTier1]);
+
   const myTier1For = (empId: string): EvalScoreRecord | undefined =>
     recsFor(empId).find((s) => s.tier === 1 && s.evaluatorUid === myUid);
 
@@ -1154,9 +1188,12 @@ const GroupModal = ({
       });
     const set = new Set<string>();
     byUid.forEach((recs, uid) => {
+      // สมาชิกที่ย้ายเข้ามาแต่มีคะแนนสมบูรณ์ติดตัวมาจากชุดเดิมแล้ว ถือว่า "ครบ" โดยไม่ต้องให้ผู้ประเมินคนนี้ประเมินซ้ำ
       const complete = row.members.every((m) => {
         const r = recs.find((x) => x.employeeId === m.id);
-        return !!r && isEvalComplete(r.scores, criteria);
+        if (r && isEvalComplete(r.scores, criteria)) return true;
+        const carriedFin = finalPersonScore(finalRecsFor(m.id));
+        return !!carriedFin && isEvalComplete(carriedFin.scores, criteria);
       });
       if (complete) set.add(uid);
     });
@@ -1181,22 +1218,34 @@ const GroupModal = ({
     await setDoc(doc(db, "CMG-HR-Database", "root", "evaluation_scores", id), rec, { merge: true });
   };
 
-  // Tier 1 submit: require current user scored (complete) every member
+  // Tier 1 submit: require current user scored (complete) every member —
+  // ยกเว้นคนที่มีคะแนนสมบูรณ์ติดตัวมาจากชุดเดิมแล้ว (ย้ายชุดระหว่างรอบ) ไม่ต้องให้ประเมินซ้ำ
   const submitTier1 = async () => {
     const missing = row.members.filter((m) => {
       const r = myTier1For(m.id);
-      return !r || !isEvalComplete(r.scores, criteria);
+      if (r && isEvalComplete(r.scores, criteria)) return false;
+      const carriedFin = finalPersonScore(finalRecsFor(m.id));
+      return !(carriedFin && isEvalComplete(carriedFin.scores, criteria));
     });
     if (missing.length > 0) {
       window.alert(`ต้องให้คะแนนครบทุกคนก่อนส่ง (ยังขาด ${missing.length} คน)`);
       return;
     }
+    // ต้องมีคนประเมินจริงอย่างน้อย 1 คนต่อชุด — ห้ามส่งได้เฉยๆ โดยอาศัยแค่คะแนนติดตัวจากชุดเดิมทั้งหมด
+    const hasOwnWork = row.members.some((m) => {
+      const r = myTier1For(m.id);
+      return !!r && isEvalComplete(r.scores, criteria);
+    });
+    if (!hasOwnWork) {
+      window.alert("ต้องให้คะแนนสมาชิกอย่างน้อย 1 คนด้วยตัวเอง จึงจะส่ง Tier 1 ของชุดนี้ได้ (ไม่สามารถส่งได้ถ้าทุกคนมีคะแนนติดตัวมาจากชุดเดิมทั้งหมดโดยไม่มีใครประเมินจริง)");
+      return;
+    }
     setBusy(true);
     try {
-      // set all my tier1 records to submitted
+      // set all my tier1 records to submitted (ข้ามคนที่มีคะแนนติดตัวมาจากชุดเดิมโดยไม่มีคะแนนจากฉันเอง)
       for (const m of row.members) {
-        const r = myTier1For(m.id)!;
-        await saveScore(m, 1, r.scores, r.comment || "", false, "submitted");
+        const r = myTier1For(m.id);
+        if (r) await saveScore(m, 1, r.scores, r.comment || "", false, "submitted");
       }
       // ต้องมีผู้ประเมิน Tier 1 ที่ส่งครบ ≥ MIN_RATERS (distinct) จึงจะไป Tier 2
       const distinct = new Set<string>(tier1SubmitterUids);
@@ -1221,6 +1270,10 @@ const GroupModal = ({
   };
 
   const approveTier = async (tier: EvalTier) => {
+    if (incompleteMembers.length > 0) {
+      window.alert(`ยังมีสมาชิก ${incompleteMembers.length} คนที่คะแนนไม่ครบ กรุณากด "ปรับ" เพื่อให้คะแนนให้ครบก่อนอนุมัติ`);
+      return;
+    }
     setBusy(true);
     try {
       const isLast = tier === 4;
@@ -1287,17 +1340,43 @@ const GroupModal = ({
                 members={row.members}
                 criteria={criteria}
                 myTier1For={myTier1For}
+                finalRecsFor={finalRecsFor}
                 onEdit={setEditing}
               />
             </>
           ) : (
-            <TierReviewList
-              members={row.members}
-              recsFor={recsFor}
-              actionable={!!row.actionable}
-              actTier={actTier}
-              onOverride={setEditing}
-            />
+            <>
+              {row.actionable && (
+                <div className={`mb-3 flex items-center gap-2 rounded-lg border p-2.5 text-xs ${incompleteMembers.length === 0 ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-amber-200 bg-amber-50 text-amber-700"}`}>
+                  {incompleteMembers.length === 0 ? <CheckCircle2 size={13} /> : <AlertCircle size={13} />}
+                  <span>
+                    {incompleteMembers.length === 0
+                      ? "คะแนนครบทุกคนแล้ว — อนุมัติได้"
+                      : `ยังมีสมาชิก ${incompleteMembers.length} คนที่คะแนนไม่ครบ — กด "ปรับ" เพื่อให้คะแนนให้ครบก่อนอนุมัติ`}
+                  </span>
+                </div>
+              )}
+              <TierReviewList
+                members={reviewMembers}
+                recsFor={finalRecsFor}
+                criteria={criteria}
+                actionable={!!row.actionable}
+                actTier={actTier}
+                onOverride={setEditing}
+              />
+              {latecomers.length > 0 && (
+                <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 p-2.5 text-xs text-slate-500">
+                  <div className="mb-1 flex items-center gap-1.5 font-semibold text-slate-600">
+                    <Info size={13} /> เข้ามาใหม่ระหว่างรอบนี้ ({latecomers.length} คน) — ยังไม่ผ่าน Tier 1 ในรอบนี้ จะยังไม่ถูกประเมินจนกว่าจะถึงรอบถัดไป
+                  </div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {latecomers.map((m) => (
+                      <span key={m.id} className="rounded border border-slate-200 bg-white px-2 py-0.5">{getEmployeeName(m)}</span>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </>
           )}
         </div>
 
@@ -1315,7 +1394,8 @@ const GroupModal = ({
                 </button>
               </div>
             ) : (
-              <button onClick={() => approveTier(actTier as EvalTier)} disabled={busy}
+              <button onClick={() => approveTier(actTier as EvalTier)} disabled={busy || incompleteMembers.length > 0}
+                title={incompleteMembers.length > 0 ? `ยังมีสมาชิก ${incompleteMembers.length} คนที่คะแนนไม่ครบ` : undefined}
                 className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-50">
                 {busy ? <Loader2 className="animate-spin" size={15} /> : <CheckCircle2 size={15} />}
                 {actTier === 4 ? "อนุมัติและปิดรอบ" : "อนุมัติทั้งชุด"}
@@ -1334,7 +1414,7 @@ const GroupModal = ({
           initial={
             isTier1
               ? (myTier1For(editing.id)?.scores || null)
-              : (finalPersonScore(recsFor(editing.id))?.scores || null)
+              : (finalPersonScore(finalRecsFor(editing.id))?.scores || null)
           }
           initialComment={isTier1 ? (myTier1For(editing.id)?.comment || "") : ""}
           tierLabel={isTier1 ? "Tier 1 · ให้คะแนน" : `Tier ${actTier} · ปรับคะแนน (override)`}
@@ -1356,11 +1436,12 @@ const GroupModal = ({
 
 // Tier 1 member list
 const Tier1List = ({
-  members, criteria, myTier1For, onEdit,
+  members, criteria, myTier1For, finalRecsFor, onEdit,
 }: {
   members: Employee[];
   criteria: EvalCriterion[];
   myTier1For: (empId: string) => EvalScoreRecord | undefined;
+  finalRecsFor: (empId: string) => EvalScoreRecord[];
   onEdit: (m: Employee) => void;
 }) => (
   <div className="space-y-1.5">
@@ -1369,6 +1450,9 @@ const Tier1List = ({
       const rec = myTier1For(m.id);
       const done = rec && isEvalComplete(rec.scores, criteria);
       const grade = rec ? gradeFromTotal(rec.total) : null;
+      // ย้ายเข้ามาแต่มีคะแนนสมบูรณ์ติดตัวมาจากชุด/รอบเดิมแล้ว — ไม่บังคับให้ประเมินซ้ำ
+      const carriedFin = !rec ? finalPersonScore(finalRecsFor(m.id)) : null;
+      const carried = carriedFin && isEvalComplete(carriedFin.scores, criteria);
       return (
         <div key={m.id} className="flex items-center justify-between gap-2 rounded-lg border border-slate-200 px-3 py-2">
           <div className="min-w-0">
@@ -1381,12 +1465,17 @@ const Tier1List = ({
                 <span className="font-bold text-slate-700 text-sm">{rec.total}</span>
                 {grade && <span className={`rounded border px-1.5 py-0.5 text-[10px] font-bold ${gradeColor(grade)}`}>{grade}</span>}
               </span>
+            ) : carried ? (
+              // ไม่โชว์ตัวเลขคะแนน/เกรดจากชุดเดิมให้ผู้ประเมิน Tier 1 เห็น (กันอคติ) — รู้แค่สถานะว่าผ่านแล้ว
+              <span className="rounded border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-[11px] font-semibold text-indigo-600">
+                ผ่าน Tier 1 จากชุดเดิมแล้ว
+              </span>
             ) : (
               <span className="text-[11px] text-rose-500">ยังไม่ให้คะแนน</span>
             )}
             <button onClick={() => onEdit(m)}
-              className={`rounded-lg px-3 py-1.5 text-xs font-semibold ${done ? "border border-slate-200 text-slate-600 hover:bg-slate-50" : "bg-indigo-600 text-white hover:bg-indigo-700"}`}>
-              {done ? "แก้ไข" : "ให้คะแนน"}
+              className={`rounded-lg px-3 py-1.5 text-xs font-semibold ${done || carried ? "border border-slate-200 text-slate-600 hover:bg-slate-50" : "bg-indigo-600 text-white hover:bg-indigo-700"}`}>
+              {done ? "แก้ไข" : carried ? "ประเมินเพิ่มเติม (ไม่บังคับ)" : "ให้คะแนน"}
             </button>
           </div>
         </div>
@@ -1397,10 +1486,11 @@ const Tier1List = ({
 
 // Tier 2-4 review list
 const TierReviewList = ({
-  members, recsFor, actionable, actTier, onOverride,
+  members, recsFor, criteria, actionable, actTier, onOverride,
 }: {
   members: Employee[];
   recsFor: (empId: string) => EvalScoreRecord[];
+  criteria: EvalCriterion[];
   actionable: boolean;
   actTier: EvalTier | null;
   onOverride: (m: Employee) => void;
@@ -1418,6 +1508,7 @@ const TierReviewList = ({
       <tbody className="divide-y divide-slate-100">
         {members.map((m) => {
           const fin: FinalPersonScore | null = finalPersonScore(recsFor(m.id));
+          const incomplete = !fin || !isEvalComplete(fin.scores, criteria);
           return (
             <tr key={m.id} className="hover:bg-slate-50/60">
               <td className="px-3 py-2">
@@ -1429,17 +1520,18 @@ const TierReviewList = ({
                   <div className="flex items-center justify-center gap-1.5">
                     <span className="font-bold text-slate-800">{fin.total}</span>
                     <span className={`rounded border px-1.5 py-0.5 text-[10px] font-bold ${gradeColor(fin.grade)}`}>{fin.grade}</span>
+                    {incomplete && <span className="rounded border border-amber-300 bg-amber-50 px-1.5 py-0.5 text-[10px] font-bold text-amber-700">ไม่ครบ</span>}
                   </div>
-                ) : <span className="text-slate-300">— (ยังไม่มี Tier 1)</span>}
+                ) : <span className="flex items-center justify-center gap-1 text-amber-600"><AlertCircle size={12} /> ยังไม่มีคะแนน</span>}
               </td>
               <td className="px-3 py-2 text-center text-[11px] text-slate-500">
                 {fin ? (fin.isOverride ? `override T${fin.sourceTier}` : "เฉลี่ย T1") : "—"}
               </td>
               {actionable && (
                 <td className="px-3 py-2 text-center">
-                  <button onClick={() => onOverride(m)} disabled={!fin}
-                    className="rounded-lg border border-amber-300 bg-amber-50 px-2.5 py-1 text-[11px] font-semibold text-amber-700 hover:bg-amber-100 disabled:opacity-40">
-                    ปรับ
+                  <button onClick={() => onOverride(m)}
+                    className={`rounded-lg border px-2.5 py-1 text-[11px] font-semibold hover:bg-amber-100 ${incomplete ? "border-amber-400 bg-amber-100 text-amber-800" : "border-amber-300 bg-amber-50 text-amber-700"}`}>
+                    {fin ? "ปรับ" : "ให้คะแนน"}
                   </button>
                 </td>
               )}
@@ -1567,6 +1659,7 @@ interface SummaryPersonRow {
   group: string;
   type: string;
   fin: FinalPersonScore | null;
+  complete: boolean;
   round: EvalRound | null;
 }
 
@@ -1623,10 +1716,12 @@ const SummaryTab = ({
       const group = String(emp["ชื่อชุด"] || "").trim() || NO_GROUP;
       if (!groupVisible(project, group)) return;
       const type = normalizeEmployeeType(emp);
-      const recs = scores.filter((s) => s.project === project && s.group === group && s.period === period && s.employeeId === emp.id);
+      // คะแนนผูกกับ employeeId + period เท่านั้น — คะแนนต้องติดตัวคนแม้ย้ายชุด/โครงการระหว่างรอบ
+      const recs = scores.filter((s) => s.period === period && s.employeeId === emp.id);
       const fin = finalPersonScore(recs);
+      const complete = !!fin && isEvalComplete(fin.scores, criteria);
       const round = rounds.find((r) => r.id === roundId(project, group, period)) || null;
-      list.push({ emp, project, group, type, fin, round });
+      list.push({ emp, project, group, type, fin, complete, round });
     });
     const q = search.trim().toLowerCase();
     return list
@@ -1634,7 +1729,7 @@ const SummaryTab = ({
       .filter((r) => (typeF === "all" ? true : r.type === typeF))
       .filter((r) => (groupF === "all" ? true : r.group === groupF))
       .filter((r) => (q === "" ? true : getEmployeeName(r.emp).toLowerCase().includes(q) || String(r.emp.รหัสพนักงาน || "").toLowerCase().includes(q) || r.group.toLowerCase().includes(q)));
-  }, [employees, scores, rounds, assignments, period, projectF, typeF, groupF, search, canSeeAllProjects, canAssign, myAssignedProjects, myUid]);
+  }, [employees, scores, rounds, assignments, criteria, period, projectF, typeF, groupF, search, canSeeAllProjects, canAssign, myAssignedProjects, myUid]);
 
   const typeOptions = useMemo(() => Array.from(EVALUATED_EMPLOYEE_TYPES), []);
 
@@ -1659,7 +1754,8 @@ const SummaryTab = ({
       map.get(key)!.members.push(r);
     });
     const arr = Array.from(map.entries()).map(([key, g]) => {
-      const scored = g.members.filter((m) => m.fin);
+      // นับเฉพาะคนที่คะแนน "ครบ" เข้าค่าเฉลี่ย/สัดส่วน — คนที่คะแนนไม่ครบไม่ควรลากค่าเฉลี่ยให้ผิดเพี้ยน
+      const scored = g.members.filter((m) => m.fin && m.complete);
       const avg = scored.length ? Math.round((scored.reduce((s, m) => s + m.fin!.total, 0) / scored.length) * 10) / 10 : null;
       const dist = { pass: 0, develop: 0, watch: 0 };
       scored.forEach((m) => { dist[flagBucket(m.fin!.total)] += 1; });
@@ -1675,12 +1771,12 @@ const SummaryTab = ({
   }, [rows]);
 
   const ranking = useMemo(
-    () => [...rows].sort((a, b) => (b.fin ? b.fin.total : -1) - (a.fin ? a.fin.total : -1)),
+    () => [...rows].sort((a, b) => ((b.fin && b.complete) ? b.fin.total : -1) - ((a.fin && a.complete) ? a.fin.total : -1)),
     [rows]
   );
 
-  const scoredTotal = rows.filter((r) => r.fin).length;
-  const watchTotal = rows.filter((r) => r.fin && r.fin.total < 65).length;
+  const scoredTotal = rows.filter((r) => r.fin && r.complete).length;
+  const watchTotal = rows.filter((r) => r.fin && r.complete && r.fin.total < 65).length;
 
   const toggleGroup = (key: string) =>
     setExpanded((prev) => {
@@ -1694,7 +1790,7 @@ const SummaryTab = ({
     const lines = [headers.join(",")];
     rows.forEach((r) => {
       const fin = r.fin;
-      const flag = fin ? evalActionFlag(fin.total).label : "-";
+      const flag = !fin ? "-" : !r.complete ? "ไม่ครบ" : evalActionFlag(fin.total).label;
       const src = fin ? finalSourceText(fin) : "-";
       const cols: unknown[] = [
         monthLabelTh(period), r.project, r.group, r.emp.รหัสพนักงาน || r.emp.id, getEmployeeName(r.emp), r.type,
@@ -1800,14 +1896,14 @@ const SummaryTab = ({
                             </thead>
                             <tbody>
                               {g.members.map((m) => (
-                                <tr key={m.emp.id} className={`border-t border-slate-100 ${m.fin && m.fin.total < 65 ? "bg-rose-50/50" : ""}`}>
+                                <tr key={m.emp.id} className={`border-t border-slate-100 ${m.fin && m.complete && m.fin.total < 65 ? "bg-rose-50/50" : !m.complete && m.fin ? "bg-amber-50/50" : ""}`}>
                                   <td className="px-2 py-1.5">
                                     <div className="font-medium text-slate-700 truncate">{getEmployeeName(m.emp)}</div>
                                     <div className="text-[10px] text-slate-400 truncate">{m.emp.รหัสพนักงาน} · {m.emp.ตำแหน่ง || "-"}</div>
                                   </td>
                                   <td className="px-2 py-1.5 text-center font-bold text-slate-800">{m.fin ? m.fin.total : "—"}</td>
                                   <td className="px-2 py-1.5 text-center">{m.fin ? <span className={`rounded border px-1.5 py-0.5 text-[10px] font-bold ${gradeColor(m.fin.grade)}`}>{m.fin.grade}</span> : "—"}</td>
-                                  <td className="px-2 py-1.5 text-center">{m.fin ? flagPill(m.fin.total) : "—"}</td>
+                                  <td className="px-2 py-1.5 text-center">{!m.fin ? "—" : !m.complete ? <span className="rounded border border-amber-300 bg-amber-50 px-1.5 py-0.5 text-[10px] font-bold text-amber-700">ไม่ครบ</span> : flagPill(m.fin.total)}</td>
                                   <td className="px-2 py-1.5 text-center text-[10px] text-slate-500">{m.fin ? finalSourceText(m.fin) : "—"}</td>
                                   <td className="px-2 py-1.5 text-center">
                                     <button onClick={() => setOpenPerson(m)} className="text-indigo-600 hover:text-indigo-800 text-[11px] font-semibold">ประวัติ</button>
@@ -1847,11 +1943,12 @@ const SummaryTab = ({
                 </thead>
                 <tbody className="divide-y divide-slate-100">
                   {ranking.map((r, i) => {
-                    const watch = r.fin && r.fin.total < 65;
+                    const watch = r.fin && r.complete && r.fin.total < 65;
+                    const rankVisible = r.fin && r.complete;
                     return (
                       <tr key={r.emp.id} onClick={() => setOpenPerson(r)}
-                        className={`cursor-pointer hover:bg-indigo-50/40 ${watch ? "bg-rose-50/50" : ""}`}>
-                        <td className="px-3 py-2 text-center text-slate-400">{r.fin ? i + 1 : "—"}</td>
+                        className={`cursor-pointer hover:bg-indigo-50/40 ${watch ? "bg-rose-50/50" : !r.complete && r.fin ? "bg-amber-50/50" : ""}`}>
+                        <td className="px-3 py-2 text-center text-slate-400">{rankVisible ? i + 1 : "—"}</td>
                         <td className="px-3 py-2">
                           <div className="font-semibold text-slate-800 truncate">{getEmployeeName(r.emp)}</div>
                           <div className="text-[11px] text-slate-400 truncate">{r.emp.รหัสพนักงาน} · {r.type}</div>
@@ -1862,7 +1959,7 @@ const SummaryTab = ({
                         </td>
                         <td className="px-3 py-2 text-center font-bold text-slate-800">{r.fin ? r.fin.total : "—"}</td>
                         <td className="px-3 py-2 text-center">{r.fin ? <span className={`rounded border px-1.5 py-0.5 text-[10px] font-bold ${gradeColor(r.fin.grade)}`}>{r.fin.grade}</span> : "—"}</td>
-                        <td className="px-3 py-2 text-center">{r.fin ? flagPill(r.fin.total) : "—"}</td>
+                        <td className="px-3 py-2 text-center">{!r.fin ? "—" : !r.complete ? <span className="rounded border border-amber-300 bg-amber-50 px-1.5 py-0.5 text-[10px] font-bold text-amber-700">ไม่ครบ</span> : flagPill(r.fin.total)}</td>
                         <td className="px-3 py-2">
                           <div className="flex items-center gap-1.5">
                             <span className="text-[11px] text-slate-600">{roundStatusText(r.round)}</span>
@@ -1909,7 +2006,8 @@ const PersonHistoryModal = ({
   const history = useMemo(
     () =>
       periodOptions.map((p) => {
-        const recs = scores.filter((s) => s.project === row.project && s.group === row.group && s.period === p.key && s.employeeId === row.emp.id);
+        // คะแนนผูกกับ employeeId + period เท่านั้น เพื่อให้เห็นแนวโน้มถูกต้องแม้เคยย้ายชุด/โครงการ
+        const recs = scores.filter((s) => s.period === p.key && s.employeeId === row.emp.id);
         return { key: p.key, label: p.label, fin: finalPersonScore(recs) };
       }),
     [scores, row, periodOptions]
