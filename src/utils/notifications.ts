@@ -27,8 +27,16 @@ export type TransferNotificationType =
   | "transfer_status_changed"
   | "transfer_closed";
 
-export type AppNotificationType = FollowUpNotificationType | TransferNotificationType;
-export type AppNotificationModule = "follow_up" | "project_transfer";
+export type RetroLeaveNotificationType =
+  | "retro_leave_submitted"
+  | "retro_leave_approved"
+  | "retro_leave_rejected";
+
+export type AppNotificationType =
+  | FollowUpNotificationType
+  | TransferNotificationType
+  | RetroLeaveNotificationType;
+export type AppNotificationModule = "follow_up" | "project_transfer" | "retro_leave";
 
 export interface AppNotification {
   id: string;

@@ -12,6 +12,7 @@ import {
 
 const OPEN_CASE_STORAGE_KEY = "cmg_open_follow_up_case";
 const OPEN_TRANSFER_STORAGE_KEY = "cmg_open_project_transfer";
+const OPEN_RETRO_LEAVE_STORAGE_KEY = "cmg_open_retro_leave";
 const MAX_VISIBLE = 30;
 const PANEL_WIDTH = 320;
 const PANEL_MAX_HEIGHT = 420;
@@ -134,6 +135,12 @@ export const NotificationBell = ({
         sessionStorage.setItem(OPEN_TRANSFER_STORAGE_KEY, notification.caseId);
         setOpen(false);
         setActiveModule("project_transfer");
+        return;
+      }
+      if (notification.module === "retro_leave") {
+        sessionStorage.setItem(OPEN_RETRO_LEAVE_STORAGE_KEY, notification.caseId);
+        setOpen(false);
+        setActiveModule("attendance");
         return;
       }
       sessionStorage.setItem(OPEN_CASE_STORAGE_KEY, notification.caseId);

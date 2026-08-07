@@ -6,8 +6,11 @@ import {
   doc,
   setDoc,
   getDoc,
+  addDoc,
+  updateDoc,
   onSnapshot,
-  query
+  query,
+  where,
 } from "firebase/firestore";
 import {
   Calendar,
@@ -21,9 +24,25 @@ import {
   AlertCircle,
   ArrowUp,
   ArrowDown,
+  History,
+  X,
+  ClipboardList,
 } from "lucide-react";
 import { useAuth } from "../auth/AuthContext";
 import { InfoTooltip } from "./InfoTooltip";
+import { createNotifications } from "../utils/notifications";
+import {
+  RETRO_LEAVE_COLLECTION,
+  OPEN_RETRO_LEAVE_STORAGE_KEY,
+  RetroLeaveRequest,
+  RETRO_LEAVE_STATUS_LABELS,
+  RETRO_LEAVE_STATUS_COLORS,
+  RETRO_LEAVE_REQUESTABLE_STATUSES,
+  canSubmitRetroLeave,
+  canApproveRetroLeave,
+  makeRetroLeaveAction,
+  hasPendingRetroLeaveRequest,
+} from "./retroLeaveConfig";
 
 interface Employee {
   id: string;
@@ -46,6 +65,8 @@ interface AttendanceEntry {
   project?: string;     // โครงการที่ลงเวลา (เฉพาะเมื่อ status = "มา")
   editstatus?: string;  // "donotEdit" = ล็อคช่องนี้จากฐานข้อมูล
   color?: string;       // "red" = บังคับพื้นหลังสีแดง ตัวอักษรสีขาว
+  retroRequestId?: string;  // อ้างอิงคำร้องขอลาย้อนหลังที่ทำให้ค่านี้ถูกแก้ (ใช้แสดง badge/tooltip)
+  retroApprovedAt?: number; // เวลาจริงที่อนุมัติคำร้อง (recordedAt จะถูกตั้งเป็น 0 เพื่อล็อคทันที ไม่ใช่เวลาจริง)
 }
 
 interface AttendanceDayData {
@@ -110,6 +131,14 @@ export const AttendancePage = ({ projectOptions }: { projectOptions: string[] })
   const [columns, setColumns] = useState<ColumnConfig[]>(DEFAULT_COLUMNS);
   const [dayOffs, setDayOffs] = useState<Record<string, string>>({});
 
+  // ── คำร้องขอลาย้อนหลัง ────────────────────────────────────────────────────
+  const [retroRequests, setRetroRequests] = useState<RetroLeaveRequest[]>([]);
+  const [retroModalTarget, setRetroModalTarget] = useState<{ employeeId: string; dateStr: string } | null>(null);
+  const [showRetroPanel, setShowRetroPanel] = useState(false);
+  const [retroSubmitting, setRetroSubmitting] = useState(false);
+  const [retroRejectTargetId, setRetroRejectTargetId] = useState<string | null>(null);
+  const [retroRejectNote, setRetroRejectNote] = useState("");
+
   // ── Sort state ────────────────────────────────────────────────────────────
   type SortKey = 'รหัสพนักงาน' | 'name' | 'ตำแหน่ง' | 'ชื่อชุด';
   interface SortState {
@@ -153,6 +182,11 @@ export const AttendancePage = ({ projectOptions }: { projectOptions: string[] })
   const canEditAttendance = useMemo(() => {
     return hasRole(['MasterAdmin', 'MD', 'GM', 'HR', 'Admin Site']);
   }, [hasRole]);
+
+  // ── สิทธิ์เกี่ยวกับ "คำร้องขอลาย้อนหลัง" ──────────────────────────────────
+  const canSubmitRetro = useMemo(() => canSubmitRetroLeave(userProfile?.role), [userProfile]);
+  const canApproveRetro = useMemo(() => canApproveRetroLeave(userProfile?.role), [userProfile]);
+  const canSeeRetroPanel = canSubmitRetro || canApproveRetro;
 
   // ตรวจสอบว่า Admin Site/Staff มีโครงการที่ถูกกำหนดหรือไม่
   const hasAssignedProjects = useMemo(() => {
@@ -278,6 +312,34 @@ export const AttendancePage = ({ projectOptions }: { projectOptions: string[] })
     });
     return () => unsubscribe();
   }, [db]);
+
+  // ── โหลดคำร้องขอลาย้อนหลัง (Realtime) ────────────────────────────────────
+  // HR-tier เห็นทุกคำร้อง, Admin Site เห็นเฉพาะคำร้องที่ตนยื่นเอง
+  useEffect(() => {
+    if (!firebaseUser?.uid || !canSeeRetroPanel) {
+      setRetroRequests([]);
+      return;
+    }
+    const colRef = collection(db, "CMG-HR-Database", "root", RETRO_LEAVE_COLLECTION);
+    const q = canApproveRetro ? colRef : query(colRef, where("submittedByUid", "==", firebaseUser.uid));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const rows = snapshot.docs.map((d) => ({ ...(d.data() as RetroLeaveRequest), id: d.id }));
+      rows.sort((a, b) => (b.submittedAt || 0) - (a.submittedAt || 0));
+      setRetroRequests(rows);
+    }, (error) => {
+      console.error("Error listening to retro leave requests:", error);
+    });
+    return () => unsubscribe();
+  }, [db, firebaseUser?.uid, canApproveRetro, canSeeRetroPanel]);
+
+  // ── เปิด panel คำร้องขอลาย้อนหลังอัตโนมัติเมื่อมาจากการแจ้งเตือน ──────────
+  useEffect(() => {
+    const openId = sessionStorage.getItem(OPEN_RETRO_LEAVE_STORAGE_KEY);
+    if (openId) {
+      sessionStorage.removeItem(OPEN_RETRO_LEAVE_STORAGE_KEY);
+      setShowRetroPanel(true);
+    }
+  }, []);
 
   // ── กรองพนักงานตามโครงการ ─────────────────────────────────────────────────
   const filteredEmployees = useMemo(() => {
@@ -631,6 +693,181 @@ export const AttendancePage = ({ projectOptions }: { projectOptions: string[] })
     }
   };
 
+  // ── ยื่นคำร้องขอลาย้อนหลัง (Admin Site) ───────────────────────────────────
+  const handleSubmitRetroLeave = async (requestedStatus: string, reason: string) => {
+    if (!retroModalTarget || !firebaseUser) return;
+    const { employeeId, dateStr } = retroModalTarget;
+    const employee = employees.find((e) => e.id === employeeId);
+    if (!employee) return;
+
+    if (hasPendingRetroLeaveRequest(retroRequests, employeeId, dateStr)) {
+      alert("มีคำร้องขอลาย้อนหลังสำหรับวันนี้ที่ยังรออนุมัติอยู่แล้ว");
+      return;
+    }
+
+    const currentEntry = attendanceData[dateStr]?.[employeeId];
+    const currentStatus = getDisplayStatus(currentEntry);
+    const roleList = userProfile?.role || [];
+    const actor = { uid: firebaseUser.uid, name: firebaseUser.email || "unknown", role: roleList[0] || "" };
+    const action = makeRetroLeaveAction("submitted", actor);
+
+    const employeeName = `${employee.ชื่อตัว || ""} ${employee.ชื่อสกุล || ""}`.trim() || "-";
+    const newRequest: Omit<RetroLeaveRequest, "id"> = {
+      employeeId,
+      employeeName,
+      project: selectedProject !== "all" ? selectedProject : (currentEntry?.project || ""),
+      dateStr,
+      currentStatus,
+      requestedStatus,
+      reason,
+      status: "pending",
+      submittedByUid: firebaseUser.uid,
+      submittedByName: firebaseUser.email || "unknown",
+      submittedByRole: actor.role,
+      submittedAt: Date.now(),
+      actions: [action],
+    };
+
+    setRetroSubmitting(true);
+    try {
+      const colRef = collection(db, "CMG-HR-Database", "root", RETRO_LEAVE_COLLECTION);
+      const docRef = await addDoc(colRef, newRequest);
+
+      // แจ้งเตือน HR-tier ทุกคนที่มีสิทธิ์อนุมัติ
+      const usersSnap = await getDocs(
+        query(collection(db, "CMG-HR-Database", "root", "users"), where("status", "==", "approved"))
+      );
+      const recipientUids = usersSnap.docs
+        .map((d) => ({ uid: d.id, role: (d.data().role || []) as string[] }))
+        .filter((u) => canApproveRetroLeave(u.role))
+        .map((u) => u.uid);
+
+      await createNotifications(db, recipientUids, {
+        module: "retro_leave",
+        type: "retro_leave_submitted",
+        title: "มีคำร้องขอลาย้อนหลังใหม่",
+        message: `${employeeName} วันที่ ${dateStr} ขอเปลี่ยนเป็น "${requestedStatus || "ล้างสถานะ"}"`,
+        caseId: docRef.id,
+        createdByUid: firebaseUser.uid,
+        createdByName: firebaseUser.email || "unknown",
+      });
+
+      setRetroModalTarget(null);
+    } catch (err) {
+      console.error("Submit retro leave error:", err);
+      alert("เกิดข้อผิดพลาดในการยื่นคำร้อง กรุณาลองใหม่");
+    } finally {
+      setRetroSubmitting(false);
+    }
+  };
+
+  // ── อนุมัติคำร้องขอลาย้อนหลัง (HR-tier) ───────────────────────────────────
+  // เขียนสถานะใหม่ลง attendance พร้อมตั้ง recordedAt: 0 เพื่อให้กลไก isTimeLocked
+  // เดิมมองว่าล็อคทันที ป้องกันไม่ให้แก้ไขผ่านตารางได้อีก ต้องยื่นคำร้องใหม่เท่านั้น
+  const handleApproveRetroLeave = async (request: RetroLeaveRequest) => {
+    if (!firebaseUser) return;
+    setSaving(true);
+    try {
+      const roleList = userProfile?.role || [];
+      const actor = { uid: firebaseUser.uid, name: firebaseUser.email || "unknown", role: roleList[0] || "" };
+      const action = makeRetroLeaveAction("approved", actor);
+      const now = Date.now();
+
+      const reqRef = doc(db, "CMG-HR-Database", "root", RETRO_LEAVE_COLLECTION, request.id);
+      await updateDoc(reqRef, {
+        status: "approved",
+        reviewedByUid: firebaseUser.uid,
+        reviewedByName: firebaseUser.email || "unknown",
+        reviewedAt: now,
+        actions: [...(request.actions || []), action],
+      });
+
+      const dayRecords = { ...(attendanceData[request.dateStr] || {}) };
+      const existingEntry = dayRecords[request.employeeId];
+      const newEntry: AttendanceEntry = {
+        ...existingEntry,
+        status: request.requestedStatus,
+        recordedAt: 0, // ตั้งใจให้เกิน 24 ชม.ทันที → ล็อคช่องนี้ทันทีหลังอนุมัติ
+        retroRequestId: request.id,
+        retroApprovedAt: now,
+      };
+      delete newEntry.project;
+      if (request.requestedStatus === "มา" && request.project) {
+        newEntry.project = request.project;
+      }
+      dayRecords[request.employeeId] = newEntry;
+
+      const attendanceRef = doc(db, "CMG-HR-Database", "root", "attendance", request.dateStr);
+      await setDoc(
+        attendanceRef,
+        {
+          date: request.dateStr,
+          records: dayRecords,
+          lastUpdatedBy: firebaseUser.email || "unknown",
+          lastUpdatedAt: now,
+        },
+        { merge: false }
+      );
+
+      setAttendanceData((prev) => ({ ...prev, [request.dateStr]: dayRecords }));
+
+      await createNotifications(db, [request.submittedByUid], {
+        module: "retro_leave",
+        type: "retro_leave_approved",
+        title: "คำร้องขอลาย้อนหลังได้รับการอนุมัติ",
+        message: `${request.employeeName} วันที่ ${request.dateStr} เปลี่ยนเป็น "${request.requestedStatus || "ล้างสถานะ"}"`,
+        caseId: request.id,
+        createdByUid: firebaseUser.uid,
+        createdByName: firebaseUser.email || "unknown",
+      });
+    } catch (err) {
+      console.error("Approve retro leave error:", err);
+      alert("เกิดข้อผิดพลาดในการอนุมัติ กรุณาลองใหม่");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // ── ปฏิเสธคำร้องขอลาย้อนหลัง (HR-tier) ────────────────────────────────────
+  const handleRejectRetroLeave = async (request: RetroLeaveRequest, note: string) => {
+    if (!firebaseUser) return;
+    setSaving(true);
+    try {
+      const roleList = userProfile?.role || [];
+      const actor = { uid: firebaseUser.uid, name: firebaseUser.email || "unknown", role: roleList[0] || "" };
+      const action = makeRetroLeaveAction("rejected", actor, note);
+      const now = Date.now();
+
+      const reqRef = doc(db, "CMG-HR-Database", "root", RETRO_LEAVE_COLLECTION, request.id);
+      await updateDoc(reqRef, {
+        status: "rejected",
+        reviewedByUid: firebaseUser.uid,
+        reviewedByName: firebaseUser.email || "unknown",
+        reviewedAt: now,
+        reviewNote: note,
+        actions: [...(request.actions || []), action],
+      });
+
+      await createNotifications(db, [request.submittedByUid], {
+        module: "retro_leave",
+        type: "retro_leave_rejected",
+        title: "คำร้องขอลาย้อนหลังถูกปฏิเสธ",
+        message: `${request.employeeName} วันที่ ${request.dateStr} · เหตุผล: ${note}`,
+        caseId: request.id,
+        createdByUid: firebaseUser.uid,
+        createdByName: firebaseUser.email || "unknown",
+      });
+
+      setRetroRejectTargetId(null);
+      setRetroRejectNote("");
+    } catch (err) {
+      console.error("Reject retro leave error:", err);
+      alert("เกิดข้อผิดพลาดในการปฏิเสธ กรุณาลองใหม่");
+    } finally {
+      setSaving(false);
+    }
+  };
+
   // ── แปลงรหัสโครงการเป็นรหัสย่อ ────────────────────────────────────────────
   const getProjectShortCode = (projectName: string): string => {
     // ตัวอย่าง: PRJ-2026-J-001 → J01
@@ -743,6 +980,13 @@ export const AttendancePage = ({ projectOptions }: { projectOptions: string[] })
     // สามารถแก้ไขได้ถ้า: ไม่ใช่วันในอนาคต และ ไม่ล็อค และ มีสิทธิ์แก้ไข และ ไม่ได้ลงเวลาที่โครงการอื่น
     const canEdit = !isFuture && !locked && !editDisabled && canEditAttendance && !isOtherProject;
 
+    // ช่องที่ล็อคแล้วและมีสถานะอยู่ Admin Site ยื่นคำร้องขอลาย้อนหลังได้
+    // (ยกเว้นถูกสั่งห้ามแก้ไขถาวร หรือมีคำร้อง pending ค้างอยู่แล้วสำหรับช่องนี้)
+    const hasPendingRetro = hasPendingRetroLeaveRequest(retroRequests, employeeId, dateStr);
+    const canOpenRetroRequest =
+      !isFuture && locked && !editDisabled && !isOtherProject && canSubmitRetro && !hasPendingRetro;
+    const wasRetroApproved = !!entry?.retroRequestId;
+
     let bg = dayOffName ? "bg-fuchsia-50 hover:bg-fuchsia-100" : (isWeekend ? "bg-gray-100" : "bg-white hover:bg-gray-50");
     let text = "";
     let textCls = "text-gray-300";
@@ -838,13 +1082,29 @@ export const AttendancePage = ({ projectOptions }: { projectOptions: string[] })
       tooltipExtra = " 📅 วันนี้" + tooltipExtra;
     }
 
+    if (wasRetroApproved) {
+      const approvedDate = entry?.retroApprovedAt ? new Date(entry.retroApprovedAt).toLocaleString("th-TH") : "";
+      tooltipExtra += ` 📝 แก้ไขผ่านคำร้องขอลาย้อนหลัง${approvedDate ? ` เมื่อ ${approvedDate}` : ""} • ต้องยื่นคำร้องใหม่หากต้องการแก้ไขอีก`;
+    } else if (canOpenRetroRequest) {
+      tooltipExtra += " • คลิกเพื่อยื่นคำร้องขอลาย้อนหลัง";
+    }
+
+    const cursorCls = canEdit || canOpenRetroRequest ? "cursor-pointer" : "cursor-not-allowed opacity-60";
+    const retroRingCls = canOpenRetroRequest ? " ring-1 ring-inset ring-indigo-400" : "";
+
     return (
       <td
         key={dateStr}
         data-date={dateStr}
         tabIndex={canEdit ? 0 : undefined}
-        className={`border border-gray-200 text-center transition-colors select-none focus:outline-none focus:ring-2 focus:ring-inset focus:ring-blue-500 ${bg} ${textCls} ${canEdit ? "cursor-pointer" : "cursor-not-allowed opacity-60"}`}
+        className={`relative border border-gray-200 text-center transition-colors select-none focus:outline-none focus:ring-2 focus:ring-inset focus:ring-blue-500 ${bg} ${textCls} ${cursorCls}${retroRingCls}`}
         style={{ minWidth: 40, maxWidth: 40, width: 40, padding: "1px 0", fontSize: 10, height: 24, ...forcedColorStyle }}
+        onClick={(e) => {
+          if (canOpenRetroRequest) {
+            e.stopPropagation();
+            setRetroModalTarget({ employeeId, dateStr });
+          }
+        }}
         onDoubleClick={(e) => {
           e.stopPropagation(); // ป้องกัน event bubble ไปที่ scroll container
           if (canEdit) handleAttendanceClick(employeeId, dateStr, isOtherProject);
@@ -888,6 +1148,12 @@ export const AttendancePage = ({ projectOptions }: { projectOptions: string[] })
         title={`${dateStr}${tooltipExtra}`}
       >
         {text}
+        {wasRetroApproved && (
+          <span
+            className="absolute top-0 right-0 w-[6px] h-[6px] rounded-full bg-indigo-500"
+            style={{ transform: "translate(30%, -30%)" }}
+          />
+        )}
       </td>
     );
   };
@@ -903,24 +1169,44 @@ export const AttendancePage = ({ projectOptions }: { projectOptions: string[] })
 
   const monthName = currentMonth.toLocaleDateString("th-TH", { year: "numeric", month: "long" });
 
+  const pendingRetroCount = retroRequests.filter((r) => r.status === "pending").length;
+
   return (
     <div className="space-y-3">
       <div className="bg-white rounded-lg shadow-sm border border-gray-200 px-4 py-3">
-        <h2 className="text-xl font-bold text-gray-800 flex items-center gap-2">
-          <span>Attendance</span>
-          <InfoTooltip
-            content={
-              <div>
-                <div className="font-semibold text-slate-800 mb-1">วิธีอ่านข้อมูล</div>
-                <div>ตารางนี้แสดงสถานะรายวันของพนักงานตามเดือนและโครงการที่เลือก</div>
-                <div>สูตรสรุปหลัก: จำนวนสถานะแต่ละประเภท = นับจาก attendance record รายวันของพนักงาน</div>
-              </div>
-            }
-          />
-        </h2>
-        <p className="mt-1 text-sm text-gray-600">
-          ใช้ติดตามการมา ขาด ลา มาผิดโครงการ และวันหยุดในมุมมองรายเดือน
-        </p>
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <h2 className="text-xl font-bold text-gray-800 flex items-center gap-2">
+              <span>Attendance</span>
+              <InfoTooltip
+                content={
+                  <div>
+                    <div className="font-semibold text-slate-800 mb-1">วิธีอ่านข้อมูล</div>
+                    <div>ตารางนี้แสดงสถานะรายวันของพนักงานตามเดือนและโครงการที่เลือก</div>
+                    <div>สูตรสรุปหลัก: จำนวนสถานะแต่ละประเภท = นับจาก attendance record รายวันของพนักงาน</div>
+                  </div>
+                }
+              />
+            </h2>
+            <p className="mt-1 text-sm text-gray-600">
+              ใช้ติดตามการมา ขาด ลา มาผิดโครงการ และวันหยุดในมุมมองรายเดือน
+            </p>
+          </div>
+          {canSeeRetroPanel && (
+            <button
+              onClick={() => setShowRetroPanel(true)}
+              className="relative shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold border border-indigo-200 text-indigo-700 bg-indigo-50 rounded-lg hover:bg-indigo-100"
+            >
+              <History size={14} />
+              คำร้องขอลาย้อนหลัง
+              {pendingRetroCount > 0 && (
+                <span className="absolute -top-1.5 -right-1.5 flex h-4 min-w-[16px] items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold text-white">
+                  {pendingRetroCount}
+                </span>
+              )}
+            </button>
+          )}
+        </div>
       </div>
       {/* ── Controls ── */}
       <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-3">
@@ -1027,7 +1313,10 @@ export const AttendancePage = ({ projectOptions }: { projectOptions: string[] })
             <span className="text-gray-600">{item.desc}</span>
           </div>
         ))}
-        <span className="text-gray-400 ml-auto">🔒 = ล็อคหลังกรอก 24 ชม. | คีย์ลัด: 1=มา 2=ไม่มา 3=ลา 4=H</span>
+        <span className="text-gray-400 ml-auto">
+          🔒 = ล็อคหลังกรอก 24 ชม. | คีย์ลัด: 1=มา 2=ไม่มา 3=ลา 4=H
+          {canSubmitRetro && " | ช่องกรอบม่วง = คลิกเพื่อยื่นคำร้องขอลาย้อนหลัง"}
+        </span>
       </div>
 
       {/* ── Tables ── */}
@@ -1217,6 +1506,263 @@ export const AttendancePage = ({ projectOptions }: { projectOptions: string[] })
           กำลังบันทึก...
         </div>
       )}
+
+      {/* Modal ยื่นคำร้องขอลาย้อนหลัง */}
+      {retroModalTarget && (() => {
+        const employee = employees.find((e) => e.id === retroModalTarget.employeeId);
+        const employeeLabel = employee
+          ? `${employee.ชื่อตัว || ""} ${employee.ชื่อสกุล || ""}`.trim() || employee.รหัสพนักงาน || "-"
+          : "-";
+        const currentEntry = attendanceData[retroModalTarget.dateStr]?.[retroModalTarget.employeeId];
+        const currentStatusLabel = getDisplayStatus(currentEntry) || "ว่าง";
+        return (
+          <RetroLeaveRequestModal
+            employeeLabel={employeeLabel}
+            dateStr={retroModalTarget.dateStr}
+            currentStatusLabel={currentStatusLabel}
+            submitting={retroSubmitting}
+            onSubmit={handleSubmitRetroLeave}
+            onClose={() => setRetroModalTarget(null)}
+          />
+        );
+      })()}
+
+      {/* Panel รายการคำร้องขอลาย้อนหลัง */}
+      {showRetroPanel && (
+        <RetroLeavePanel
+          requests={retroRequests}
+          canApprove={canApproveRetro}
+          rejectTargetId={retroRejectTargetId}
+          rejectNote={retroRejectNote}
+          onSetRejectTarget={setRetroRejectTargetId}
+          onSetRejectNote={setRetroRejectNote}
+          onApprove={handleApproveRetroLeave}
+          onReject={handleRejectRetroLeave}
+          onClose={() => setShowRetroPanel(false)}
+        />
+      )}
+    </div>
+  );
+};
+
+// ── Modal: ยื่นคำร้องขอลาย้อนหลัง (Admin Site) ──────────────────────────────
+const RetroLeaveRequestModal = ({
+  employeeLabel,
+  dateStr,
+  currentStatusLabel,
+  submitting,
+  onSubmit,
+  onClose,
+}: {
+  employeeLabel: string;
+  dateStr: string;
+  currentStatusLabel: string;
+  submitting: boolean;
+  onSubmit: (requestedStatus: string, reason: string) => void;
+  onClose: () => void;
+}) => {
+  const [requestedStatus, setRequestedStatus] = useState("ลา");
+  const [reason, setReason] = useState("");
+
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={onClose}>
+      <div className="bg-white rounded-lg shadow-xl w-full max-w-md p-5" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="text-base font-bold text-gray-800 flex items-center gap-2">
+            <History size={18} className="text-indigo-600" />
+            ยื่นคำร้องขอลาย้อนหลัง
+          </h3>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
+            <X size={18} />
+          </button>
+        </div>
+
+        <div className="space-y-3 text-sm">
+          <div className="bg-gray-50 rounded-lg p-3 space-y-1">
+            <div>
+              <span className="text-gray-500">พนักงาน:</span> <span className="font-semibold">{employeeLabel}</span>
+            </div>
+            <div>
+              <span className="text-gray-500">วันที่:</span> <span className="font-semibold">{dateStr}</span>
+            </div>
+            <div>
+              <span className="text-gray-500">สถานะปัจจุบัน:</span>{" "}
+              <span className="font-semibold">{currentStatusLabel}</span>
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-xs font-medium text-gray-600 mb-1">ต้องการเปลี่ยนเป็น</label>
+            <select
+              value={requestedStatus}
+              onChange={(e) => setRequestedStatus(e.target.value)}
+              className="w-full px-3 py-2 text-sm border rounded focus:ring-2 focus:ring-blue-500 outline-none bg-white"
+            >
+              {RETRO_LEAVE_REQUESTABLE_STATUSES.map((s) => (
+                <option key={s.value} value={s.value}>
+                  {s.label}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-xs font-medium text-gray-600 mb-1">เหตุผล (จำเป็น)</label>
+            <textarea
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              rows={3}
+              placeholder="เช่น พนักงานมาแจ้งลาป่วยย้อนหลัง พร้อมใบรับรองแพทย์..."
+              className="w-full px-3 py-2 text-sm border rounded focus:ring-2 focus:ring-blue-500 outline-none resize-none"
+            />
+          </div>
+        </div>
+
+        <div className="flex justify-end gap-2 mt-4">
+          <button onClick={onClose} className="px-3 py-1.5 text-sm border rounded hover:bg-gray-50">
+            ยกเลิก
+          </button>
+          <button
+            disabled={submitting || !reason.trim()}
+            onClick={() => onSubmit(requestedStatus, reason.trim())}
+            className="px-3 py-1.5 text-sm bg-indigo-600 text-white rounded hover:bg-indigo-700 disabled:opacity-50 flex items-center gap-1.5"
+          >
+            {submitting && <Loader2 size={14} className="animate-spin" />}
+            ยื่นคำร้อง
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ── Panel: รายการคำร้องขอลาย้อนหลัง (ดูของตัวเอง หรือ อนุมัติสำหรับ HR-tier) ──
+const RetroLeavePanel = ({
+  requests,
+  canApprove,
+  rejectTargetId,
+  rejectNote,
+  onSetRejectTarget,
+  onSetRejectNote,
+  onApprove,
+  onReject,
+  onClose,
+}: {
+  requests: RetroLeaveRequest[];
+  canApprove: boolean;
+  rejectTargetId: string | null;
+  rejectNote: string;
+  onSetRejectTarget: (id: string | null) => void;
+  onSetRejectNote: (note: string) => void;
+  onApprove: (request: RetroLeaveRequest) => void;
+  onReject: (request: RetroLeaveRequest, note: string) => void;
+  onClose: () => void;
+}) => {
+  const pending = requests.filter((r) => r.status === "pending");
+  const history = requests.filter((r) => r.status !== "pending");
+
+  const renderRow = (r: RetroLeaveRequest) => (
+    <div key={r.id} className="border border-gray-200 rounded-lg p-3 space-y-1.5">
+      <div className="flex items-center justify-between gap-2">
+        <span className="font-semibold text-sm text-gray-800">{r.employeeName}</span>
+        <span className={`shrink-0 text-[10px] font-bold px-2 py-0.5 rounded-full ${RETRO_LEAVE_STATUS_COLORS[r.status]}`}>
+          {RETRO_LEAVE_STATUS_LABELS[r.status]}
+        </span>
+      </div>
+      <div className="text-xs text-gray-600">
+        วันที่ {r.dateStr} · {r.currentStatus || "ว่าง"} → <span className="font-semibold">{r.requestedStatus || "ว่าง"}</span>
+        {r.project && <span className="text-gray-400"> · {r.project}</span>}
+      </div>
+      <div className="text-xs text-gray-500">เหตุผล: {r.reason}</div>
+      <div className="text-[11px] text-gray-400">
+        ยื่นโดย {r.submittedByName} · {new Date(r.submittedAt).toLocaleString("th-TH")}
+      </div>
+      {r.status !== "pending" && r.reviewedByName && (
+        <div className="text-[11px] text-gray-400">
+          {r.status === "approved" ? "อนุมัติโดย" : "ปฏิเสธโดย"} {r.reviewedByName}
+          {r.reviewedAt ? ` · ${new Date(r.reviewedAt).toLocaleString("th-TH")}` : ""}
+          {r.reviewNote ? ` · เหตุผล: ${r.reviewNote}` : ""}
+        </div>
+      )}
+
+      {canApprove && r.status === "pending" && (
+        rejectTargetId === r.id ? (
+          <div className="pt-1.5 space-y-1.5">
+            <textarea
+              value={rejectNote}
+              onChange={(e) => onSetRejectNote(e.target.value)}
+              rows={2}
+              placeholder="เหตุผลที่ปฏิเสธ (จำเป็น)"
+              className="w-full px-2 py-1.5 text-xs border rounded resize-none"
+            />
+            <div className="flex justify-end gap-1.5">
+              <button
+                onClick={() => { onSetRejectTarget(null); onSetRejectNote(""); }}
+                className="px-2 py-1 text-xs border rounded hover:bg-gray-50"
+              >
+                ยกเลิก
+              </button>
+              <button
+                disabled={!rejectNote.trim()}
+                onClick={() => onReject(r, rejectNote.trim())}
+                className="px-2 py-1 text-xs bg-rose-600 text-white rounded hover:bg-rose-700 disabled:opacity-50"
+              >
+                ยืนยันปฏิเสธ
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className="flex justify-end gap-1.5 pt-1">
+            <button
+              onClick={() => onSetRejectTarget(r.id)}
+              className="px-2 py-1 text-xs border border-rose-300 text-rose-600 rounded hover:bg-rose-50"
+            >
+              ปฏิเสธ
+            </button>
+            <button
+              onClick={() => onApprove(r)}
+              className="px-2 py-1 text-xs bg-emerald-600 text-white rounded hover:bg-emerald-700"
+            >
+              อนุมัติ
+            </button>
+          </div>
+        )
+      )}
+    </div>
+  );
+
+  return (
+    <div className="fixed inset-0 z-50 flex justify-end">
+      <div className="flex-1 bg-black/30" onClick={onClose} />
+      <div className="w-full max-w-md h-full bg-white shadow-2xl overflow-y-auto p-4 space-y-4">
+        <div className="flex items-center justify-between">
+          <h3 className="text-base font-bold text-gray-800 flex items-center gap-2">
+            <ClipboardList size={18} className="text-indigo-600" />
+            คำร้องขอลาย้อนหลัง
+          </h3>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
+            <X size={18} />
+          </button>
+        </div>
+
+        <div>
+          <div className="text-xs font-semibold text-gray-500 mb-2">รออนุมัติ ({pending.length})</div>
+          {pending.length === 0 ? (
+            <div className="text-xs text-gray-400 text-center py-4">ไม่มีคำร้องที่รออนุมัติ</div>
+          ) : (
+            <div className="space-y-2">{pending.map(renderRow)}</div>
+          )}
+        </div>
+
+        <div>
+          <div className="text-xs font-semibold text-gray-500 mb-2">ประวัติ ({history.length})</div>
+          {history.length === 0 ? (
+            <div className="text-xs text-gray-400 text-center py-4">ยังไม่มีประวัติ</div>
+          ) : (
+            <div className="space-y-2">{history.map(renderRow)}</div>
+          )}
+        </div>
+      </div>
     </div>
   );
 };

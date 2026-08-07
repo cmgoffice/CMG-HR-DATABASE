@@ -13,6 +13,7 @@ import {
   CheckCircle2,
   ClipboardList,
   ExternalLink,
+  History,
   Inbox,
   Search,
   UserCog,
@@ -54,6 +55,12 @@ import {
   monthLabelTh,
   TIER_LABELS,
 } from "./evaluationConfig";
+import {
+  canApproveRetroLeave,
+  OPEN_RETRO_LEAVE_STORAGE_KEY,
+  RETRO_LEAVE_COLLECTION,
+  RetroLeaveRequest,
+} from "./retroLeaveConfig";
 
 // deep-link storage key เดียวกับที่ NotificationBell / RiskMonitoringPage ใช้อยู่
 const OPEN_FOLLOW_UP_CASE_STORAGE_KEY = "cmg_open_follow_up_case";
@@ -61,13 +68,14 @@ const OPEN_FOLLOW_UP_CASE_STORAGE_KEY = "cmg_open_follow_up_case";
 // role ที่เห็นแท็บ "ภาพรวมทั้งหมด" (ตามที่ตกลง: HRM + PD + MD + GM และ MasterAdmin เสมอ)
 const OVERVIEW_ROLES: UserRole[] = ["MasterAdmin", "MD", "GM", "PD", "HRM"];
 
-type ApprovalModuleKey = "project_transfer" | "follow_up" | "evaluation" | "user_approval";
+type ApprovalModuleKey = "project_transfer" | "follow_up" | "evaluation" | "user_approval" | "retro_leave";
 
 const MODULE_LABELS: Record<ApprovalModuleKey, string> = {
   project_transfer: "ย้ายโครงการ",
   follow_up: "ติดตามพนักงาน",
   evaluation: "ประเมินผล",
   user_approval: "ผู้ใช้ใหม่",
+  retro_leave: "ลาย้อนหลัง",
 };
 
 const MODULE_BADGE_COLORS: Record<ApprovalModuleKey, string> = {
@@ -75,6 +83,7 @@ const MODULE_BADGE_COLORS: Record<ApprovalModuleKey, string> = {
   follow_up: "bg-rose-100 text-rose-800",
   evaluation: "bg-violet-100 text-violet-800",
   user_approval: "bg-slate-200 text-slate-700",
+  retro_leave: "bg-indigo-100 text-indigo-800",
 };
 
 interface ApprovalItem {
@@ -180,6 +189,7 @@ export const ApprovalCenterPage = ({
   const [assignments, setAssignments] = useState<EvalAssignment[]>([]);
   const [users, setUsers] = useState<AppUserLite[]>([]);
   const [pendingUsers, setPendingUsers] = useState<AppUserLite[]>([]);
+  const [retroLeaveRequests, setRetroLeaveRequests] = useState<RetroLeaveRequest[]>([]);
   const [loadedSources, setLoadedSources] = useState<Set<string>>(new Set());
 
   const markLoaded = (source: string) =>
@@ -268,7 +278,19 @@ export const ApprovalCenterPage = ({
     return () => unsub();
   }, [db, isMasterAdmin]);
 
-  const loading = loadedSources.size < 5;
+  useEffect(() => {
+    const q = query(
+      collection(db, "CMG-HR-Database", "root", RETRO_LEAVE_COLLECTION),
+      where("status", "==", "pending")
+    );
+    const unsub = onSnapshot(q, (snap) => {
+      setRetroLeaveRequests(snap.docs.map((d) => ({ ...(d.data() as RetroLeaveRequest), id: d.id })));
+      markLoaded("retroLeave");
+    });
+    return () => unsub();
+  }, [db]);
+
+  const loading = loadedSources.size < 6;
 
   const usersByUid = useMemo(() => {
     const map: Record<string, AppUserLite> = {};
@@ -432,6 +454,23 @@ export const ApprovalCenterPage = ({
     });
   }, [rounds, assignments, usersByUid, uid, roles]);
 
+  const retroLeaveItems = useMemo<ApprovalItem[]>(() => {
+    const mine = canApproveRetroLeave(roles);
+    return retroLeaveRequests.map((r) => ({
+      key: `retro-${r.id}`,
+      module: "retro_leave" as const,
+      caseId: r.id,
+      title: r.employeeName,
+      detail: `วันที่ ${r.dateStr} · ${r.currentStatus || "ว่าง"} → ${r.requestedStatus || "ว่าง"}${r.project ? ` · ${r.project}` : ""}`,
+      stageLabel: "รอ HR อนุมัติ",
+      stageColor: "bg-amber-100 text-amber-800",
+      waitingOn: "HR",
+      pendingSince: r.submittedAt,
+      mine,
+      actionLabel: "รออนุมัติ",
+    }));
+  }, [retroLeaveRequests, roles]);
+
   const userApprovalItems = useMemo<ApprovalItem[]>(() => {
     return pendingUsers.map((u) => ({
       key: `user-${u.uid}`,
@@ -450,10 +489,10 @@ export const ApprovalCenterPage = ({
 
   const allItems = useMemo(
     () =>
-      [...transferItems, ...followUpItems, ...evaluationItems, ...userApprovalItems].sort(
+      [...transferItems, ...followUpItems, ...evaluationItems, ...retroLeaveItems, ...userApprovalItems].sort(
         (a, b) => (a.pendingSince || Number.MAX_SAFE_INTEGER) - (b.pendingSince || Number.MAX_SAFE_INTEGER)
       ),
-    [transferItems, followUpItems, evaluationItems, userApprovalItems]
+    [transferItems, followUpItems, evaluationItems, retroLeaveItems, userApprovalItems]
   );
 
   const myItems = useMemo(() => allItems.filter((item) => item.mine), [allItems]);
@@ -518,6 +557,11 @@ export const ApprovalCenterPage = ({
       setActiveModule("evaluation");
       return;
     }
+    if (item.module === "retro_leave") {
+      sessionStorage.setItem(OPEN_RETRO_LEAVE_STORAGE_KEY, item.caseId);
+      setActiveModule("attendance");
+      return;
+    }
     setActiveModule("users_data");
   };
 
@@ -528,13 +572,14 @@ export const ApprovalCenterPage = ({
     { moduleKey: "project_transfer", icon: ArrowLeftRight },
     { moduleKey: "follow_up", icon: AlertCircle },
     { moduleKey: "evaluation", icon: ClipboardList },
+    { moduleKey: "retro_leave", icon: History },
     { moduleKey: "user_approval", icon: UserCog },
   ];
 
   return (
     <div className="p-4 sm:p-6 space-y-4">
       {/* สรุปยอด */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-3">
         <div className="rounded-xl border border-blue-200 bg-blue-50 p-3">
           <div className="flex items-center gap-2 text-blue-700">
             <Inbox size={18} />
