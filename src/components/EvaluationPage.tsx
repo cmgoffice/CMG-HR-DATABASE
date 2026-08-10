@@ -455,7 +455,10 @@ export const EvaluationPage = ({ projectOptions }: { projectOptions: string[] })
         const complete = row.members.every((m) => {
           const r = recs.find((x) => x.employeeId === m.id);
           if (r && isEvalComplete(r.scores, criteria)) return true;
-          const carriedFin = finalPersonScore(scores.filter((s) => s.period === selectedPeriod && s.employeeId === m.id));
+          // นับเฉพาะคะแนนที่ติดตัวมาจากชุด/โครงการ "อื่น" จริงๆ ไม่ใช่แค่ผู้ประเมินอีกคนในชุดนี้เองส่งไปแล้ว
+          const carriedFin = finalPersonScore(
+            scores.filter((s) => s.period === selectedPeriod && s.employeeId === m.id && !(s.project === row.project && s.group === row.group))
+          );
           return !!carriedFin && isEvalComplete(carriedFin.scores, criteria);
         });
         if (complete) tier1Submitters++;
@@ -1150,6 +1153,11 @@ const GroupModal = ({
   const finalRecsFor = (empId: string) =>
     scores.filter((s) => s.period === period && s.employeeId === empId);
 
+  // คะแนนที่ "ติดตัวมาจากชุด/โครงการอื่น" จริง ๆ (ไม่รวมคะแนนของชุดนี้เอง) — ใช้เฉพาะตอน Tier 1 ยังไม่ปิด
+  // เพื่อไม่ให้เอาคะแนนที่ผู้ประเมินอีกคนในชุดเดียวกันส่งไปแล้ว มาปนกับ "คะแนนติดตัวจากชุดเดิม" (คนละเรื่องกัน)
+  const crossGroupFinalFor = (empId: string) =>
+    finalPersonScore(finalRecsFor(empId).filter((s) => !(s.project === row.project && s.group === row.group)));
+
   // สมาชิกที่เข้ามาใหม่/ย้ายเข้ามา "หลัง" Tier 1 ของรอบนี้ปิดไปแล้ว (ไม่มีคะแนน Tier 1 ติดตัวมาจากที่ไหนเลย)
   // ไม่ต้องถูกประเมินในรอบนี้ — ให้รอประเมินในรอบถัดไปแทน จึงตัดออกจากรายการที่ต้องให้ Tier 2-4 พิจารณา
   const isLatecomer = (m: Employee): boolean => {
@@ -1194,7 +1202,7 @@ const GroupModal = ({
       const complete = row.members.every((m) => {
         const r = recs.find((x) => x.employeeId === m.id);
         if (r && isEvalComplete(r.scores, criteria)) return true;
-        const carriedFin = finalPersonScore(finalRecsFor(m.id));
+        const carriedFin = crossGroupFinalFor(m.id);
         return !!carriedFin && isEvalComplete(carriedFin.scores, criteria);
       });
       if (complete) set.add(uid);
@@ -1226,7 +1234,7 @@ const GroupModal = ({
     const missing = row.members.filter((m) => {
       const r = myTier1For(m.id);
       if (r && isEvalComplete(r.scores, criteria)) return false;
-      const carriedFin = finalPersonScore(finalRecsFor(m.id));
+      const carriedFin = crossGroupFinalFor(m.id);
       return !(carriedFin && isEvalComplete(carriedFin.scores, criteria));
     });
     if (missing.length > 0) {
@@ -1342,7 +1350,7 @@ const GroupModal = ({
                 members={row.members}
                 criteria={criteria}
                 myTier1For={myTier1For}
-                finalRecsFor={finalRecsFor}
+                finalRecsFor={(empId) => finalRecsFor(empId).filter((s) => !(s.project === row.project && s.group === row.group))}
                 onEdit={setEditing}
               />
             </>
