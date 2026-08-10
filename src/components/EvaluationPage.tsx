@@ -967,8 +967,9 @@ const AssignmentTab = ({
                     Tier 1 · ให้คะแนนรายคน
                     <InfoTooltip content={tier1Guide} iconSize={12} />
                   </span>
-                  <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${t1.length >= MIN_RATERS ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"}`}>
-                    {t1.length}/{MIN_RATERS} คน
+                  <span title="จำนวนคนที่มอบหมายให้เป็นผู้ประเมิน ไม่ใช่จำนวนคนที่ประเมินเสร็จแล้ว (ดูสถานะประเมินแล้ว/ยังไม่ประเมินที่แท็กด้านล่าง)"
+                    className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${t1.length >= MIN_RATERS ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"}`}>
+                    มอบหมายแล้ว {t1.length}/{MIN_RATERS} คน
                   </span>
                   <div className="ml-auto flex items-center gap-1.5">
                     <InfoTooltip content={tier1Guide} iconSize={12} />
@@ -1006,7 +1007,8 @@ const AssignmentTab = ({
                     Tier 2 · ตรวจระดับชุด
                     <InfoTooltip content={tier2Guide} iconSize={12} />
                   </span>
-                  <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] text-slate-500">{t2.length} คน</span>
+                  <span title="จำนวนคนที่มอบหมายให้เป็นผู้ตรวจ ไม่ใช่จำนวนคนที่ตรวจเสร็จแล้ว (ดูสถานะประเมินแล้ว/ยังไม่ประเมินที่แท็กด้านล่าง)"
+                    className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] text-slate-500">มอบหมายแล้ว {t2.length} คน</span>
                   <div className="ml-auto flex items-center gap-1.5">
                     <InfoTooltip content={tier2Guide} iconSize={12} />
                     <button onClick={() => setPickerFor({ group: g, tier: 2 })}
