@@ -9,6 +9,7 @@ import {
 } from "firebase/firestore";
 import {
   AlertCircle,
+  BarChart3,
   CheckCircle2,
   ChevronDown,
   ChevronRight,
@@ -17,6 +18,7 @@ import {
   Info,
   Loader2,
   Lock,
+  PieChart as PieChartIcon,
   Search,
   Sparkles,
   TrendingUp,
@@ -27,6 +29,7 @@ import { useAuth } from "../auth/AuthContext";
 import { getPageGuide } from "../config/pageGuides";
 import { InfoTooltip } from "./InfoTooltip";
 import { PageGuideButton, PageGuideModal } from "./PageGuideModal";
+import { DonutChart, RankedBarChart, TrendLineChart } from "./DashboardCharts";
 import {
   ALL_TIERS,
   ASSIGNER_ROLES,
@@ -887,6 +890,11 @@ const AssignmentTab = ({
   };
 
   const toggleAssignee = async (group: string, tier: 1 | 2, uid: string) => {
+    const round = roundFor(group);
+    if (round?.closed) {
+      alert("รอบนี้ปิดแล้ว ไม่สามารถเปลี่ยนผู้ประเมิน/ผู้ตรวจได้");
+      return;
+    }
     const id = assignmentId(projectSel, group);
     const existing = assignmentFor(group);
     const t1 = existing?.tier1Uids || [];
@@ -977,26 +985,34 @@ const AssignmentTab = ({
                   <div className="ml-auto flex items-center gap-1.5">
                     <InfoTooltip content={tier1Guide} iconSize={12} />
                     <button onClick={() => setPickerFor({ group: g, tier: 1 })}
-                      className="rounded-lg border border-indigo-200 bg-indigo-50 px-2.5 py-1 text-[11px] font-semibold text-indigo-700 hover:bg-indigo-100">
-                      + เลือกผู้ประเมิน
+                      disabled={!!round?.closed}
+                      title={round?.closed ? "รอบนี้ปิดแล้ว ไม่สามารถเปลี่ยนผู้ประเมินได้" : undefined}
+                      className="rounded-lg border border-indigo-200 bg-indigo-50 px-2.5 py-1 text-[11px] font-semibold text-indigo-700 hover:bg-indigo-100 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-indigo-50">
+                      {round?.closed ? <span className="inline-flex items-center gap-1"><Lock size={11} /> ล็อกแล้ว</span> : "+ เลือกผู้ประเมิน"}
                     </button>
                   </div>
                 </div>
                 <div className="mt-1.5 flex flex-wrap gap-1.5">
                   {t1.length === 0 ? <span className="text-[11px] text-slate-400">ยังไม่ได้เลือก</span> :
                     t1.map((uid) => {
-                      const done = canSeeCompletion ? tier1Submitted(g, uid) : null;
+                      // รอบปิดไปแล้ว = ไม่โชว์สถานะ "ยังไม่ประเมิน" อีก (เทียบกับผู้ถูกมอบหมาย ณ ตอนนี้ ซึ่งอาจถูกแก้ไขหลังจากรอบปิดไปแล้ว ทำให้ดูขัดแย้งกับสถานะ "ปิดรอบ (สมบูรณ์)")
+                      const done = canSeeCompletion && !round?.closed ? tier1Submitted(g, uid) : null;
                       return (
-                        <span key={uid} className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-medium ${
+                        <span key={uid} title={round?.closed ? "รอบนี้ปิดไปแล้ว สถานะประเมินแล้ว/ยังไม่ประเมินของรอบนี้จึงไม่แสดงอีก (รายชื่อผู้ประเมินปัจจุบันอาจถูกแก้ไขภายหลังรอบปิด)" : undefined}
+                          className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-medium ${
                           done === true ? "border-emerald-500 bg-emerald-50 text-emerald-700"
                             : done === false ? "border-rose-300 bg-rose-50 text-rose-600"
+                            : round?.closed ? "border-slate-300 bg-slate-50 text-slate-500"
                             : "border-indigo-500 bg-indigo-50 text-indigo-700"
                         }`}>
                           {done === true && <CheckCircle2 size={12} className="text-emerald-600" />}
                           {userName(userById.get(uid))}
                           {done === true && <span className="text-[9px] font-semibold">ประเมินแล้ว</span>}
                           {done === false && <span className="text-[9px] font-semibold">ยังไม่ประเมิน</span>}
-                          <button onClick={() => toggleAssignee(g, 1, uid)} className="text-current opacity-60 hover:opacity-100 hover:text-rose-600"><X size={12} /></button>
+                          {done === null && round?.closed && <span className="text-[9px] font-semibold">รอบปิดแล้ว</span>}
+                          {!round?.closed && (
+                            <button onClick={() => toggleAssignee(g, 1, uid)} className="text-current opacity-60 hover:opacity-100 hover:text-rose-600"><X size={12} /></button>
+                          )}
                         </span>
                       );
                     })}
@@ -1015,26 +1031,33 @@ const AssignmentTab = ({
                   <div className="ml-auto flex items-center gap-1.5">
                     <InfoTooltip content={tier2Guide} iconSize={12} />
                     <button onClick={() => setPickerFor({ group: g, tier: 2 })}
-                      className="rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[11px] font-semibold text-emerald-700 hover:bg-emerald-100">
-                      + เลือกผู้ตรวจ
+                      disabled={!!round?.closed}
+                      title={round?.closed ? "รอบนี้ปิดแล้ว ไม่สามารถเปลี่ยนผู้ตรวจได้" : undefined}
+                      className="rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[11px] font-semibold text-emerald-700 hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-emerald-50">
+                      {round?.closed ? <span className="inline-flex items-center gap-1"><Lock size={11} /> ล็อกแล้ว</span> : "+ เลือกผู้ตรวจ"}
                     </button>
                   </div>
                 </div>
                 <div className="mt-1.5 flex flex-wrap gap-1.5">
                   {t2.length === 0 ? <span className="text-[11px] text-slate-400">ยังไม่ได้เลือก</span> :
                     t2.map((uid) => {
-                      const done = canSeeCompletion ? tier2Submitted(g, uid) : null;
+                      const done = canSeeCompletion && !round?.closed ? tier2Submitted(g, uid) : null;
                       return (
-                        <span key={uid} className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-medium ${
+                        <span key={uid} title={round?.closed ? "รอบนี้ปิดไปแล้ว สถานะประเมินแล้ว/ยังไม่ประเมินของรอบนี้จึงไม่แสดงอีก (รายชื่อผู้ตรวจปัจจุบันอาจถูกแก้ไขภายหลังรอบปิด)" : undefined}
+                          className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-medium ${
                           done === true ? "border-emerald-500 bg-emerald-50 text-emerald-700"
                             : done === false ? "border-rose-300 bg-rose-50 text-rose-600"
+                            : round?.closed ? "border-slate-300 bg-slate-50 text-slate-500"
                             : "border-emerald-500 bg-emerald-50 text-emerald-700"
                         }`}>
                           {done === true && <CheckCircle2 size={12} className="text-emerald-600" />}
                           {userName(userById.get(uid))}
                           {done === true && <span className="text-[9px] font-semibold">ประเมินแล้ว</span>}
                           {done === false && <span className="text-[9px] font-semibold">ยังไม่ประเมิน</span>}
-                          <button onClick={() => toggleAssignee(g, 2, uid)} className="text-current opacity-60 hover:opacity-100 hover:text-rose-600"><X size={12} /></button>
+                          {done === null && round?.closed && <span className="text-[9px] font-semibold">รอบปิดแล้ว</span>}
+                          {!round?.closed && (
+                            <button onClick={() => toggleAssignee(g, 2, uid)} className="text-current opacity-60 hover:opacity-100 hover:text-rose-600"><X size={12} /></button>
+                          )}
                         </span>
                       );
                     })}
@@ -1788,6 +1811,65 @@ const SummaryTab = ({
   const scoredTotal = rows.filter((r) => r.fin && r.complete).length;
   const watchTotal = rows.filter((r) => r.fin && r.complete && r.fin.total < 65).length;
 
+  // ---- Analytics: กราฟสรุปผลรวมของรอบ/เงื่อนไขที่กรองอยู่ ----
+  const overallDist = useMemo(() => {
+    const d = { pass: 0, develop: 0, watch: 0 };
+    rows.forEach((r) => {
+      if (r.fin && r.complete) d[flagBucket(r.fin.total)] += 1;
+    });
+    return d;
+  }, [rows]);
+
+  const groupBarData = useMemo(
+    () =>
+      groupRollup
+        .filter((g) => g.avg != null)
+        .slice(0, 10)
+        .map((g) => ({
+          name: g.group.length > 14 ? `${g.group.slice(0, 13)}…` : g.group,
+          fullName: `${g.project} · ${g.group}`,
+          value: g.avg as number,
+          color: (g.avg as number) >= 75 ? "#10b981" : (g.avg as number) >= 65 ? "#f59e0b" : "#ef4444",
+        })),
+    [groupRollup]
+  );
+
+  const criteriaBarData = useMemo(() => {
+    const scoredRows = rows.filter((r) => r.fin && r.complete);
+    return criteria.map((c) => {
+      const vals = scoredRows.map((r) => Number(r.fin!.scores[c.key]) || 0);
+      const avg = vals.length ? Math.round((vals.reduce((s, v) => s + v, 0) / vals.length) * 10) / 10 : 0;
+      return {
+        name: c.label,
+        fullName: `${c.label} (น้ำหนัก ${c.weight}%)`,
+        value: avg,
+        color: avg >= 4 ? "#10b981" : avg >= 3 ? "#f59e0b" : "#ef4444",
+      };
+    });
+  }, [rows, criteria]);
+
+  const trendData = useMemo(() => {
+    const points = periodOptions.map((p) => {
+      const vals: number[] = [];
+      employees.forEach((emp) => {
+        if (!isMemberInPeriod(emp, p.key)) return;
+        const project = parseProjectList(emp.สถานะโครงการ)[0] || NO_PROJECT;
+        const group = String(emp["ชื่อชุด"] || "").trim() || NO_GROUP;
+        if (!groupVisible(project, group)) return;
+        const type = normalizeEmployeeType(emp);
+        if (projectF !== "all" && project !== projectF) return;
+        if (typeF !== "all" && type !== typeF) return;
+        if (groupF !== "all" && group !== groupF) return;
+        const recs = scores.filter((s) => s.period === p.key && s.employeeId === emp.id);
+        const fin = finalPersonScore(recs);
+        if (fin && isEvalComplete(fin.scores, criteria)) vals.push(fin.total);
+      });
+      const avg = vals.length ? Math.round((vals.reduce((s, v) => s + v, 0) / vals.length) * 10) / 10 : null;
+      return { label: p.label, value: avg, meta: vals.length ? `${vals.length} คน` : "ไม่มีคะแนน" };
+    });
+    return [...points].reverse(); // เก่า → ใหม่ ให้ดูเป็นเทรนด์
+  }, [employees, scores, criteria, periodOptions, projectF, typeF, groupF, assignments, canSeeAllProjects, canAssign, myAssignedProjects, myUid]);
+
   const toggleGroup = (key: string) =>
     setExpanded((prev) => {
       const n = new Set(prev);
@@ -1856,6 +1938,49 @@ const SummaryTab = ({
         <div className="rounded-xl border border-slate-200 bg-white p-10 text-center text-sm text-slate-400">ไม่มีข้อมูลในรอบ/เงื่อนไขนี้</div>
       ) : (
         <>
+          {/* Analytics: มุมมองกราฟ */}
+          <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+            <div className="rounded-xl border border-slate-200 bg-white p-3">
+              <div className="mb-2 flex items-center gap-1.5 text-sm font-bold text-slate-800">
+                <PieChartIcon size={15} className="text-indigo-500" /> กระจายผลลัพธ์ทั้งรอบ
+              </div>
+              <DonutChart
+                unit="คน"
+                centerValue={scoredTotal}
+                centerSub="มีคะแนนแล้ว"
+                data={[
+                  { name: "ผ่าน", value: overallDist.pass, color: "#10b981" },
+                  { name: "ต้องพัฒนา", value: overallDist.develop, color: "#f59e0b" },
+                  { name: "เฝ้าระวัง/พิจารณาไม่ต่อ", value: overallDist.watch, color: "#ef4444" },
+                ]}
+              />
+            </div>
+
+            <div className="rounded-xl border border-slate-200 bg-white p-3">
+              <div className="mb-2 flex items-center gap-1.5 text-sm font-bold text-slate-800">
+                <BarChart3 size={15} className="text-indigo-500" /> คะแนนเฉลี่ยรายชุด
+              </div>
+              <div className="mb-1 text-[11px] text-slate-400">เรียงจากชุดที่น่ากังวลก่อน (สูงสุด 10 ชุด)</div>
+              <RankedBarChart data={groupBarData} maxValue={100} valueLabel="คะแนนเฉลี่ย" yAxisWidth={110} />
+            </div>
+
+            <div className="rounded-xl border border-slate-200 bg-white p-3">
+              <div className="mb-2 flex items-center gap-1.5 text-sm font-bold text-slate-800">
+                <BarChart3 size={15} className="text-indigo-500" /> คะแนนเฉลี่ยแยกตามเกณฑ์
+              </div>
+              <div className="mb-1 text-[11px] text-slate-400">คะแนนดิบเฉลี่ย (เต็ม 5) ต่อด้าน · ดูจุดแข็ง-จุดที่ต้องพัฒนา</div>
+              <RankedBarChart data={criteriaBarData} maxValue={5} valueSuffix="/5" valueLabel="คะแนนเฉลี่ย" yAxisWidth={140} height={Math.max(140, 26 + criteriaBarData.length * 34)} />
+            </div>
+
+            <div className="rounded-xl border border-slate-200 bg-white p-3">
+              <div className="mb-2 flex items-center gap-1.5 text-sm font-bold text-slate-800">
+                <TrendingUp size={15} className="text-indigo-500" /> เทรนด์คะแนนเฉลี่ยข้ามรอบ
+              </div>
+              <div className="mb-1 text-[11px] text-slate-400">เฉพาะผู้ที่ตรงเงื่อนไขตัวกรองปัจจุบันในแต่ละรอบ</div>
+              <TrendLineChart data={trendData} />
+            </div>
+          </div>
+
           {/* Roll-up by group */}
           <div className="rounded-xl border border-slate-200 bg-white overflow-hidden">
             <div className="flex items-center gap-2 border-b border-slate-100 px-3 py-2">
