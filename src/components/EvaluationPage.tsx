@@ -67,6 +67,9 @@ import {
   suggestJobMatchingScore,
   tiersForRoles,
   DisciplineStat,
+  SKIP_REASONS,
+  isSkippedRecord,
+  skipReasonLabel,
 } from "./evaluationConfig";
 
 // ---------- Local types ----------
@@ -107,6 +110,7 @@ interface AppUser {
   lastName?: string;
   email?: string;
   role?: string[];
+  position?: string;
   status?: string;
   assignedProjects?: string[];
 }
@@ -443,11 +447,11 @@ export const EvaluationPage = ({ projectOptions }: { projectOptions: string[] })
           sum += fin.total;
         }
       });
-      // จำนวนผู้ประเมิน Tier 1 ที่ "ส่งครบทุกคน" (นับตาม uid ที่ไม่ซ้ำ)
+      // จำนวนผู้ประเมิน Tier 1 (ที่ถูกมอบหมาย) ที่ "จัดการครบทุกคนแล้ว" (ให้คะแนนหรือมาร์กข้าม) — นับตาม uid ที่ไม่ซ้ำ
       // สมาชิกที่ย้ายเข้ามาแต่มีคะแนนสมบูรณ์ติดตัวมาจากชุดเดิมแล้ว ไม่ต้องให้ผู้ประเมินชุดนี้ประเมินซ้ำ
       const t1ByUid = new Map<string, EvalScoreRecord[]>();
       scores
-        .filter((s) => s.project === row.project && s.group === row.group && s.period === selectedPeriod && s.tier === 1 && s.status === "submitted")
+        .filter((s) => s.project === row.project && s.group === row.group && s.period === selectedPeriod && s.tier === 1 && (s.status === "submitted" || s.status === "skipped"))
         .forEach((s) => {
           const arr = t1ByUid.get(s.evaluatorUid) || [];
           arr.push(s);
@@ -457,7 +461,7 @@ export const EvaluationPage = ({ projectOptions }: { projectOptions: string[] })
       t1ByUid.forEach((recs) => {
         const complete = row.members.every((m) => {
           const r = recs.find((x) => x.employeeId === m.id);
-          if (r && isEvalComplete(r.scores, criteria)) return true;
+          if (r && (isEvalComplete(r.scores, criteria) || isSkippedRecord(r))) return true;
           // นับเฉพาะคะแนนที่ติดตัวมาจากชุด/โครงการ "อื่น" จริงๆ ไม่ใช่แค่ผู้ประเมินอีกคนในชุดนี้เองส่งไปแล้ว
           const carriedFin = finalPersonScore(
             scores.filter((s) => s.period === selectedPeriod && s.employeeId === m.id && !(s.project === row.project && s.group === row.group))
@@ -470,6 +474,7 @@ export const EvaluationPage = ({ projectOptions }: { projectOptions: string[] })
       row.assignment = assignment;
       row.scoredCount = scored;
       row.tier1Submitters = tier1Submitters;
+      row.tier1Assigned = assignment?.tier1Uids?.length || 0;
       row.groupAvg = scored > 0 ? Math.round((sum / scored) * 10) / 10 : null;
 
       // สิทธิ์แบบ hybrid: Tier 1/2 = assignment, Tier 3/4 = role
@@ -659,8 +664,8 @@ export const EvaluationPage = ({ projectOptions }: { projectOptions: string[] })
                           <td className="px-3 py-2">
                             <TierProgress round={r.round} />
                             {!r.round.closed && r.round.currentTier === 1 && (
-                              <div className={`mt-1 text-center text-[10px] font-semibold ${(r.tier1Submitters || 0) >= MIN_RATERS ? "text-emerald-600" : "text-amber-600"}`}>
-                                ผู้ประเมิน Tier 1: {r.tier1Submitters || 0}/{MIN_RATERS}
+                              <div className={`mt-1 text-center text-[10px] font-semibold ${(r.tier1Submitters || 0) >= (r.tier1Assigned || 0) && (r.tier1Assigned || 0) > 0 ? "text-emerald-600" : "text-amber-600"}`}>
+                                ผู้ประเมิน Tier 1: {r.tier1Submitters || 0}/{r.tier1Assigned || 0}
                               </div>
                             )}
                           </td>
@@ -737,6 +742,7 @@ interface GroupRow {
   assignment?: EvalAssignment | null;
   scoredCount?: number;
   tier1Submitters?: number;
+  tier1Assigned?: number;
   groupAvg?: number | null;
   actionable?: boolean;
   actionTier?: EvalTier | null;
@@ -1101,7 +1107,8 @@ const AssignmentTab = ({
                   !q ||
                   userName(u).toLowerCase().includes(q) ||
                   (u.email || "").toLowerCase().includes(q) ||
-                  roleText(u).toLowerCase().includes(q)
+                  roleText(u).toLowerCase().includes(q) ||
+                  (u.position || "").toLowerCase().includes(q)
                 );
                 if (selectableUsers.length === 0) {
                   return <div className="p-6 text-center text-sm text-slate-400">ไม่มีผู้ใช้ในระบบ</div>;
@@ -1125,7 +1132,10 @@ const AssignmentTab = ({
                       </span>
                       <div className="min-w-0 flex-1">
                         <div className="text-sm font-semibold text-slate-800 truncate">{userName(u)}</div>
-                        <div className="text-[11px] text-slate-400 truncate">{u.email || u.uid} · {roleText(u)}</div>
+                        <div className="text-[11px] text-slate-400 truncate">
+                          {u.email || u.uid} · {roleText(u)}
+                          {u.position && <> · <span className="text-slate-500">{u.position}</span></>}
+                        </div>
                       </div>
                       <span className={`shrink-0 rounded-full px-1.5 py-0.5 text-[9px] font-semibold ${statusPill.cls}`}>{statusPill.label}</span>
                     </button>
@@ -1167,6 +1177,7 @@ const GroupModal = ({
   const actTier: EvalTier | null = row.actionTier ?? null;
   const isTier1 = actTier === 1;
   const [editing, setEditing] = useState<Employee | null>(null);
+  const [skipping, setSkipping] = useState<Employee | null>(null);
   const [busy, setBusy] = useState(false);
 
   const recsFor = (empId: string) =>
@@ -1209,11 +1220,14 @@ const GroupModal = ({
   const myTier1For = (empId: string): EvalScoreRecord | undefined =>
     recsFor(empId).find((s) => s.tier === 1 && s.evaluatorUid === myUid);
 
-  // uid ของผู้ประเมิน Tier 1 ที่ส่งครบทุกคนแล้ว (ไม่ซ้ำ)
-  const tier1SubmitterUids = useMemo(() => {
+  // ผู้ประเมิน Tier 1 ที่ถูกมอบหมายไว้ทั้งหมดของชุดนี้ (ใช้เป็นเกณฑ์ปิด Tier 1 แทนจำนวนคงที่ MIN_RATERS)
+  const assignedTier1Uids = row.assignment?.tier1Uids || [];
+
+  // uid ของผู้ประเมิน Tier 1 ที่ "จัดการครบทุกคนแล้ว" (ให้คะแนนจริง หรือมาร์กข้าม อย่างใดอย่างหนึ่งต่อคน)
+  const tier1HandledUids = useMemo(() => {
     const byUid = new Map<string, EvalScoreRecord[]>();
     scores
-      .filter((s) => s.project === row.project && s.group === row.group && s.period === period && s.tier === 1 && s.status === "submitted")
+      .filter((s) => s.project === row.project && s.group === row.group && s.period === period && s.tier === 1 && (s.status === "submitted" || s.status === "skipped"))
       .forEach((s) => {
         const a = byUid.get(s.evaluatorUid) || [];
         a.push(s);
@@ -1224,7 +1238,7 @@ const GroupModal = ({
       // สมาชิกที่ย้ายเข้ามาแต่มีคะแนนสมบูรณ์ติดตัวมาจากชุดเดิมแล้ว ถือว่า "ครบ" โดยไม่ต้องให้ผู้ประเมินคนนี้ประเมินซ้ำ
       const complete = row.members.every((m) => {
         const r = recs.find((x) => x.employeeId === m.id);
-        if (r && isEvalComplete(r.scores, criteria)) return true;
+        if (r && (isEvalComplete(r.scores, criteria) || isSkippedRecord(r))) return true;
         const carriedFin = crossGroupFinalFor(m.id);
         return !!carriedFin && isEvalComplete(carriedFin.scores, criteria);
       });
@@ -1232,6 +1246,9 @@ const GroupModal = ({
     });
     return set;
   }, [scores, row, period, criteria]);
+
+  // นับรวมตัวเองล่วงหน้าเพื่อโชว์สถานะให้ผู้ใช้เห็นก่อนกดส่งจริง (scores prop จาก parent ยังไม่ทันอัปเดตทันทีหลังส่ง)
+  const tier1HandledPreviewCount = tier1HandledUids.has(myUid) ? tier1HandledUids.size : tier1HandledUids.size + 1;
 
   const saveScore = async (member: Employee, tier: EvalTier, scores_: EvalScores, comment: string, isOverride: boolean, status: "draft" | "submitted") => {
     const id = scoreId(row.project, row.group, period, member.id, tier, myUid);
@@ -1251,50 +1268,79 @@ const GroupModal = ({
     await setDoc(doc(db, "CMG-HR-Database", "root", "evaluation_scores", id), rec, { merge: true });
   };
 
+  // มาร์กว่า "ข้าม / ไม่เพียงพอที่จะประเมิน" คนนี้ — บังคับเลือกเหตุผล
+  const saveSkip = async (member: Employee, reason: string, note: string) => {
+    const id = scoreId(row.project, row.group, period, member.id, 1, myUid);
+    const rec: EvalScoreRecord = {
+      id, project: row.project, group: row.group, period, periodType,
+      employeeId: member.id, employeeName: getEmployeeName(member), position: String(member.ตำแหน่ง || ""),
+      employeeType: normalizeEmployeeType(member),
+      tier: 1, evaluatorUid: myUid, evaluatorName: myName, evaluatorRole: myRole,
+      scores: emptyScores(), total: 0, grade: gradeFromTotal(0), isOverride: false,
+      comment: "",
+      status: "skipped",
+      skipReason: reason,
+      skipNote: note.trim(),
+      createdAt: Date.now(), updatedAt: Date.now(),
+    };
+    await setDoc(doc(db, "CMG-HR-Database", "root", "evaluation_scores", id), rec, { merge: true });
+  };
+
+  // ยกเลิกการข้าม กลับไปเป็นสถานะยังไม่ให้คะแนน (draft ว่าง) เพื่อให้กลับไปให้คะแนนได้ตามปกติ
+  const unskip = async (member: Employee) => {
+    const id = scoreId(row.project, row.group, period, member.id, 1, myUid);
+    await setDoc(
+      doc(db, "CMG-HR-Database", "root", "evaluation_scores", id),
+      { status: "draft", scores: emptyScores(), skipReason: "", skipNote: "", updatedAt: Date.now() },
+      { merge: true }
+    );
+  };
+
   // Tier 1 submit: require current user scored (complete) every member —
-  // ยกเว้นคนที่มีคะแนนสมบูรณ์ติดตัวมาจากชุดเดิมแล้ว (ย้ายชุดระหว่างรอบ) ไม่ต้องให้ประเมินซ้ำ
+  // ยกเว้นคนที่มีคะแนนสมบูรณ์ติดตัวมาจากชุดเดิมแล้ว (ย้ายชุดระหว่างรอบ) หรือถูกมาร์ก "ข้าม" ไม่ต้องให้คะแนน
   const submitTier1 = async () => {
     const missing = row.members.filter((m) => {
       const r = myTier1For(m.id);
-      if (r && isEvalComplete(r.scores, criteria)) return false;
+      if (r && (isEvalComplete(r.scores, criteria) || isSkippedRecord(r))) return false;
       const carriedFin = crossGroupFinalFor(m.id);
       return !(carriedFin && isEvalComplete(carriedFin.scores, criteria));
     });
     if (missing.length > 0) {
-      window.alert(`ต้องให้คะแนนครบทุกคนก่อนส่ง (ยังขาด ${missing.length} คน)`);
+      window.alert(`ต้องให้คะแนนหรือกด "ข้าม" ให้ครบทุกคนก่อนส่ง (ยังขาด ${missing.length} คน)`);
       return;
     }
-    // ต้องมีคนประเมินจริงอย่างน้อย 1 คนต่อชุด — ห้ามส่งได้เฉยๆ โดยอาศัยแค่คะแนนติดตัวจากชุดเดิมทั้งหมด
+    // ต้องมีคนประเมินจริงอย่างน้อย 1 คนต่อชุด — ห้าม "ข้าม" ทั้งชุด หรือส่งได้เฉยๆ โดยอาศัยแค่คะแนนติดตัวจากชุดเดิมทั้งหมด
     const hasOwnWork = row.members.some((m) => {
       const r = myTier1For(m.id);
       return !!r && isEvalComplete(r.scores, criteria);
     });
     if (!hasOwnWork) {
-      window.alert("ต้องให้คะแนนสมาชิกอย่างน้อย 1 คนด้วยตัวเอง จึงจะส่ง Tier 1 ของชุดนี้ได้ (ไม่สามารถส่งได้ถ้าทุกคนมีคะแนนติดตัวมาจากชุดเดิมทั้งหมดโดยไม่มีใครประเมินจริง)");
+      window.alert("ต้องให้คะแนนสมาชิกอย่างน้อย 1 คนด้วยตัวเอง จึงจะส่ง Tier 1 ของชุดนี้ได้ (ไม่สามารถส่งได้ถ้ากดข้ามทั้งหมด หรือทุกคนมีคะแนนติดตัวมาจากชุดเดิมทั้งหมดโดยไม่มีใครประเมินจริง)");
       return;
     }
     setBusy(true);
     try {
-      // set all my tier1 records to submitted (ข้ามคนที่มีคะแนนติดตัวมาจากชุดเดิมโดยไม่มีคะแนนจากฉันเอง)
+      // set all my tier1 draft records to submitted (ไม่แตะ record ที่เป็น "skipped" อยู่แล้ว เพราะเป็นสถานะสิ้นสุดในตัวเอง)
       for (const m of row.members) {
         const r = myTier1For(m.id);
-        if (r) await saveScore(m, 1, r.scores, r.comment || "", false, "submitted");
+        if (r && r.status === "draft") await saveScore(m, 1, r.scores, r.comment || "", false, "submitted");
       }
-      // ต้องมีผู้ประเมิน Tier 1 ที่ส่งครบ ≥ MIN_RATERS (distinct) จึงจะไป Tier 2
-      const distinct = new Set<string>(tier1SubmitterUids);
-      distinct.add(myUid);
-      const enough = distinct.size >= MIN_RATERS;
-      const t1Status: TierStatus = enough ? "done" : "in-progress";
+      // ปิด Tier 1 → เปิด Tier 2 เมื่อผู้ประเมิน Tier 1 ที่ถูกมอบหมายไว้ "ทุกคน" จัดการครบแล้ว (ให้คะแนนหรือข้าม)
+      // ไม่ใช้จำนวนคงที่ MIN_RATERS อีกต่อไป เพราะแต่ละคนอาจให้คะแนนคนละส่วนของชุด (เช่น Foreman คนละทีม)
+      const handled = new Set<string>(tier1HandledUids);
+      handled.add(myUid); // ณ จุดนี้ missing.length === 0 แล้ว จึงถือว่าฉัน "จัดการครบ" ทันทีที่ส่ง
+      const allAssignedHandled = assignedTier1Uids.length > 0 && assignedTier1Uids.every((uid) => handled.has(uid));
+      const t1Status: TierStatus = allAssignedHandled ? "done" : "in-progress";
       const next: EvalRound = {
         ...round,
         tierStatus: { ...round.tierStatus, 1: t1Status },
-        currentTier: enough ? 2 : 1,
+        currentTier: allAssignedHandled ? 2 : 1,
         actors: { ...(round.actors || {}), 1: myName },
       };
       await persistRound(next);
       log(
-        enough ? "ส่ง Tier 1 (ครบ ≥2 คน → เปิด Tier 2)" : "ส่ง Tier 1 (รอผู้ประเมินอีก 1 คน)",
-        `${row.project} · ${row.group} · รอบ ${monthLabelTh(period)} · ผู้ส่ง ${distinct.size}/${MIN_RATERS}`
+        allAssignedHandled ? "ส่ง Tier 1 (ผู้ประเมินที่มอบหมายครบทุกคนแล้ว → เปิด Tier 2)" : "ส่ง Tier 1 (รอผู้ประเมินคนอื่นที่ถูกมอบหมายส่งให้ครบ)",
+        `${row.project} · ${row.group} · รอบ ${monthLabelTh(period)} · ผู้ส่ง ${handled.size}/${assignedTier1Uids.length}`
       );
       onClose();
     } finally {
@@ -1360,13 +1406,13 @@ const GroupModal = ({
             </div>
           )}
 
-          {isTier1 ? (
+                {isTier1 ? (
             <>
-              <div className={`mb-3 flex items-center gap-2 rounded-lg border p-2.5 text-xs ${tier1SubmitterUids.size >= MIN_RATERS ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-amber-200 bg-amber-50 text-amber-700"}`}>
+              <div className={`mb-3 flex items-center gap-2 rounded-lg border p-2.5 text-xs ${tier1HandledUids.size >= assignedTier1Uids.length ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-amber-200 bg-amber-50 text-amber-700"}`}>
                 <Info size={13} />
                 <span>
-                  ผู้ประเมิน Tier 1 ที่ส่งครบแล้ว {tier1SubmitterUids.size}/{MIN_RATERS} คน
-                  {tier1SubmitterUids.size < MIN_RATERS && " — ต้องมีผู้ประเมินที่ได้รับมอบหมายอย่างน้อย 2 คนส่งครบ จึงจะไป Tier 2 ได้"}
+                  ผู้ประเมิน Tier 1 ที่ส่งครบแล้ว (ให้คะแนนหรือข้าม) {tier1HandledUids.size}/{assignedTier1Uids.length} คน
+                  {tier1HandledUids.size < assignedTier1Uids.length && " — ต้องรอผู้ที่ถูกมอบหมายทุกคนส่งให้ครบ จึงจะไป Tier 2 ได้"}
                 </span>
               </div>
               <Tier1List
@@ -1375,6 +1421,8 @@ const GroupModal = ({
                 myTier1For={myTier1For}
                 finalRecsFor={(empId) => finalRecsFor(empId).filter((s) => !(s.project === row.project && s.group === row.group))}
                 onEdit={setEditing}
+                onSkip={setSkipping}
+                onUnskip={unskip}
               />
             </>
           ) : (
@@ -1400,12 +1448,19 @@ const GroupModal = ({
               {latecomers.length > 0 && (
                 <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 p-2.5 text-xs text-slate-500">
                   <div className="mb-1 flex items-center gap-1.5 font-semibold text-slate-600">
-                    <Info size={13} /> เข้ามาใหม่ระหว่างรอบนี้ ({latecomers.length} คน) — ยังไม่ผ่าน Tier 1 ในรอบนี้ จะยังไม่ถูกประเมินจนกว่าจะถึงรอบถัดไป
+                    <Info size={13} /> ยังไม่ได้รับการประเมินในรอบนี้ ({latecomers.length} คน) — เข้าใหม่ระหว่างรอบ หรือยังไม่มีผู้ประเมินที่รู้จักให้คะแนนจริง จะรวมในรอบถัดไป
                   </div>
                   <div className="flex flex-wrap gap-1.5">
-                    {latecomers.map((m) => (
-                      <span key={m.id} className="rounded border border-slate-200 bg-white px-2 py-0.5">{getEmployeeName(m)}</span>
-                    ))}
+                    {latecomers.map((m) => {
+                      // เหตุผล "ข้าม" ล่าสุดที่ผู้ประเมิน Tier 1 คนใดคนหนึ่งมาร์กไว้ (ถ้ามี) — ช่วย HR ตามสาเหตุที่ยังไม่มีคะแนน
+                      const skipRec = finalRecsFor(m.id).find((s) => s.tier === 1 && isSkippedRecord(s));
+                      return (
+                        <span key={m.id} className="rounded border border-slate-200 bg-white px-2 py-0.5">
+                          {getEmployeeName(m)}
+                          {skipRec && <span className="text-amber-600"> · ข้าม: {skipReasonLabel(skipRec.skipReason)}</span>}
+                        </span>
+                      );
+                    })}
                   </div>
                 </div>
               )}
@@ -1419,7 +1474,7 @@ const GroupModal = ({
             {isTier1 ? (
               <div className="flex items-center gap-2">
                 <span className="text-[11px] text-slate-500">
-                  {tier1SubmitterUids.size >= MIN_RATERS ? "ครบ 2 คนแล้ว — ส่งเพื่อไป Tier 2" : "ส่งของคุณแล้วรอผู้ประเมินอีก 1 คน"}
+                  {tier1HandledPreviewCount >= assignedTier1Uids.length ? "ครบทุกคนแล้ว — ส่งเพื่อไป Tier 2" : `ส่งของคุณแล้วรอผู้ประเมินอีก ${Math.max(0, assignedTier1Uids.length - tier1HandledPreviewCount)} คน`}
                 </span>
                 <button onClick={submitTier1} disabled={busy}
                   className="inline-flex items-center gap-1.5 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-50">
@@ -1463,26 +1518,102 @@ const GroupModal = ({
           }}
         />
       )}
+
+      {skipping && (
+        <SkipReasonModal
+          member={skipping}
+          busy={busy}
+          onCancel={() => setSkipping(null)}
+          onConfirm={async (reason, note) => {
+            setBusy(true);
+            try {
+              await saveSkip(skipping, reason, note);
+              setSkipping(null);
+            } finally {
+              setBusy(false);
+            }
+          }}
+        />
+      )}
+    </div>
+  );
+};
+
+// modal เลือกเหตุผลตอนมาร์ก "ข้าม / ไม่เพียงพอที่จะประเมิน"
+const SkipReasonModal = ({
+  member, busy, onCancel, onConfirm,
+}: {
+  member: Employee;
+  busy: boolean;
+  onCancel: () => void;
+  onConfirm: (reason: string, note: string) => void;
+}) => {
+  const [reason, setReason] = useState("");
+  const [note, setNote] = useState("");
+  const selected = SKIP_REASONS.find((r) => r.key === reason);
+  const canConfirm = !!reason && (!selected?.requiresNote || note.trim().length > 0);
+
+  return (
+    <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/60 p-3">
+      <div className="w-full max-w-md rounded-2xl bg-white shadow-2xl">
+        <div className="flex items-start justify-between gap-3 border-b border-slate-200 px-4 py-3">
+          <div>
+            <h4 className="text-base font-bold text-slate-800">ข้าม / ไม่เพียงพอที่จะประเมิน</h4>
+            <p className="text-[11px] text-slate-500">{getEmployeeName(member)} · {member.รหัสพนักงาน}</p>
+          </div>
+          <button onClick={onCancel} className="text-slate-400 hover:text-rose-500"><X size={20} /></button>
+        </div>
+        <div className="space-y-2 px-4 py-3">
+          <p className="text-xs text-slate-500">เลือกเหตุผลที่ไม่สามารถให้คะแนนคนนี้ได้ — คนนี้จะถูกเลื่อนไปประเมินในรอบถัดไปแทน ถ้าไม่มีผู้ประเมินคนอื่นให้คะแนนจริงเลย</p>
+          {SKIP_REASONS.map((r) => (
+            <label key={r.key} className={`flex cursor-pointer items-start gap-2 rounded-lg border px-3 py-2 text-sm ${reason === r.key ? "border-indigo-500 bg-indigo-50" : "border-slate-200 hover:bg-slate-50"}`}>
+              <input type="radio" className="mt-0.5" name="skipReason" checked={reason === r.key} onChange={() => setReason(r.key)} />
+              <span>{r.label}</span>
+            </label>
+          ))}
+          {selected?.requiresNote && (
+            <textarea
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+              rows={2}
+              placeholder="ระบุรายละเอียดเพิ่มเติม (บังคับ)"
+              className="w-full rounded-lg border border-slate-200 p-2 text-sm outline-none focus:ring-2 focus:ring-indigo-100"
+            />
+          )}
+        </div>
+        <div className="flex items-center justify-end gap-2 border-t border-slate-200 px-4 py-3">
+          <button onClick={onCancel} className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-50">ยกเลิก</button>
+          <button
+            onClick={() => onConfirm(reason, note)}
+            disabled={busy || !canConfirm}
+            className="inline-flex items-center gap-1.5 rounded-lg bg-amber-600 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-700 disabled:opacity-50">
+            {busy ? <Loader2 className="animate-spin" size={15} /> : <CheckCircle2 size={15} />} ยืนยันข้าม
+          </button>
+        </div>
+      </div>
     </div>
   );
 };
 
 // Tier 1 member list
 const Tier1List = ({
-  members, criteria, myTier1For, finalRecsFor, onEdit,
+  members, criteria, myTier1For, finalRecsFor, onEdit, onSkip, onUnskip,
 }: {
   members: Employee[];
   criteria: EvalCriterion[];
   myTier1For: (empId: string) => EvalScoreRecord | undefined;
   finalRecsFor: (empId: string) => EvalScoreRecord[];
   onEdit: (m: Employee) => void;
+  onSkip: (m: Employee) => void;
+  onUnskip: (m: Employee) => void;
 }) => (
   <div className="space-y-1.5">
-    <p className="text-[11px] text-slate-400">ให้คะแนนสมาชิกทุกคน (5 ด้าน 1–5) แล้วกด "ส่ง Tier 1 ทั้งชุด"</p>
+    <p className="text-[11px] text-slate-400">ให้คะแนนสมาชิกที่คุณรู้จัก (5 ด้าน 1–5) คนที่ไม่รู้จักกด "ข้าม" ได้ แล้วกด "ส่ง Tier 1 ทั้งชุด"</p>
     {members.map((m) => {
       const rec = myTier1For(m.id);
       const done = rec && isEvalComplete(rec.scores, criteria);
-      const grade = rec ? gradeFromTotal(rec.total) : null;
+      const skipped = isSkippedRecord(rec);
+      const grade = rec && !skipped ? gradeFromTotal(rec.total) : null;
       // ย้ายเข้ามาแต่มีคะแนนสมบูรณ์ติดตัวมาจากชุด/รอบเดิมแล้ว — ไม่บังคับให้ประเมินซ้ำ
       const carriedFin = !rec ? finalPersonScore(finalRecsFor(m.id)) : null;
       const carried = carriedFin && isEvalComplete(carriedFin.scores, criteria);
@@ -1491,9 +1622,18 @@ const Tier1List = ({
           <div className="min-w-0">
             <div className="font-semibold text-slate-800 text-sm truncate">{getEmployeeName(m)}</div>
             <div className="text-[11px] text-slate-400 truncate">{m.รหัสพนักงาน} · {m.ตำแหน่ง || "-"}</div>
+            {skipped && (
+              <div className="mt-0.5 truncate text-[11px] text-amber-600">
+                ข้าม: {skipReasonLabel(rec?.skipReason)}{rec?.skipNote ? ` — ${rec.skipNote}` : ""}
+              </div>
+            )}
           </div>
           <div className="flex items-center gap-2">
-            {rec ? (
+            {skipped ? (
+              <span className="rounded border border-amber-200 bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-700">
+                ข้ามการประเมิน
+              </span>
+            ) : rec ? (
               <span className="flex items-center gap-1.5">
                 <span className="font-bold text-slate-700 text-sm">{rec.total}</span>
                 {grade && <span className={`rounded border px-1.5 py-0.5 text-[10px] font-bold ${gradeColor(grade)}`}>{grade}</span>}
@@ -1506,10 +1646,25 @@ const Tier1List = ({
             ) : (
               <span className="text-[11px] text-rose-500">ยังไม่ให้คะแนน</span>
             )}
-            <button onClick={() => onEdit(m)}
-              className={`rounded-lg px-3 py-1.5 text-xs font-semibold ${done || carried ? "border border-slate-200 text-slate-600 hover:bg-slate-50" : "bg-indigo-600 text-white hover:bg-indigo-700"}`}>
-              {done ? "แก้ไข" : carried ? "ประเมินเพิ่มเติม (ไม่บังคับ)" : "ให้คะแนน"}
-            </button>
+            {skipped ? (
+              <button onClick={() => onUnskip(m)}
+                className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-50">
+                ยกเลิกข้าม
+              </button>
+            ) : (
+              <>
+                <button onClick={() => onEdit(m)}
+                  className={`rounded-lg px-3 py-1.5 text-xs font-semibold ${done || carried ? "border border-slate-200 text-slate-600 hover:bg-slate-50" : "bg-indigo-600 text-white hover:bg-indigo-700"}`}>
+                  {done ? "แก้ไข" : carried ? "ประเมินเพิ่มเติม (ไม่บังคับ)" : "ให้คะแนน"}
+                </button>
+                {!done && (
+                  <button onClick={() => onSkip(m)}
+                    className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-500 hover:bg-amber-50 hover:text-amber-700">
+                    ข้าม
+                  </button>
+                )}
+              </>
+            )}
           </div>
         </div>
       );

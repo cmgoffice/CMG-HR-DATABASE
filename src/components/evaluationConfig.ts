@@ -213,10 +213,35 @@ export interface EvalScoreRecord {
   comment?: string;
   disciplineSuggested?: number;
   jobMatchingSuggested?: number;
-  status: "draft" | "submitted";
+  // "skipped" = ผู้ประเมิน Tier 1 มาร์กว่าไม่รู้จัก/ไม่เพียงพอที่จะให้คะแนนคนนี้ (ต้องมี skipReason)
+  // ไม่ถูกนับใน finalPersonScore (filter เฉพาะ status === "submitted") — ถือว่ายังไม่มีคะแนนจากผู้ประเมินคนนี้
+  status: "draft" | "submitted" | "skipped";
+  skipReason?: string; // key ใน SKIP_REASONS
+  skipNote?: string; // รายละเอียดเพิ่มเติม (บังคับกรอกเมื่อเลือกเหตุผล "อื่นๆ")
   createdAt: number;
   updatedAt: number;
 }
+
+// เหตุผลที่ผู้ประเมิน Tier 1 มาร์กว่า "ข้าม/ไม่เพียงพอที่จะประเมิน" รายคน
+export interface SkipReasonOption {
+  key: string;
+  label: string;
+  requiresNote?: boolean; // ต้องกรอกรายละเอียดเพิ่มเติม
+}
+
+export const SKIP_REASONS: SkipReasonOption[] = [
+  { key: "unknown", label: "ไม่รู้จัก / ไม่เคยทำงานด้วยกัน" },
+  { key: "recently_moved", label: "เพิ่งย้ายเข้ามาไม่นาน" },
+  { key: "not_worked_together", label: "ไม่ได้ทำงานด้วยกันในรอบนี้" },
+  { key: "other", label: "อื่นๆ", requiresNote: true },
+];
+
+export const skipReasonLabel = (key?: string): string =>
+  SKIP_REASONS.find((r) => r.key === key)?.label || key || "";
+
+// เช็คว่า record นี้เป็นการ "ข้าม" (ไม่ใช่คะแนนจริง) หรือไม่
+export const isSkippedRecord = (rec?: Pick<EvalScoreRecord, "status"> | null): boolean =>
+  rec?.status === "skipped";
 
 // สร้าง doc id ที่ปลอดภัย (ไม่มี "/")
 export const encKey = (value: string): string =>
