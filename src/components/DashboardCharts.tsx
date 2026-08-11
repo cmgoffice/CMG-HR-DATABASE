@@ -8,6 +8,8 @@ import {
   Legend,
   BarChart,
   Bar,
+  LineChart,
+  Line,
   XAxis,
   YAxis,
   CartesianGrid,
@@ -276,6 +278,7 @@ export const RankedBarChart = ({
   height,
   maxValue = 100,
   valueSuffix = "",
+  valueLabel = "คะแนนเสี่ยง",
   yAxisWidth,
   onBarClick,
 }: {
@@ -283,6 +286,7 @@ export const RankedBarChart = ({
   height?: number;
   maxValue?: number;
   valueSuffix?: string;
+  valueLabel?: string;
   yAxisWidth?: number;
   onBarClick?: (fullName: string) => void;
 }) => {
@@ -317,7 +321,7 @@ export const RankedBarChart = ({
           />
           <Tooltip
             cursor={{ fill: "#f8fafc" }}
-            formatter={(value) => [`${value}${valueSuffix}`, "คะแนนเสี่ยง"] as [string, string]}
+            formatter={(value) => [`${value}${valueSuffix}`, valueLabel] as [string, string]}
             labelFormatter={(_label: any, payload: any) => (payload && payload[0] ? payload[0].payload.fullName : "")}
             contentStyle={{ fontSize: 12, borderRadius: 8, border: "1px solid #e2e8f0" }}
           />
@@ -333,6 +337,59 @@ export const RankedBarChart = ({
             <LabelList dataKey="value" position="right" style={{ fontSize: 10, fill: "#475569", fontWeight: 700 }} />
           </Bar>
         </BarChart>
+      </ResponsiveContainer>
+    </div>
+  );
+};
+
+export interface TrendPoint {
+  label: string;
+  value: number | null;
+  meta?: string;
+}
+
+export const TrendLineChart = ({
+  data,
+  height,
+  unit = "",
+  domain = [0, 100],
+  color = "#6366f1",
+  valueLabel = "ค่าเฉลี่ย",
+}: {
+  data: TrendPoint[];
+  height?: number;
+  unit?: string;
+  domain?: [number, number];
+  color?: string;
+  valueLabel?: string;
+}) => {
+  const isMobile = useIsMobile();
+  const resolvedHeight = height ?? (isMobile ? 180 : 220);
+  const hasData = data.some((d) => d.value != null);
+  if (!hasData) {
+    return (
+      <div className="flex items-center justify-center text-sm text-slate-400" style={{ height: resolvedHeight }}>
+        ไม่มีข้อมูลในช่วงนี้
+      </div>
+    );
+  }
+  return (
+    <div style={{ height: resolvedHeight }}>
+      <ResponsiveContainer width="100%" height="100%">
+        <LineChart data={data} margin={{ left: -14, right: 14, top: 8, bottom: 4 }}>
+          <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
+          <XAxis dataKey="label" tick={{ fontSize: 10, fill: "#64748b" }} tickLine={false} axisLine={{ stroke: "#e2e8f0" }} />
+          <YAxis domain={domain} tick={{ fontSize: 10, fill: "#94a3b8" }} tickLine={false} axisLine={false} width={30} />
+          <Tooltip
+            formatter={(value: any) => [value == null ? "ไม่มีข้อมูล" : `${value}${unit}`, valueLabel] as [string, string]}
+            labelFormatter={(label: any, payload: any) => {
+              const meta = payload && payload[0] ? payload[0].payload.meta : "";
+              return meta ? `${label} · ${meta}` : label;
+            }}
+            contentStyle={{ fontSize: 12, borderRadius: 8, border: "1px solid #e2e8f0" }}
+          />
+          <Line type="monotone" dataKey="value" stroke={color} strokeWidth={2.5} dot={{ r: 3, fill: color }} connectNulls activeDot={{ r: 5 }} />
+        </LineChart>
       </ResponsiveContainer>
     </div>
   );
