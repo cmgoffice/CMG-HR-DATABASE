@@ -406,6 +406,29 @@ const DEFAULT_SCHEMAS = {
       options: ["ทำงาน", "พักงาน", "ลาคลอด", "ลาออก", "เลิกจ้าง"],
     },
     { id: "employment_status_reason", label: "เหตุผลสถานะพนักงาน", type: "text" },
+    { id: "resignation_date", label: "วันที่ลาออก", type: "date" },
+    {
+      id: "resignation_reason_category",
+      label: "หมวดเหตุผลลาออก",
+      type: "select",
+      options: [
+        "เงินเดือน/สวัสดิการ",
+        "ย้ายที่อยู่/เดินทางไกล",
+        "สุขภาพ",
+        "ครอบครัว",
+        "ต่อยอดสายอาชีพ/หางานใหม่",
+        "ผลงาน/วินัยไม่ผ่านเกณฑ์",
+        "หมดสัญญาจ้าง/โครงการปิด",
+        "อื่นๆ",
+      ],
+    },
+    { id: "resignation_reason_detail", label: "รายละเอียดเหตุผลลาออก", type: "textarea" },
+    {
+      id: "ระดับตำแหน่ง",
+      label: "ระดับตำแหน่ง",
+      type: "select",
+      options: ["ปฏิบัติการ", "หัวหน้างาน", "ผู้จัดการ", "ผู้บริหาร"],
+    },
     {
       id: "สถานะกลุ่มงาน",
       label: "สถานะกลุ่มงาน",
@@ -1570,6 +1593,32 @@ function MasterDatabaseApp() {
             type: "textarea",
           },
         ];
+        const EMPLOYEE_FIELD_DEFS: SchemaField[] = [
+          { id: "resignation_date", label: "วันที่ลาออก", type: "date" },
+          {
+            id: "resignation_reason_category",
+            label: "หมวดเหตุผลลาออก",
+            type: "select",
+            options: [
+              "เงินเดือน/สวัสดิการ",
+              "ย้ายที่อยู่/เดินทางไกล",
+              "สุขภาพ",
+              "ครอบครัว",
+              "ต่อยอดสายอาชีพ/หางานใหม่",
+              "ผลงาน/วินัยไม่ผ่านเกณฑ์",
+              "หมดสัญญาจ้าง/โครงการปิด",
+              "อื่นๆ",
+            ],
+          },
+          { id: "resignation_reason_detail", label: "รายละเอียดเหตุผลลาออก", type: "textarea" },
+          {
+            id: "ระดับตำแหน่ง",
+            label: "ระดับตำแหน่ง",
+            type: "select",
+            options: ["ปฏิบัติการ", "หัวหน้างาน", "ผู้จัดการ", "ผู้บริหาร"],
+          },
+        ];
+        const isEmployeeSchemaModule = schemaModuleId === "emp_indirect" || schemaModuleId === "emp_direct_leader";
 
         if (schemaSnap.exists()) {
           let loadedFields: SchemaField[] = schemaSnap.data().fields as SchemaField[];
@@ -1578,7 +1627,10 @@ function MasterDatabaseApp() {
           const missingProjectFields = schemaModuleId === "projects"
             ? PROJECT_FIELD_DEFS.filter((f) => !existingIds.has(f.id))
             : [];
-          const missingFields = [...missingStatusFields, ...missingProjectFields];
+          const missingEmployeeFields = isEmployeeSchemaModule
+            ? EMPLOYEE_FIELD_DEFS.filter((f) => !existingIds.has(f.id))
+            : [];
+          const missingFields = [...missingStatusFields, ...missingProjectFields, ...missingEmployeeFields];
           if (missingFields.length > 0) {
             loadedFields = [...loadedFields, ...missingFields];
             try {

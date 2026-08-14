@@ -12,6 +12,7 @@ import {
   Loader2,
   RotateCw,
   Table2,
+  TrendingUp,
   Users,
   X,
   XCircle,
@@ -21,6 +22,8 @@ import { getPageGuide } from "../config/pageGuides";
 import { InfoTooltip } from "./InfoTooltip";
 import { PageGuideButton, PageGuideModal } from "./PageGuideModal";
 import { DonutChart, RankedBarChart, CoverageCompareChart, CoverageGaugeDonut } from "./DashboardCharts";
+import { HRAnalyticsTab } from "./HRAnalyticsTab";
+import { MetricCard, SectionCard, HorizontalBreakdown } from "./DashboardUI";
 import {
   EmployeeFollowUpCase,
   FOLLOW_UP_STATUS_LABELS,
@@ -132,7 +135,7 @@ interface ProjectExceptionRow {
 }
 
 type TimePreset = "today" | "yesterday" | "month" | "custom";
-type DashboardMode = "hr" | "project";
+type DashboardMode = "hr" | "project" | "analytics";
 
 interface RiskRuleResult {
   key: RiskRuleKey;
@@ -829,74 +832,6 @@ const deriveSeverity = (
   settings: RiskMonitoringSettings
 ): { severity: RiskSeverity; overrideSeverity?: RiskSeverity } => deriveSeverityFromSettings(score, rules, settings);
 
-const MetricCard = ({
-  title,
-  value,
-  subvalue,
-  icon: Icon,
-  accent,
-  tooltip,
-  onClick,
-}: {
-  title: string;
-  value: string | number;
-  subvalue?: string;
-  icon: typeof Users;
-  accent: string;
-  tooltip?: React.ReactNode;
-  onClick?: () => void;
-}) => (
-  <div
-    className={`bg-white rounded-lg border border-slate-200 px-2 py-1.5 lg:px-2.5 lg:py-2 shadow-sm ${onClick ? "cursor-pointer transition-all hover:-translate-y-0.5 hover:border-sky-300 hover:shadow-md" : ""}`}
-    onClick={onClick}
-    role={onClick ? "button" : undefined}
-  >
-    <div className="flex items-start justify-between gap-1.5 lg:gap-2">
-      <div className="min-w-0">
-        <div className="text-[9px] lg:text-[10px] font-black uppercase tracking-wide text-slate-500 inline-flex items-center gap-1">
-          <span>{title}</span>
-          {tooltip && <InfoTooltip content={tooltip} iconSize={11} />}
-        </div>
-        <div className={`mt-0.5 text-base lg:text-[22px] leading-none font-black ${accent}`}>{value}</div>
-        {subvalue && <div className="mt-0.5 text-[9px] lg:text-[10px] leading-tight lg:leading-4 text-slate-500">{subvalue}</div>}
-      </div>
-      <div className="hidden lg:block rounded-md bg-slate-50 border border-slate-200 p-1">
-        <Icon size={14} className={accent} />
-      </div>
-    </div>
-  </div>
-);
-
-const SectionCard = ({
-  title,
-  subtitle,
-  children,
-  tooltip,
-  headerAction,
-}: {
-  title: string;
-  subtitle?: string;
-  children: React.ReactNode;
-  tooltip?: React.ReactNode;
-  headerAction?: React.ReactNode;
-}) => (
-  <section className="bg-white rounded-lg border border-slate-200 shadow-sm overflow-hidden">
-    <div className="px-2.5 py-1.5 lg:px-3 lg:py-2 border-b border-slate-100">
-      <div className="flex items-start justify-between gap-2 lg:gap-3">
-        <div className="min-w-0">
-          <h3 className="text-xs lg:text-[13px] font-black text-slate-900 inline-flex items-center gap-1.5">
-            <span>{title}</span>
-            {tooltip && <InfoTooltip content={tooltip} iconSize={13} />}
-          </h3>
-          {subtitle && <p className="mt-0.5 text-[10px] lg:text-[11px] leading-tight lg:leading-4 text-slate-500">{subtitle}</p>}
-        </div>
-        {headerAction && <div className="shrink-0">{headerAction}</div>}
-      </div>
-    </div>
-    <div className="p-2 lg:p-3">{children}</div>
-  </section>
-);
-
 const DashboardModal = ({
   open,
   title,
@@ -969,42 +904,6 @@ const DashboardSidePanel = ({
     </div>
   );
 };
-
-const HorizontalBreakdown = ({
-  items,
-  total,
-  accent,
-  onItemClick,
-  dense,
-}: {
-  items: Array<{ label: string; value: number }>;
-  total: number;
-  accent: string;
-  onItemClick?: (item: { label: string; value: number }) => void;
-  dense?: boolean;
-}) => (
-  <div className={dense ? "space-y-1" : "space-y-2"}>
-    {items.map((item) => (
-      <button
-        key={item.label}
-        type="button"
-        onClick={() => onItemClick?.(item)}
-        className={`block w-full text-left ${onItemClick ? `rounded-lg px-1 transition-colors hover:bg-slate-50 ${dense ? "py-0.5" : "py-1"}` : ""}`}
-      >
-        <div className={`flex items-center justify-between text-xs font-medium text-slate-700 ${dense ? "mb-0.5" : "mb-1"}`}>
-          <span>{item.label}</span>
-          <span>{item.value}</span>
-        </div>
-        <div className={`rounded-full bg-slate-100 overflow-hidden ${dense ? "h-2" : "h-2.5"}`}>
-          <div
-            className={`h-full rounded-full ${accent}`}
-            style={{ width: `${total > 0 ? (item.value / total) * 100 : 0}%` }}
-          />
-        </div>
-      </button>
-    ))}
-  </div>
-);
 
 const MiniTrendChart = ({
   rows,
@@ -4065,6 +3964,13 @@ export const ManpowerDashboard = ({
                 >
                   <Briefcase size={14} /> Project Dashboard
                 </button>
+                <button
+                  type="button"
+                  onClick={() => setDashboardMode("analytics")}
+                  className={`px-3 inline-flex items-center gap-1.5 text-xs font-bold border-l border-slate-200 ${dashboardMode === "analytics" ? "bg-fuchsia-600 text-white" : "text-slate-600 hover:bg-fuchsia-50"}`}
+                >
+                  <TrendingUp size={14} /> HR Analytics
+                </button>
               </div>
             )}
             <div className="inline-flex h-8 shrink-0 border border-slate-200 rounded-lg overflow-hidden bg-white">
@@ -4141,6 +4047,8 @@ export const ManpowerDashboard = ({
 
       {!dateRange.length ? (
         <div className="p-8 text-center text-rose-600 font-medium">กรุณาเลือกช่วงวันที่ให้ถูกต้อง</div>
+      ) : dashboardMode === "analytics" && canSeeHrDashboard ? (
+        <HRAnalyticsTab activeEmployees={employees} canSeeAllProjects={canSeeAllProjects} assignedProjects={userProfile?.assignedProjects || []} />
       ) : dashboardMode === "hr" && canSeeHrDashboard ? (
         <div className="p-2 space-y-2 lg:p-4 lg:space-y-4">
           {!showOnlyRiskMonitoring && (
