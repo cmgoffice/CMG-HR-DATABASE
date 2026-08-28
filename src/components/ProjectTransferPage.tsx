@@ -44,6 +44,7 @@ import {
   TRANSFER_DOCUMENT_TYPES,
   TRANSFER_STATUS_COLORS,
   TRANSFER_STATUS_LABELS,
+  TRANSFER_STATUS_SOLID_COLORS,
   TRANSFER_TYPES,
   TransferChecklist,
   TransferDocumentType,
@@ -317,13 +318,9 @@ export const ProjectTransferPage = ({ projectOptions }: { projectOptions: string
     return list;
   }, [transfers, isAdminSiteOnly, myAssignedProjects, roles, uid]);
 
-  const visibleTransfers = useMemo(() => {
-    let list = [...scopedTransfers];
-    if (statusFilter === "active") {
-      list = list.filter((t) => ACTIVE_TRANSFER_STATUSES.includes(t.status));
-    } else if (statusFilter !== "all") {
-      list = list.filter((t) => t.status === statusFilter);
-    }
+  /** คำขอที่ผ่านการค้นหาแล้ว แต่ยังไม่กรองสถานะ — ใช้คำนวณตัวเลขบนการ์ดสรุป */
+  const searchedTransfers = useMemo(() => {
+    let list = scopedTransfers;
     if (search.trim()) {
       const q = search.trim().toLowerCase();
       list = list.filter(
@@ -335,7 +332,31 @@ export const ProjectTransferPage = ({ projectOptions }: { projectOptions: string
       );
     }
     return list;
-  }, [scopedTransfers, statusFilter, search]);
+  }, [scopedTransfers, search]);
+
+  /** จำนวนคำขอแยกตามสถานะ (ตามคำค้นหาปัจจุบัน) สำหรับปุ่มตัวกรองสถานะแบบกดด่วน */
+  const requestListStatusCounts = useMemo(() => {
+    const counts: Partial<Record<TransferStatus, number>> = {};
+    searchedTransfers.forEach((t) => {
+      counts[t.status] = (counts[t.status] || 0) + 1;
+    });
+    return counts;
+  }, [searchedTransfers]);
+
+  const activeStatusCount = useMemo(
+    () => ACTIVE_TRANSFER_STATUSES.reduce((sum, s) => sum + (requestListStatusCounts[s] || 0), 0),
+    [requestListStatusCounts]
+  );
+
+  const visibleTransfers = useMemo(() => {
+    let list = searchedTransfers;
+    if (statusFilter === "active") {
+      list = list.filter((t) => ACTIVE_TRANSFER_STATUSES.includes(t.status));
+    } else if (statusFilter !== "all") {
+      list = list.filter((t) => t.status === statusFilter);
+    }
+    return list;
+  }, [searchedTransfers, statusFilter]);
 
   type TransferRowGroup = { key: string; batchId?: string; items: EmployeeTransfer[] };
 
@@ -357,6 +378,23 @@ export const ProjectTransferPage = ({ projectOptions }: { projectOptions: string
     }
     return groups;
   }, [visibleTransfers]);
+
+  /** เมื่อดูหลายสถานะพร้อมกัน (ค้างดำเนินการ/ทุกสถานะ) ให้จัดกลุ่มรายการตามสถานะเพื่อให้ scan ง่ายขึ้น */
+  const isMultiStatusView = statusFilter === "active" || statusFilter === "all";
+
+  const statusSections = useMemo(() => {
+    if (!isMultiStatusView) return null;
+    const orderedStatuses: TransferStatus[] =
+      statusFilter === "active"
+        ? ACTIVE_TRANSFER_STATUSES
+        : (Object.keys(TRANSFER_STATUS_LABELS) as TransferStatus[]);
+    const sections: { status: TransferStatus; groups: TransferRowGroup[] }[] = [];
+    for (const status of orderedStatuses) {
+      const groups = groupedTransferRows.filter((g) => g.items[0].status === status);
+      if (groups.length > 0) sections.push({ status, groups });
+    }
+    return sections;
+  }, [groupedTransferRows, isMultiStatusView, statusFilter]);
 
   const isBatchExpanded = (batchId: string) => expandedBatches[batchId] !== false;
   const toggleBatchExpanded = (batchId: string) =>
@@ -384,6 +422,94 @@ export const ProjectTransferPage = ({ projectOptions }: { projectOptions: string
     } finally {
       setBulkActingBatchId(null);
     }
+  };
+
+  const renderTransferRowGroup = (group: TransferRowGroup) => {
+    if (!group.batchId) {
+      const t = group.items[0];
+      return (
+        <button
+          key={t.id}
+          type="button"
+          onClick={() => setSelectedId(t.id)}
+          className={`w-full text-left px-3 py-2.5 hover:bg-slate-50 transition-colors ${
+            selectedId === t.id ? "bg-blue-50" : "bg-white"
+          }`}
+        >
+          <div className="flex items-start justify-between gap-2">
+            <div className="min-w-0">
+              <div className="font-semibold text-sm text-slate-800 truncate">{t.employeeName}</div>
+              <div className="text-xs text-slate-500 truncate">
+                {t.employeeCode || "-"} · {t.transferType}
+                {t.laborGroupName ? ` · ชุด ${t.laborGroupName}` : ""}
+              </div>
+              <div className="text-xs text-slate-600 mt-0.5 truncate">→ {t.toProject}</div>
+            </div>
+            <StatusBadge status={t.status} />
+          </div>
+        </button>
+      );
+    }
+
+    const expanded = isBatchExpanded(group.batchId);
+    const bulkCount = group.items.filter((it) => canBulkApproveItem(it)).length;
+    const isBulking = bulkActingBatchId === group.batchId;
+    return (
+      <div key={group.key} className="bg-white">
+        <div className="flex items-center gap-1.5 px-2 py-2 bg-slate-50">
+          <button
+            type="button"
+            onClick={() => toggleBatchExpanded(group.batchId!)}
+            className="p-1 text-slate-500 hover:bg-slate-200 rounded shrink-0"
+          >
+            {expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+          </button>
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-1.5 text-xs font-bold text-slate-700">
+              <Users size={12} />
+              <span className="truncate">
+                {group.items[0].laborGroupName ? `ชุด ${group.items[0].laborGroupName}` : "ยื่นพร้อมกัน"}
+              </span>
+              <span className="text-slate-400 font-normal">· {group.items.length} คน</span>
+            </div>
+            <div className="text-xs text-slate-500 truncate">→ {group.items[0].toProject}</div>
+          </div>
+          {bulkCount > 0 && (
+            <button
+              type="button"
+              disabled={isBulking}
+              onClick={(e) => {
+                e.stopPropagation();
+                void handleBulkApproveBatch(group.batchId!);
+              }}
+              className="inline-flex items-center gap-1 rounded-lg bg-blue-600 px-2 py-1 text-[11px] font-semibold text-white hover:bg-blue-700 disabled:opacity-50 shrink-0"
+            >
+              {isBulking ? <Loader2 size={11} className="animate-spin" /> : <CheckCircle2 size={11} />}
+              อนุมัติทั้งชุด ({bulkCount})
+            </button>
+          )}
+        </div>
+        {expanded &&
+          group.items.map((t) => (
+            <button
+              key={t.id}
+              type="button"
+              onClick={() => setSelectedId(t.id)}
+              className={`w-full text-left pl-8 pr-3 py-2 hover:bg-slate-50 transition-colors border-t border-slate-100 ${
+                selectedId === t.id ? "bg-blue-50" : "bg-white"
+              }`}
+            >
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <div className="font-semibold text-sm text-slate-800 truncate">{t.employeeName}</div>
+                  <div className="text-xs text-slate-500 truncate">{t.employeeCode || "-"}</div>
+                </div>
+                <StatusBadge status={t.status} />
+              </div>
+            </button>
+          ))}
+      </div>
+    );
   };
 
   // ---------- ภาพรวม (Overview) ----------
@@ -1273,122 +1399,79 @@ export const ProjectTransferPage = ({ projectOptions }: { projectOptions: string
       ) : tab === "requests" ? (
         <div className="grid grid-cols-1 lg:grid-cols-5 gap-4 min-h-[420px]">
           <div className="lg:col-span-2 space-y-3">
-            <div className="flex flex-wrap gap-2">
-              <div className="relative flex-1 min-w-[160px]">
-                <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
-                <input
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                  placeholder="ค้นหาชื่อ / รหัส / โครงการ"
-                  className="w-full rounded-lg border border-slate-200 pl-8 pr-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-blue-100"
-                />
-              </div>
-              <select
-                value={statusFilter}
-                onChange={(e) => setStatusFilter(e.target.value)}
-                className="rounded-lg border border-slate-200 px-2 py-1.5 text-sm"
+            <div className="flex flex-wrap gap-1.5">
+              <button
+                type="button"
+                onClick={() => setStatusFilter("active")}
+                className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-semibold transition-colors ${
+                  statusFilter === "active"
+                    ? "bg-blue-600 border-blue-600 text-white"
+                    : "bg-blue-50 border-blue-200 text-blue-700 hover:bg-blue-100"
+                }`}
               >
-                <option value="active">ค้างดำเนินการ</option>
-                <option value="all">ทุกสถานะ</option>
-                {Object.entries(TRANSFER_STATUS_LABELS).map(([k, v]) => (
-                  <option key={k} value={k}>
-                    {v}
-                  </option>
-                ))}
-              </select>
+                ค้างดำเนินการ
+                <span className={statusFilter === "active" ? "text-blue-100" : "text-blue-400"}>
+                  {activeStatusCount}
+                </span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setStatusFilter("all")}
+                className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-semibold transition-colors ${
+                  statusFilter === "all"
+                    ? "bg-slate-700 border-slate-700 text-white"
+                    : "bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100"
+                }`}
+              >
+                ทั้งหมด
+                <span className={statusFilter === "all" ? "text-slate-300" : "text-slate-400"}>
+                  {searchedTransfers.length}
+                </span>
+              </button>
+              {(Object.entries(TRANSFER_STATUS_LABELS) as [TransferStatus, string][]).map(([key, label]) => (
+                <button
+                  key={key}
+                  type="button"
+                  onClick={() => setStatusFilter(key)}
+                  className={`inline-flex items-center gap-1 rounded-full border border-transparent px-2.5 py-1 text-xs font-semibold transition-colors ${
+                    statusFilter === key ? TRANSFER_STATUS_SOLID_COLORS[key] : `${TRANSFER_STATUS_COLORS[key]} hover:opacity-75`
+                  }`}
+                >
+                  {label}
+                  <span className="opacity-70">{requestListStatusCounts[key] || 0}</span>
+                </button>
+              ))}
+            </div>
+
+            <div className="relative">
+              <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+              <input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="ค้นหาชื่อ / รหัส / โครงการ"
+                className="w-full rounded-lg border border-slate-200 pl-8 pr-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-blue-100"
+              />
             </div>
 
             <div className="rounded-xl border border-slate-200 overflow-hidden divide-y divide-slate-100 max-h-[560px] overflow-y-auto">
               {groupedTransferRows.length === 0 ? (
                 <div className="p-6 text-center text-sm text-slate-400">ไม่มีคำขอในตัวกรองนี้</div>
-              ) : (
-                groupedTransferRows.map((group) => {
-                  if (!group.batchId) {
-                    const t = group.items[0];
-                    return (
-                      <button
-                        key={t.id}
-                        type="button"
-                        onClick={() => setSelectedId(t.id)}
-                        className={`w-full text-left px-3 py-2.5 hover:bg-slate-50 transition-colors ${
-                          selectedId === t.id ? "bg-blue-50" : "bg-white"
-                        }`}
-                      >
-                        <div className="flex items-start justify-between gap-2">
-                          <div className="min-w-0">
-                            <div className="font-semibold text-sm text-slate-800 truncate">{t.employeeName}</div>
-                            <div className="text-xs text-slate-500 truncate">
-                              {t.employeeCode || "-"} · {t.transferType}
-                              {t.laborGroupName ? ` · ชุด ${t.laborGroupName}` : ""}
-                            </div>
-                            <div className="text-xs text-slate-600 mt-0.5 truncate">→ {t.toProject}</div>
-                          </div>
-                          <StatusBadge status={t.status} />
-                        </div>
-                      </button>
-                    );
-                  }
-
-                  const expanded = isBatchExpanded(group.batchId);
-                  const bulkCount = group.items.filter((it) => canBulkApproveItem(it)).length;
-                  const isBulking = bulkActingBatchId === group.batchId;
-                  return (
-                    <div key={group.key} className="bg-white">
-                      <div className="flex items-center gap-1.5 px-2 py-2 bg-slate-50">
-                        <button
-                          type="button"
-                          onClick={() => toggleBatchExpanded(group.batchId!)}
-                          className="p-1 text-slate-500 hover:bg-slate-200 rounded shrink-0"
-                        >
-                          {expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-                        </button>
-                        <div className="min-w-0 flex-1">
-                          <div className="flex items-center gap-1.5 text-xs font-bold text-slate-700">
-                            <Users size={12} />
-                            <span className="truncate">
-                              {group.items[0].laborGroupName ? `ชุด ${group.items[0].laborGroupName}` : "ยื่นพร้อมกัน"}
-                            </span>
-                            <span className="text-slate-400 font-normal">· {group.items.length} คน</span>
-                          </div>
-                          <div className="text-xs text-slate-500 truncate">→ {group.items[0].toProject}</div>
-                        </div>
-                        {bulkCount > 0 && (
-                          <button
-                            type="button"
-                            disabled={isBulking}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              void handleBulkApproveBatch(group.batchId!);
-                            }}
-                            className="inline-flex items-center gap-1 rounded-lg bg-blue-600 px-2 py-1 text-[11px] font-semibold text-white hover:bg-blue-700 disabled:opacity-50 shrink-0"
-                          >
-                            {isBulking ? <Loader2 size={11} className="animate-spin" /> : <CheckCircle2 size={11} />}
-                            อนุมัติทั้งชุด ({bulkCount})
-                          </button>
-                        )}
-                      </div>
-                      {expanded &&
-                        group.items.map((t) => (
-                          <button
-                            key={t.id}
-                            type="button"
-                            onClick={() => setSelectedId(t.id)}
-                            className={`w-full text-left pl-8 pr-3 py-2 hover:bg-slate-50 transition-colors border-t border-slate-100 ${
-                              selectedId === t.id ? "bg-blue-50" : "bg-white"
-                            }`}
-                          >
-                            <div className="flex items-start justify-between gap-2">
-                              <div className="min-w-0">
-                                <div className="font-semibold text-sm text-slate-800 truncate">{t.employeeName}</div>
-                                <div className="text-xs text-slate-500 truncate">{t.employeeCode || "-"}</div>
-                              </div>
-                              <StatusBadge status={t.status} />
-                            </div>
-                          </button>
-                        ))}
+              ) : statusSections ? (
+                statusSections.map((section) => (
+                  <div key={section.status}>
+                    <div className="sticky top-0 z-10 flex items-center gap-2 px-3 py-1.5 bg-slate-100 border-b border-slate-200">
+                      <StatusBadge status={section.status} />
+                      <span className="text-[11px] font-medium text-slate-400">
+                        {section.groups.reduce((sum, g) => sum + g.items.length, 0)} รายการ
+                      </span>
                     </div>
-                  );
-                })
+                    <div className="divide-y divide-slate-100">
+                      {section.groups.map((group) => renderTransferRowGroup(group))}
+                    </div>
+                  </div>
+                ))
+              ) : (
+                groupedTransferRows.map((group) => renderTransferRowGroup(group))
               )}
             </div>
           </div>

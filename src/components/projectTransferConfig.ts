@@ -161,6 +161,18 @@ export const TRANSFER_STATUS_COLORS: Record<TransferStatus, string> = {
   cancelled: "bg-slate-100 text-slate-600",
 };
 
+/** สีทึบ (ใช้กับปุ่มตัวกรองสถานะตอนถูกเลือก) — คู่กับ TRANSFER_STATUS_COLORS ด้านบน */
+export const TRANSFER_STATUS_SOLID_COLORS: Record<TransferStatus, string> = {
+  awaiting_pm_cm: "bg-amber-600 text-white",
+  awaiting_pd: "bg-orange-600 text-white",
+  awaiting_hrm: "bg-blue-600 text-white",
+  preparing: "bg-violet-600 text-white",
+  awaiting_safety: "bg-cyan-600 text-white",
+  closed: "bg-emerald-600 text-white",
+  rejected: "bg-rose-600 text-white",
+  cancelled: "bg-slate-600 text-white",
+};
+
 export const TRANSFER_TYPES: TransferType[] = ["ย้ายโครงการ", "ไปช่วยงาน (สังกัดโครงการเดิม)"];
 
 /** ค่าเดิมที่เคยบันทึกไว้ (รองรับคำขอเก่าในฐานข้อมูล) */

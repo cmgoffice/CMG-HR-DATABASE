@@ -428,6 +428,16 @@ export const EvaluationPage = ({ projectOptions }: { projectOptions: string[] })
       map.get(key)!.members.push(emp);
     });
 
+    // Seed map with any existing rounds in the selected period (to avoid losing track of rounds where all employees have resigned or been moved)
+    rounds.forEach((r) => {
+      if (r.period === selectedPeriod) {
+        const key = `${r.project}|||${r.group}`;
+        if (!map.has(key)) {
+          map.set(key, { key, project: r.project, group: r.group, members: [], round: r });
+        }
+      }
+    });
+
     const list: GroupRow[] = [];
     map.forEach((row) => {
       const rid = roundId(row.project, row.group, selectedPeriod);
@@ -1314,7 +1324,7 @@ const GroupModal = ({
       const r = myTier1For(m.id);
       return !!r && isEvalComplete(r.scores, criteria);
     });
-    if (!hasOwnWork) {
+    if (row.members.length > 0 && !hasOwnWork) {
       window.alert("ต้องให้คะแนนสมาชิกอย่างน้อย 1 คนด้วยตัวเอง จึงจะส่ง Tier 1 ของชุดนี้ได้ (ไม่สามารถส่งได้ถ้ากดข้ามทั้งหมด หรือทุกคนมีคะแนนติดตัวมาจากชุดเดิมทั้งหมดโดยไม่มีใครประเมินจริง)");
       return;
     }
@@ -1609,6 +1619,11 @@ const Tier1List = ({
 }) => (
   <div className="space-y-1.5">
     <p className="text-[11px] text-slate-400">ให้คะแนนสมาชิกที่คุณรู้จัก (5 ด้าน 1–5) คนที่ไม่รู้จักกด "ข้าม" ได้ แล้วกด "ส่ง Tier 1 ทั้งชุด"</p>
+    {members.length === 0 && (
+      <div className="p-6 text-center text-slate-400 text-xs border border-dashed border-slate-200 rounded-lg bg-slate-50">
+        ไม่มีสมาชิกในชุดงานนี้ (พนักงานในชุดงานลาออกหรือย้ายโครงการไปหมดแล้ว) คุณสามารถกดส่ง Tier 1 ของชุดนี้ได้โดยตรง
+      </div>
+    )}
     {members.map((m) => {
       const rec = myTier1For(m.id);
       const done = rec && isEvalComplete(rec.scores, criteria);
@@ -1694,6 +1709,13 @@ const TierReviewList = ({
         </tr>
       </thead>
       <tbody className="divide-y divide-slate-100">
+        {members.length === 0 && (
+          <tr>
+            <td colSpan={actionable ? 4 : 3} className="px-3 py-6 text-center text-slate-400 text-xs bg-slate-50/50">
+              ไม่มีสมาชิกในชุดงานนี้ (พนักงานในชุดงานลาออกหรือย้ายโครงการไปหมดแล้ว) คุณสามารถกดอนุมัติเพื่อเลื่อนหรือปิดรอบของชุดนี้ได้โดยตรง
+            </td>
+          </tr>
+        )}
         {members.map((m) => {
           const fin: FinalPersonScore | null = finalPersonScore(recsFor(m.id));
           const incomplete = !fin || !isEvalComplete(fin.scores, criteria);

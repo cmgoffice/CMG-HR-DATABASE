@@ -23,14 +23,45 @@
       Learn how to configure a non-root public URL by running `npm run build`.
     -->
     <title>React App</title>
+    <!-- นำเข้าฟอนต์ภาษาไทยพรีเมียม IBM Plex Sans Thai -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    
     <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      // 🎨 ตั้งค่าสวมทับโทนสีและฟอนต์สำหรับระบบ HR Database โดยไม่ต้องแก้โค้ด React เลย!
+      tailwind.config = {
+        theme: {
+          extend: {
+            fontFamily: {
+              sans: ['"IBM Plex Sans Thai"', 'ui-sans-serif', 'system-ui', '-apple-system', 'BlinkMacSystemFont', '"Segoe UI"', 'Roboto', '"Helvetica Neue"', 'Arial', 'sans-serif'],
+            },
+            colors: {
+              slate: {
+                950: '#051416', // สีพื้นหลังส่วนหัวเข้มระดับพรีเมียม
+                900: '#082224', // เปลี่ยนสีแถบเมนูด้านข้างจากสีเทาเข้มเดิม -> เป็นเขียวเข้มหรูหรา (Deep Teal Black)
+                800: '#0c3538', // สี Hover สำหรับปุ่มในเมนู
+                700: '#134e52', // สีเส้นแบ่งบอร์ดเดอร์ข้างใน
+              },
+              blue: {
+                500: '#0E5E56', // เปลี่ยนโทนปุ่ม/ลิงก์แบรนด์น้ำเงินเดิม -> เป็นเขียวมรกตพรีเมียม (Slate-Teal)
+                600: '#1E6B54', // โทนเขียวมรกตสว่างสำหรับแอคทีฟ
+              },
+              indigo: {
+                500: '#0E5E56',
+                600: '#1E6B54',
+              }
+            }
+          }
+        }
+      }
+    </script>
     <style>
-      /*
-       * ย่อ UI ทั้งแอปลง ~15% ผ่าน root font-size (Tailwind ใช้ rem จึงย่อ
-       * ทั้งตัวอักษรและระยะห่างพร้อมกัน). ตัวอักษรที่โค้ดกำหนดเป็น px ตายตัว
-       * เช่น text-[8px]/[9px]/[10px] จะไม่ย่อตาม → ทำหน้าที่เป็นขนาดขั้นต่ำ
-       * เพื่อกันตัวหนังสือเล็กจนอ่านไม่ออก.
-       */
+      /* สไตล์และฟอนต์ภาษาไทย */
+      body {
+        font-family: 'IBM Plex Sans Thai', sans-serif;
+      }
       html {
         font-size: 85%;
       }

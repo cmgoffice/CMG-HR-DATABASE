@@ -1,0 +1,36 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/**
+ * 🎨 CSS Global Styling for Executive Theme
+ * 
+ * คัดลอกการตั้งค่านี้ไปวางทับหรือรวมใน globals.css ของโปรเจกต์คุณ
+ * เพื่อตั้งค่าสีพื้นหลังและสีตัวอักษรพื้นฐานให้เป็นไปในทิศทางเดียวกันทั้งหมด
+ */
+
+:root {
+  --foreground-rgb: 58, 63, 66;        /* สีเทาชาร์โคลอ่านง่าย (#3A3F42) */
+  --background-start-rgb: 244, 246, 246; /* สีเทาสว่างพรีเมียมอบอุ่น (#F4F6F6) */
+  --background-end-rgb: 255, 255, 255;  /* สีขาว */
+}
+
+body {
+  color: rgb(var(--foreground-rgb));
+  background: linear-gradient(
+      to bottom,
+      transparent,
+      rgb(var(--background-end-rgb))
+    )
+    rgb(var(--background-start-rgb));
+  min-height: 100vh;
+}
+
+/* ลบแถบเลื่อนบนเมนูด้านข้างเพื่อความมินิมอลพรีเมียม */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
