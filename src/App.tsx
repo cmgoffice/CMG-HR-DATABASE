@@ -383,6 +383,11 @@ const DEFAULT_SCHEMAS = {
       type: "select",
       options: ["ชาย", "หญิง", "ไม่ระบุ"],
     },
+    {
+      id: "สัญชาติ",
+      label: "สัญชาติ",
+      type: "text",
+    },
     { id: "date_of_birth", label: "วันเกิด", type: "date" },
     { id: "start_date", label: "วันที่เริ่มงาน", type: "date" },
     { id: "ตำแหน่ง", label: "ตำแหน่ง", type: "select", options: [] },
@@ -1594,6 +1599,11 @@ function MasterDatabaseApp() {
           },
         ];
         const EMPLOYEE_FIELD_DEFS: SchemaField[] = [
+          {
+            id: "สัญชาติ",
+            label: "สัญชาติ",
+            type: "text",
+          },
           { id: "resignation_date", label: "วันที่ลาออก", type: "date" },
           {
             id: "resignation_reason_category",
