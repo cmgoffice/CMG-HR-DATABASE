@@ -14,6 +14,7 @@ import { InfoTooltip } from "./InfoTooltip";
 import { DonutChart, RankedBarChart, TrendLineChart, DonutDatum, RankedBarDatum, TrendPoint } from "./DashboardCharts";
 import { MetricCard, SectionCard, HorizontalBreakdown } from "./DashboardUI";
 import { EvalScoreRecord, finalPersonScore, monthLabelTh } from "./evaluationConfig";
+import { resolveEmployeeDateOfBirth, resolveEmployeeStartDate } from "../utils/employeeDates";
 
 interface Employee {
   id: string;
@@ -208,7 +209,11 @@ export const HRAnalyticsTab = ({
 
   // ---------- Headcount Summary ----------
   const newHiresYTD = useMemo(
-    () => allEmployees.filter((e) => e.start_date && new Date(`${e.start_date}T00:00:00`).getFullYear() === currentYear).length,
+    () =>
+      allEmployees.filter((e) => {
+        const startDate = resolveEmployeeStartDate(e);
+        return startDate && new Date(`${startDate}T00:00:00`).getFullYear() === currentYear;
+      }).length,
     [allEmployees, currentYear]
   );
 
@@ -253,7 +258,8 @@ export const HRAnalyticsTab = ({
       const monthEndStr = `${monthEnd.getFullYear()}-${String(monthEnd.getMonth() + 1).padStart(2, "0")}-${String(monthEnd.getDate()).padStart(2, "0")}`;
 
       const headcountAtMonth = allEmployees.filter((e) => {
-        if (!e.start_date || e.start_date > monthEndStr) return false;
+        const startDate = resolveEmployeeStartDate(e);
+        if (!startDate || startDate > monthEndStr) return false;
         if (e.resignation_date && e.resignation_date <= monthEndStr) return false;
         return true;
       }).length;
@@ -308,7 +314,7 @@ export const HRAnalyticsTab = ({
   const ageList = useMemo(() => {
     const counts: Record<string, number> = {};
     activeEmployees.forEach((e) => {
-      const b = bucketAge(getAge(e.date_of_birth));
+      const b = bucketAge(getAge(resolveEmployeeDateOfBirth(e) || undefined));
       counts[b] = (counts[b] || 0) + 1;
     });
     return Object.entries(counts).map(([label, value]) => ({ label, value })).sort((a, b) => b.value - a.value);
@@ -317,7 +323,7 @@ export const HRAnalyticsTab = ({
   const tenureList = useMemo(() => {
     const counts: Record<string, number> = {};
     activeEmployees.forEach((e) => {
-      const b = bucketTenure(getTenureYears(e.start_date));
+      const b = bucketTenure(getTenureYears(resolveEmployeeStartDate(e) || undefined));
       counts[b] = (counts[b] || 0) + 1;
     });
     return Object.entries(counts).map(([label, value]) => ({ label, value })).sort((a, b) => b.value - a.value);

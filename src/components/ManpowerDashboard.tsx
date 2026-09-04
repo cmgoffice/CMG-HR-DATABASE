@@ -45,6 +45,7 @@ import {
 } from "./riskMonitoringSettingsConfig";
 import { useOvertimeLimits } from "../hooks/useOvertimeLimits";
 import { OvertimeTierBadge } from "./OvertimeTierBadge";
+import { resolveEmployeeDateOfBirth, resolveEmployeeStartDate } from "../utils/employeeDates";
 
 interface Employee {
   id: string;
@@ -120,6 +121,12 @@ interface DailySummary {
   otHours: number;
 }
 
+interface PendingDetailEntry {
+  date: string;
+  type: "missing" | "wrong";
+  project?: string;
+}
+
 interface ProjectExceptionRow {
   id: string;
   employeeId: string;
@@ -135,6 +142,7 @@ interface ProjectExceptionRow {
   lateDays: number;
   wrongProjectDays: number;
   otHours: number;
+  pendingDetails: PendingDetailEntry[];
 }
 
 type TimePreset = "today" | "yesterday" | "month" | "custom";
@@ -289,6 +297,7 @@ interface ProjectEmployeeStatusRow {
   wrongProjectDays: number;
   otHours: number;
   flags: string[];
+  pendingDetails: PendingDetailEntry[];
 }
 
 const formatProjectNo = (projectNo: string): string => {
@@ -496,6 +505,28 @@ const safeNumber = (value: unknown): number => {
 const formatPercent = (numerator: number, denominator: number): string => {
   if (denominator <= 0) return "0%";
   return `${Math.round((numerator / denominator) * 100)}%`;
+};
+
+// สร้างข้อความสั้นๆ สำหรับ tooltip (hover) อธิบายรายละเอียดของ "ค้าง" ว่าแต่ละวันเป็น
+// "ไม่มีบันทึกเวลาเลย" หรือ "ลงเวลาที่โครงการอื่น" (พร้อมชื่อโครงการที่ไปลงจริง)
+const formatPendingDetailsTooltip = (details: PendingDetailEntry[] | undefined): string => {
+  if (!details || details.length === 0) return "";
+  const formatDate = (date: string) => {
+    try {
+      return new Date(`${date}T00:00:00`).toLocaleDateString("th-TH", { day: "numeric", month: "short" });
+    } catch {
+      return date;
+    }
+  };
+  return details
+    .slice()
+    .sort((a, b) => a.date.localeCompare(b.date))
+    .map((d) =>
+      d.type === "wrong"
+        ? `${formatDate(d.date)}: ลงเวลาที่ "${d.project || "ไม่ระบุโครงการ"}"`
+        : `${formatDate(d.date)}: ไม่มีบันทึกเวลาเลย (ค้างจริง)`
+    )
+    .join("\n");
 };
 
 const getEmployeeName = (emp: Employee): string => {
@@ -1395,8 +1426,8 @@ export const ManpowerDashboard = ({
 
     scopeEmployees.forEach((emp) => {
       const gender = inferGender(emp);
-      const age = bucketAge(getAge(emp.date_of_birth));
-      const tenure = bucketTenure(getTenureYears(emp.start_date));
+      const age = bucketAge(getAge(resolveEmployeeDateOfBirth(emp) || undefined));
+      const tenure = bucketTenure(getTenureYears(resolveEmployeeStartDate(emp) || undefined));
       genderCounts[gender] = (genderCounts[gender] || 0) + 1;
       ageCounts[age] = (ageCounts[age] || 0) + 1;
       tenureCounts[tenure] = (tenureCounts[tenure] || 0) + 1;
@@ -2103,6 +2134,7 @@ export const ManpowerDashboard = ({
         lateDays: 0,
         wrongProjectDays: 0,
         otHours: 0,
+        pendingDetails: [],
       };
     });
 
@@ -2170,6 +2202,7 @@ export const ManpowerDashboard = ({
           wrongProject++;
           dayWrongProject++;
           employeeRisk.wrongProjectDays++;
+          employeeRisk.pendingDetails.push({ date, type: "wrong", project: attendance?.project });
           counts.forEach((row) => { row.wrongProject++; });
           if (groupStats) groupStats.wrongProject++;
           if (posGroupStats) posGroupStats.wrongProject++;
@@ -2193,6 +2226,7 @@ export const ManpowerDashboard = ({
           notRecorded++;
           dayNotRecorded++;
           employeeRisk.notRecordedDays++;
+          employeeRisk.pendingDetails.push({ date, type: "missing" });
           counts.forEach((row) => { row.notRecorded++; });
           if (groupStats) groupStats.notRecorded++;
           if (posGroupStats) posGroupStats.notRecorded++;
@@ -2260,6 +2294,7 @@ export const ManpowerDashboard = ({
           lateDays: 0,
           wrongProjectDays: 0,
           otHours: 0,
+          pendingDetails: [],
         };
       });
 
@@ -2276,11 +2311,17 @@ export const ManpowerDashboard = ({
           if (isPresent) {
             row.presentDays++;
             if (!!attendance?.isLate || safeNumber(attendance?.lateMinutes) > 0) row.lateDays++;
-          } else if (isWrongProject) row.wrongProjectDays++;
+          } else if (isWrongProject) {
+            row.wrongProjectDays++;
+            row.pendingDetails.push({ date, type: "wrong", project: attendance?.project });
+          }
           else if (attendance?.status === "ไม่มา") row.absentDays++;
           else if (attendance?.status === "ลา") row.leaveDays++;
           else if (attendance?.status === "H") { /* วันหยุดพนักงาน — ไม่นับเป็นบัคเก็ตไหน */ }
-          else row.notRecordedDays++;
+          else {
+            row.notRecordedDays++;
+            row.pendingDetails.push({ date, type: "missing" });
+          }
 
           if (otHours > 0 && otMatchesProject) row.otHours += otHours;
         });
@@ -2308,6 +2349,7 @@ export const ManpowerDashboard = ({
             wrongProjectDays: row.wrongProjectDays,
             otHours: row.otHours,
             flags,
+            pendingDetails: row.pendingDetails,
           };
         })
         .sort(
@@ -2363,6 +2405,7 @@ export const ManpowerDashboard = ({
           wrongProjectDays: row.wrongProjectDays,
           otHours: row.otHours,
           flags,
+          pendingDetails: row.pendingDetails,
         };
       })
       .sort(
@@ -4609,10 +4652,10 @@ export const ManpowerDashboard = ({
             <SectionCard title="ความครบถ้วนของข้อมูล" subtitle="ใช้เพื่อตรวจว่าควรเติมข้อมูลใดก่อนสำหรับ analytics ระยะถัดไป" tooltip="ช่วยบอกว่าข้อมูลใดพร้อมแล้ว และข้อมูลใดต้องเก็บเพิ่มก่อน เช่น วันเกิด วันเริ่มงาน หรือเวลาเข้างานจริง">
               <div className="space-y-3 text-sm text-slate-700">
                 <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
-                  มีข้อมูลวันเกิด {employees.filter((emp) => !!emp.date_of_birth).length} / {employees.length} คน
+                  มีข้อมูลวันเกิด {employees.filter((emp) => !!resolveEmployeeDateOfBirth(emp)).length} / {employees.length} คน
                 </div>
                 <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
-                  มีข้อมูลวันเริ่มงาน {employees.filter((emp) => !!emp.start_date).length} / {employees.length} คน
+                  มีข้อมูลวันเริ่มงาน {employees.filter((emp) => !!resolveEmployeeStartDate(emp)).length} / {employees.length} คน
                 </div>
                 <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
                   ข้อมูลมาสาย {hrData.lateDataAvailable ? `พร้อมใช้งาน (${hrData.late} เหตุการณ์)` : "ยังไม่พร้อม ต้องเก็บ check-in time / late minutes เพิ่ม"}
@@ -5380,7 +5423,12 @@ export const ManpowerDashboard = ({
                                                     </td>
                                                     <td className={`px-1 py-1 text-center font-semibold ${m.absentDays > 0 ? "text-rose-700" : "text-slate-300"}`}>{m.absentDays}</td>
                                                     <td className={`px-1 py-1 text-center font-semibold ${m.leaveDays > 0 ? "text-amber-700" : "text-slate-300"}`}>{m.leaveDays}</td>
-                                                    <td className={`px-1 py-1 text-center font-semibold ${m.notRecordedDays + m.wrongProjectDays > 0 ? "text-slate-600" : "text-slate-300"}`}>{m.notRecordedDays + m.wrongProjectDays}</td>
+                                                    <td
+                                                      className={`px-1 py-1 text-center font-semibold ${m.notRecordedDays + m.wrongProjectDays > 0 ? "cursor-help text-slate-600 underline decoration-dotted decoration-slate-400" : "text-slate-300"}`}
+                                                      title={formatPendingDetailsTooltip(m.pendingDetails) || undefined}
+                                                    >
+                                                      {m.notRecordedDays + m.wrongProjectDays}
+                                                    </td>
                                                     <td className={`px-1 py-1 text-center font-semibold ${mBad ? "text-rose-700" : mWatch ? "text-amber-700" : "text-slate-400"}`}>
                                                       {formatPercent(mIssue, Math.max(mSlots, 1))}
                                                     </td>
@@ -5422,7 +5470,12 @@ export const ManpowerDashboard = ({
                                                     </td>
                                                     <td className={`px-1 py-1 text-center font-semibold ${m.absentDays > 0 ? "text-rose-700" : "text-slate-300"}`}>{m.absentDays}</td>
                                                     <td className={`px-1 py-1 text-center font-semibold ${m.leaveDays > 0 ? "text-amber-700" : "text-slate-300"}`}>{m.leaveDays}</td>
-                                                    <td className={`px-1 py-1 text-center font-semibold ${m.notRecordedDays + m.wrongProjectDays > 0 ? "text-slate-600" : "text-slate-300"}`}>{m.notRecordedDays + m.wrongProjectDays}</td>
+                                                    <td
+                                                      className={`px-1 py-1 text-center font-semibold ${m.notRecordedDays + m.wrongProjectDays > 0 ? "cursor-help text-slate-600 underline decoration-dotted decoration-slate-400" : "text-slate-300"}`}
+                                                      title={formatPendingDetailsTooltip(m.pendingDetails) || undefined}
+                                                    >
+                                                      {m.notRecordedDays + m.wrongProjectDays}
+                                                    </td>
                                                     <td className={`px-1 py-1 text-center font-semibold ${mBad ? "text-rose-700" : mWatch ? "text-amber-700" : "text-slate-400"}`}>
                                                       {formatPercent(mIssue, Math.max(mSlots, 1))}
                                                     </td>
