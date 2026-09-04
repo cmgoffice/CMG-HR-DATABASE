@@ -70,6 +70,8 @@ import {
   SKIP_REASONS,
   isSkippedRecord,
   skipReasonLabel,
+  normalizeEmployeeType,
+  parseEmployeeProjectList,
 } from "./evaluationConfig";
 
 // ---------- Local types ----------
@@ -144,34 +146,14 @@ const enumerateDates = (startDate: string, endDate: string): string[] => {
   return dates;
 };
 
-const parseProjectList = (value: string | string[] | undefined): string[] => {
-  if (Array.isArray(value)) return value.filter(Boolean);
-  return value ? [value] : [];
-};
+// alias ชื่อเดิมที่ใช้ในไฟล์นี้ (logic ย้ายไป evaluationConfig.ts เพื่อใช้ร่วมกับ ApprovalCenterPage)
+const parseProjectList = parseEmployeeProjectList;
 
 const getEmployeeName = (emp: Employee): string =>
   `${emp["ชื่อตัว"] || ""} ${emp["ชื่อสกุล"] || ""}`.trim() || String(emp.รหัสพนักงาน || "-");
 
 const userName = (u?: AppUser | null): string =>
   u ? `${u.firstName || ""} ${u.lastName || ""}`.trim() || u.uid : "-";
-
-const normalizeEmployeeType = (emp: Employee): string => {
-  const t = String(emp.employee_type || "").toLowerCase().trim();
-  const g = String(emp.สถานะกลุ่มงาน || "").toLowerCase().trim();
-  if (t.includes("indirect")) return "Staff Monthly";
-  if (t.includes("teamleader")) {
-    if (g === "staff") return "DC Daily - Staff";
-    if (g === "worker") return "DC Daily - Worker";
-    return "DC Daily";
-  }
-  if (t.includes("supply") || t.includes("supplydc")) return "Supply manpower";
-  if (t.includes("sub")) return "Sub contractor";
-  if (g === "staff") return "Staff Monthly";
-  if (g.includes("supply")) return "Supply manpower";
-  if (g.includes("sub")) return "Sub contractor";
-  if (g.includes("worker")) return "DC Daily - Worker";
-  return "ไม่ระบุ";
-};
 
 const projectPositions = (projects: ProjectRecord[]): string[] => {
   const set = new Set<string>();

@@ -18,9 +18,22 @@ import {
   AlertCircle,
   ArrowUp,
   ArrowDown,
+  Settings,
+  Plus,
+  Trash2,
+  X,
+  AlertTriangle,
 } from "lucide-react";
 import { useAuth } from "../auth/AuthContext";
 import { InfoTooltip } from "./InfoTooltip";
+import { useOvertimeLimits } from "../hooks/useOvertimeLimits";
+import { OvertimeTierBadge, WeeklyOvertimeWarningIcon } from "./OvertimeTierBadge";
+import {
+  OT_COLOR_CLASSES,
+  OvertimeColorKey,
+  OvertimeLimitConfig,
+  OvertimeTier,
+} from "../config/overtimeLimits";
 
 interface Employee {
   id: string;
@@ -59,6 +72,8 @@ const formatProjectNo = (projectNo: string): string => {
   return cleanProjectNo;
 };
 
+const OT_SUMMARY_COL_WIDTH = 90;
+
 const DEFAULT_COLUMNS: ColumnConfig[] = [
   { id: "index",        label: "ลำดับ",         visible: true,  widthPx: 44,  sticky: true },
   { id: "รหัสพนักงาน",  label: "รหัสพนักงาน",   visible: true,  widthPx: 100, sticky: true },
@@ -83,6 +98,9 @@ export const OvertimePage = ({ projectOptions }: { projectOptions: string[] }) =
   const [columns, setColumns] = useState<ColumnConfig[]>(DEFAULT_COLUMNS);
   const [filterOtType, setFilterOtType] = useState<string>("all");
   const [dayOffs, setDayOffs] = useState<Record<string, string>>({});
+  const [isLimitsModalOpen, setIsLimitsModalOpen] = useState(false);
+
+  const { limits: otLimits, canEditLimits, updateLimits: saveOtLimits, saving: savingLimits } = useOvertimeLimits();
 
   type SortKey = 'รหัสพนักงาน' | 'name' | 'ตำแหน่ง' | 'ชื่อชุด';
   interface SortState { key: SortKey; direction: 'asc' | 'desc'; }
@@ -269,6 +287,61 @@ export const OvertimePage = ({ projectOptions }: { projectOptions: string[] }) =
     });
   }, [currentMonth]);
 
+  // ── สรุป OT รายเดือน/รายสัปดาห์ ต่อพนักงาน (ใช้เตือนเพดาน OT) ──────────
+  // นับรวมทุกโครงการของพนักงานคนนั้น (ไม่กรองตาม selectedProject) เพราะเพดาน OT ผูกกับ "คน" ไม่ใช่โครงการ
+  const monthlyOtByEmployee = useMemo(() => {
+    const totals: Record<string, number> = {};
+    daysInMonth.forEach(({ dateStr }) => {
+      const dayRecords = overtimeData[dateStr];
+      if (!dayRecords) return;
+      Object.entries(dayRecords).forEach(([empId, entry]) => {
+        const hrs = parseFloat(entry?.hours || "0");
+        if (!isNaN(hrs) && hrs > 0) totals[empId] = (totals[empId] || 0) + hrs;
+      });
+    });
+    return totals;
+  }, [overtimeData, daysInMonth]);
+
+  // จัดกลุ่มวันในเดือนเป็น "สัปดาห์ปฏิทิน" (จันทร์–อาทิตย์) โดยใช้ dateStr ของวันจันทร์ (หรือวันแรกของเดือนถ้ายังไม่ถึงจันทร์แรก) เป็น key
+  // ข้อจำกัด V1: ไม่ query ข้ามเดือน จึงสัปดาห์แรก/สุดท้ายของเดือนอาจนับได้ไม่ครบสัปดาห์เต็ม
+  const weekKeyByDate = useMemo(() => {
+    const map: Record<string, string> = {};
+    let currentWeekKey: string | null = null;
+    daysInMonth.forEach(({ dateStr }) => {
+      const dow = new Date(`${dateStr}T00:00:00`).getDay(); // 0 = อาทิตย์, 1 = จันทร์
+      if (dow === 1 || currentWeekKey === null) currentWeekKey = dateStr;
+      map[dateStr] = currentWeekKey;
+    });
+    return map;
+  }, [daysInMonth]);
+
+  const weeklyOtByEmployee = useMemo(() => {
+    const totals: Record<string, Record<string, number>> = {};
+    daysInMonth.forEach(({ dateStr }) => {
+      const dayRecords = overtimeData[dateStr];
+      if (!dayRecords) return;
+      const weekKey = weekKeyByDate[dateStr];
+      Object.entries(dayRecords).forEach(([empId, entry]) => {
+        const hrs = parseFloat(entry?.hours || "0");
+        if (isNaN(hrs) || hrs <= 0) return;
+        if (!totals[empId]) totals[empId] = {};
+        totals[empId][weekKey] = (totals[empId][weekKey] || 0) + hrs;
+      });
+    });
+    return totals;
+  }, [overtimeData, daysInMonth, weekKeyByDate]);
+
+  // วันสุดท้ายของแต่ละสัปดาห์ที่แสดงอยู่ในเดือนนี้ (อาทิตย์ หรือวันสุดท้ายของเดือนถ้าเดือนจบก่อนถึงอาทิตย์) — ใช้เป็นจุดแสดงไอคอนเตือน
+  const weekEndDates = useMemo(() => {
+    const set = new Set<string>();
+    const lastDayIdx = daysInMonth.length - 1;
+    daysInMonth.forEach(({ dateStr, isWeekend }, idx) => {
+      const dow = new Date(`${dateStr}T00:00:00`).getDay();
+      if (dow === 0 || idx === lastDayIdx) set.add(dateStr);
+    });
+    return set;
+  }, [daysInMonth]);
+
   const isLocked = (entry: OvertimeEntry | undefined): boolean => {
     if (!entry || !entry.hours) return false;
     const now = Date.now();
@@ -399,7 +472,7 @@ export const OvertimePage = ({ projectOptions }: { projectOptions: string[] }) =
 
   // --- Overtima Input Component ---
   const OvertimeCell = ({ 
-    employeeId, dateStr, entry, canEdit, isOtherProject, locked, isToday, isWeekend, employee, handleOvertimeChange, filterOtType, dayOffName
+    employeeId, dateStr, entry, canEdit, isOtherProject, locked, isToday, isWeekend, employee, handleOvertimeChange, filterOtType, dayOffName, weeklyHours, weeklyCapHours
   }: any) => {
     const [localVal, setLocalVal] = useState(entry?.hours || "");
     const [localType, setLocalType] = useState(entry?.type || "x1.5");
@@ -495,6 +568,12 @@ export const OvertimePage = ({ projectOptions }: { projectOptions: string[] }) =
 
     if (isToday) tooltipExtra = " 📅 วันนี้" + tooltipExtra;
 
+    const weeklyWarning = typeof weeklyHours === "number" && typeof weeklyCapHours === "number" ? (
+      <span className="absolute top-0 right-0 leading-none pointer-events-none" style={{ transform: "translate(15%, -25%)" }}>
+        <WeeklyOvertimeWarningIcon weeklyHours={weeklyHours} weeklyCapHours={weeklyCapHours} size={9} />
+      </span>
+    ) : null;
+
     if (isOtherProject || !canEdit) {
       return (
         <td
@@ -503,6 +582,7 @@ export const OvertimePage = ({ projectOptions }: { projectOptions: string[] }) =
           title={`${dateStr}${tooltipExtra}`}
         >
           {isOtherProject ? getProjectShortCode(entry?.project || "") : localVal}
+          {weeklyWarning}
         </td>
       );
     }
@@ -513,6 +593,7 @@ export const OvertimePage = ({ projectOptions }: { projectOptions: string[] }) =
         style={{ minWidth: 40, maxWidth: 40, width: 40, height: 24 }}
         title={`${dateStr}${tooltipExtra}`}
       >
+        {weeklyWarning}
         <input
           data-date={dateStr}
           type="number"
@@ -567,6 +648,10 @@ export const OvertimePage = ({ projectOptions }: { projectOptions: string[] }) =
     const canEdit = !isFuture && !locked && canEditOvertime && !isOtherProject;
     const dayOffName = dayOffs[dateStr];
 
+    const isWeekEndDate = weekEndDates.has(dateStr);
+    const weekKey = weekKeyByDate[dateStr];
+    const weekTotal = isWeekEndDate ? (weeklyOtByEmployee[employeeId]?.[weekKey] || 0) : undefined;
+
     return <OvertimeCell 
       key={dateStr}
       employeeId={employeeId} 
@@ -581,6 +666,8 @@ export const OvertimePage = ({ projectOptions }: { projectOptions: string[] }) =
       handleOvertimeChange={handleOvertimeChange}
       filterOtType={filterOtType}
       dayOffName={dayOffName}
+      weeklyHours={weekTotal}
+      weeklyCapHours={isWeekEndDate ? otLimits.weeklyCapHours : undefined}
     />;
   };
 
@@ -596,22 +683,33 @@ export const OvertimePage = ({ projectOptions }: { projectOptions: string[] }) =
 
   return (
     <div className="space-y-3">
-      <div className="bg-white rounded-lg shadow-sm border border-gray-200 px-4 py-3">
-        <h2 className="text-xl font-bold text-gray-800 flex items-center gap-2">
-          <span>Overtime</span>
-          <InfoTooltip
-            content={
-              <div>
-                <div className="font-semibold text-slate-800 mb-1">วิธีอ่านข้อมูล</div>
-                <div>ตารางนี้แสดงชั่วโมง OT รายวันของพนักงานในเดือนและโครงการที่เลือก</div>
-                <div>สูตรสรุปหลัก: OT รวม = ผลรวมชั่วโมง OT ทุก record ในช่วงที่แสดง</div>
-              </div>
-            }
-          />
-        </h2>
-        <p className="mt-1 text-sm text-gray-600">
-          ใช้ตรวจสอบชั่วโมง OT, ประเภท OT และโครงการที่มีภาระงานสูง
-        </p>
+      <div className="bg-white rounded-lg shadow-sm border border-gray-200 px-4 py-3 flex items-start justify-between gap-3">
+        <div>
+          <h2 className="text-xl font-bold text-gray-800 flex items-center gap-2">
+            <span>Overtime</span>
+            <InfoTooltip
+              content={
+                <div>
+                  <div className="font-semibold text-slate-800 mb-1">วิธีอ่านข้อมูล</div>
+                  <div>ตารางนี้แสดงชั่วโมง OT รายวันของพนักงานในเดือนและโครงการที่เลือก</div>
+                  <div>สูตรสรุปหลัก: OT รวม = ผลรวมชั่วโมง OT ทุก record ในช่วงที่แสดง</div>
+                  <div className="mt-1">คอลัมน์ "OT เดือนนี้" และไอคอน ⚠ ท้ายแต่ละสัปดาห์ ใช้เตือนเพดาน OT ตามที่ตั้งค่าไว้</div>
+                </div>
+              }
+            />
+          </h2>
+          <p className="mt-1 text-sm text-gray-600">
+            ใช้ตรวจสอบชั่วโมง OT, ประเภท OT และโครงการที่มีภาระงานสูง
+          </p>
+        </div>
+        <button
+          onClick={() => setIsLimitsModalOpen(true)}
+          className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 text-sm border rounded hover:bg-gray-50 text-gray-700"
+          title={canEditLimits ? "ตั้งค่าเพดาน OT" : "ดูเพดาน OT ที่ตั้งไว้ (แก้ไขได้เฉพาะ MasterAdmin/MD/GM/HR)"}
+        >
+          <Settings size={14} />
+          {canEditLimits ? "ตั้งค่าเพดาน OT" : "ดูเพดาน OT"}
+        </button>
       </div>
       {/* ── Controls ── */}
       <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-3">
@@ -700,6 +798,22 @@ export const OvertimePage = ({ projectOptions }: { projectOptions: string[] }) =
         <span className="text-gray-400 ml-auto">🔒 = ล็อคหลังกรอก 24 ชม.</span>
       </div>
 
+      {/* ── Legend: เพดาน OT ── */}
+      <div className="bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 flex items-center gap-3 text-xs flex-wrap">
+        <span className="font-semibold text-slate-700">เพดาน OT (สะสม/เดือน):</span>
+        {otLimits.monthlyTiers.map((tier) => (
+          <div key={tier.id} className="flex items-center gap-1" title={tier.action}>
+            <OvertimeTierBadge hours={tier.minHours} tiers={otLimits.monthlyTiers} />
+            <span className="text-gray-600">
+              {tier.minHours}{tier.maxHours !== null ? `–${tier.maxHours}` : "+"} ชม.
+            </span>
+          </div>
+        ))}
+        <span className="text-gray-400 flex items-center gap-1 ml-auto">
+          <AlertTriangle size={12} className="text-amber-500" /> = เกินเพดาน {otLimits.weeklyCapHours} ชม./สัปดาห์
+        </span>
+      </div>
+
       {/* ── Tables ── */}
       {!hasAssignedProjects ? (
         <div className="bg-white rounded-lg border border-purple-200 p-12 text-center">
@@ -737,7 +851,7 @@ export const OvertimePage = ({ projectOptions }: { projectOptions: string[] }) =
                 <table
                   className="border-collapse"
                   style={{ fontSize: 11, lineHeight: "1.1", tableLayout: "fixed",
-                    width: `${visibleColumns.reduce((s, c) => s + c.widthPx, 0) + (hasSetColumn ? 100 : 0) + daysInMonth.length * 40}px` }}
+                    width: `${visibleColumns.reduce((s, c) => s + c.widthPx, 0) + (hasSetColumn ? 100 : 0) + OT_SUMMARY_COL_WIDTH + daysInMonth.length * 40}px` }}
                 >
                 <thead>
                   <tr style={{ height: 26 }}>
@@ -770,6 +884,13 @@ export const OvertimePage = ({ projectOptions }: { projectOptions: string[] }) =
                         </span>
                       </th>
                     )}
+                    <th
+                      className="border border-gray-400 bg-purple-500 text-white px-1 py-0.5 sticky z-20 text-left select-none"
+                      style={{ width: OT_SUMMARY_COL_WIDTH, minWidth: OT_SUMMARY_COL_WIDTH, left: visibleColumns.reduce((sum, c) => sum + c.widthPx, 0) + (hasSetColumn ? 100 : 0) }}
+                      title="ผลรวมชั่วโมง OT สะสมของพนักงานในเดือนนี้ (ทุกโครงการ) เทียบกับเพดานที่ตั้งไว้"
+                    >
+                      OT เดือนนี้
+                    </th>
                     {daysInMonth.map(({ day, isWeekend, isToday }) => (
                       <th
                         key={day}
@@ -835,6 +956,12 @@ export const OvertimePage = ({ projectOptions }: { projectOptions: string[] }) =
                           </span>
                         </td>
                       )}
+                      <td
+                        className="border border-gray-200 px-1 py-0 sticky bg-white z-10 overflow-hidden whitespace-nowrap text-ellipsis"
+                        style={{ width: OT_SUMMARY_COL_WIDTH, minWidth: OT_SUMMARY_COL_WIDTH, left: visibleColumns.reduce((sum, c) => sum + c.widthPx, 0) + (hasSetColumn ? 100 : 0) }}
+                      >
+                        <OvertimeTierBadge hours={monthlyOtByEmployee[emp.id] || 0} tiers={otLimits.monthlyTiers} />
+                      </td>
                       {daysInMonth.map(({ dateStr, isWeekend, isToday }) =>
                         renderStatusCell(emp.id, dateStr, isWeekend, isToday, emp)
                       )}
@@ -846,7 +973,7 @@ export const OvertimePage = ({ projectOptions }: { projectOptions: string[] }) =
               {/* Watermarks overlay */}
               <div 
                 className="absolute top-[26px] bottom-0 pointer-events-none flex z-10"
-                style={{ left: visibleColumns.reduce((sum, c) => sum + c.widthPx, 0) + (hasSetColumn ? 100 : 0) }}
+                style={{ left: visibleColumns.reduce((sum, c) => sum + c.widthPx, 0) + (hasSetColumn ? 100 : 0) + OT_SUMMARY_COL_WIDTH }}
               >
                 {daysInMonth.map(({ day, dateStr }) => (
                   <div key={day} className="w-[40px] shrink-0 h-full flex items-center justify-center overflow-hidden">
@@ -874,6 +1001,200 @@ export const OvertimePage = ({ projectOptions }: { projectOptions: string[] }) =
           กำลังบันทึก...
         </div>
       )}
+
+      {isLimitsModalOpen && (
+        <OvertimeLimitsModal
+          limits={otLimits}
+          canEdit={canEditLimits}
+          saving={savingLimits}
+          onSave={saveOtLimits}
+          onClose={() => setIsLimitsModalOpen(false)}
+        />
+      )}
+    </div>
+  );
+};
+
+// ── Modal ตั้งค่าเพดาน OT ─────────────────────────────────────────────────
+const OT_COLOR_OPTIONS: OvertimeColorKey[] = ["green", "yellow", "orange", "red", "darkred"];
+
+const OvertimeLimitsModal = ({
+  limits,
+  canEdit,
+  saving,
+  onSave,
+  onClose,
+}: {
+  limits: OvertimeLimitConfig;
+  canEdit: boolean;
+  saving: boolean;
+  onSave: (next: OvertimeLimitConfig) => Promise<void>;
+  onClose: () => void;
+}) => {
+  const [draft, setDraft] = useState<OvertimeLimitConfig>(() => ({
+    weeklyCapHours: limits.weeklyCapHours,
+    monthlyTiers: limits.monthlyTiers.map((t) => ({ ...t })),
+  }));
+
+  const updateTier = (idx: number, patch: Partial<OvertimeTier>) => {
+    setDraft((prev) => ({
+      ...prev,
+      monthlyTiers: prev.monthlyTiers.map((t, i) => (i === idx ? { ...t, ...patch } : t)),
+    }));
+  };
+
+  const addTier = () => {
+    setDraft((prev) => {
+      const last = prev.monthlyTiers[prev.monthlyTiers.length - 1];
+      const nextMin = last ? (last.maxHours !== null ? last.maxHours + 1 : last.minHours + 1) : 0;
+      return {
+        ...prev,
+        monthlyTiers: [
+          ...prev.monthlyTiers,
+          { id: `tier_${Date.now()}`, label: "ระดับใหม่", minHours: nextMin, maxHours: null, colorKey: "red", action: "" },
+        ],
+      };
+    });
+  };
+
+  const removeTier = (idx: number) => {
+    setDraft((prev) => ({ ...prev, monthlyTiers: prev.monthlyTiers.filter((_, i) => i !== idx) }));
+  };
+
+  const handleSave = async () => {
+    if (!canEdit) return;
+    await onSave(draft);
+    onClose();
+  };
+
+  return (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-3" onClick={onClose}>
+      <div
+        className="flex max-h-[90vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-start justify-between gap-3 border-b border-slate-200 px-4 py-3">
+          <div>
+            <h4 className="text-base font-bold text-slate-800 flex items-center gap-2">
+              <Settings size={16} /> ตั้งค่าเพดาน OT
+            </h4>
+            <p className="mt-0.5 text-xs text-slate-500">
+              {canEdit ? "แก้ไขได้เฉพาะ MasterAdmin / MD / GM / HR" : "คุณไม่มีสิทธิ์แก้ไข — แสดงเป็นโหมดดูอย่างเดียว"}
+            </p>
+          </div>
+          <button onClick={onClose} className="rounded-lg p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600">
+            <X size={18} />
+          </button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto px-4 py-3 space-y-4">
+          <div>
+            <label className="block text-xs font-semibold text-slate-600 mb-1">เพดาน OT ปกติต่อสัปดาห์ (ชม.)</label>
+            <input
+              type="number"
+              min={0}
+              step="0.5"
+              disabled={!canEdit}
+              value={draft.weeklyCapHours}
+              onChange={(e) => setDraft((prev) => ({ ...prev, weeklyCapHours: parseFloat(e.target.value) || 0 }))}
+              className="w-32 px-3 py-1.5 text-sm border rounded focus:ring-2 focus:ring-purple-500 outline-none disabled:bg-gray-100"
+            />
+          </div>
+
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <label className="block text-xs font-semibold text-slate-600">ระดับเพดาน OT สะสม/เดือน</label>
+              {canEdit && (
+                <button
+                  onClick={addTier}
+                  className="flex items-center gap-1 text-xs text-purple-600 hover:text-purple-800"
+                >
+                  <Plus size={12} /> เพิ่มระดับ
+                </button>
+              )}
+            </div>
+            <div className="space-y-2">
+              {draft.monthlyTiers.map((tier, idx) => (
+                <div key={tier.id} className="border border-slate-200 rounded-lg p-2 space-y-1.5">
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <input
+                      type="text"
+                      disabled={!canEdit}
+                      value={tier.label}
+                      onChange={(e) => updateTier(idx, { label: e.target.value })}
+                      placeholder="ชื่อระดับ"
+                      className="flex-1 min-w-[100px] px-2 py-1 text-xs border rounded outline-none disabled:bg-gray-100"
+                    />
+                    <input
+                      type="number"
+                      min={0}
+                      disabled={!canEdit}
+                      value={tier.minHours}
+                      onChange={(e) => updateTier(idx, { minHours: parseFloat(e.target.value) || 0 })}
+                      className="w-16 px-2 py-1 text-xs border rounded outline-none disabled:bg-gray-100"
+                      title="ชั่วโมงเริ่มต้น"
+                    />
+                    <span className="text-xs text-gray-400">–</span>
+                    <input
+                      type="number"
+                      min={0}
+                      disabled={!canEdit}
+                      value={tier.maxHours ?? ""}
+                      placeholder="ไม่จำกัด"
+                      onChange={(e) => updateTier(idx, { maxHours: e.target.value === "" ? null : parseFloat(e.target.value) || 0 })}
+                      className="w-20 px-2 py-1 text-xs border rounded outline-none disabled:bg-gray-100"
+                      title="ชั่วโมงสูงสุด (เว้นว่าง = ไม่จำกัด)"
+                    />
+                    <span className="text-xs text-gray-400">ชม.</span>
+                    <select
+                      disabled={!canEdit}
+                      value={tier.colorKey}
+                      onChange={(e) => updateTier(idx, { colorKey: e.target.value as OvertimeColorKey })}
+                      className="px-2 py-1 text-xs border rounded outline-none disabled:bg-gray-100"
+                    >
+                      {OT_COLOR_OPTIONS.map((c) => (
+                        <option key={c} value={c}>{c}</option>
+                      ))}
+                    </select>
+                    <span
+                      className={`w-4 h-4 rounded-full border ${OT_COLOR_CLASSES[tier.colorKey].bg} ${OT_COLOR_CLASSES[tier.colorKey].border}`}
+                    />
+                    {canEdit && draft.monthlyTiers.length > 1 && (
+                      <button onClick={() => removeTier(idx)} className="text-red-400 hover:text-red-600 p-1">
+                        <Trash2 size={13} />
+                      </button>
+                    )}
+                  </div>
+                  <input
+                    type="text"
+                    disabled={!canEdit}
+                    value={tier.action}
+                    onChange={(e) => updateTier(idx, { action: e.target.value })}
+                    placeholder="คำอธิบายการจัดการ เช่น ต้องขออนุมัติระดับสูงขึ้น"
+                    className="w-full px-2 py-1 text-xs border rounded outline-none disabled:bg-gray-100"
+                  />
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        <div className="flex items-center justify-end gap-2 border-t border-slate-200 px-4 py-3">
+          <button onClick={onClose} className="px-3 py-1.5 text-sm border rounded hover:bg-gray-50">
+            ปิด
+          </button>
+          {canEdit && (
+            <button
+              onClick={handleSave}
+              disabled={saving}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-purple-600 text-white rounded hover:bg-purple-700 disabled:opacity-60"
+            >
+              {saving && <Loader2 size={13} className="animate-spin" />}
+              บันทึก
+            </button>
+          )}
+        </div>
+      </div>
     </div>
   );
 };

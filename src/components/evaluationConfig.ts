@@ -99,6 +99,36 @@ export const EVALUATED_EMPLOYEE_TYPES = new Set<string>([
   "DC Daily - Worker",
 ]);
 
+// รับค่า "สถานะโครงการ" ซึ่งอาจเป็น string เดี่ยว หรือ array — คืน list ของโครงการเสมอ
+// (ใช้ร่วมกันระหว่าง EvaluationPage และ ApprovalCenterPage เพื่อคำนวณ "ค้างอยู่กับใคร" ให้ตรงกัน)
+export const parseEmployeeProjectList = (value: string | string[] | undefined): string[] => {
+  if (Array.isArray(value)) return value.filter(Boolean);
+  return value ? [value] : [];
+};
+
+// เดาประเภทพนักงาน (Supply manpower / Sub contractor / DC Daily - Worker / ...) จากฟิลด์ในเอกสาร employee_data
+// ใช้ร่วมกันระหว่าง EvaluationPage และ ApprovalCenterPage
+export const normalizeEmployeeType = (emp: {
+  employee_type?: string;
+  สถานะกลุ่มงาน?: string;
+}): string => {
+  const t = String(emp.employee_type || "").toLowerCase().trim();
+  const g = String(emp.สถานะกลุ่มงาน || "").toLowerCase().trim();
+  if (t.includes("indirect")) return "Staff Monthly";
+  if (t.includes("teamleader")) {
+    if (g === "staff") return "DC Daily - Staff";
+    if (g === "worker") return "DC Daily - Worker";
+    return "DC Daily";
+  }
+  if (t.includes("supply") || t.includes("supplydc")) return "Supply manpower";
+  if (t.includes("sub")) return "Sub contractor";
+  if (g === "staff") return "Staff Monthly";
+  if (g.includes("supply")) return "Supply manpower";
+  if (g.includes("sub")) return "Sub contractor";
+  if (g.includes("worker")) return "DC Daily - Worker";
+  return "ไม่ระบุ";
+};
+
 // role ที่เข้าถึงหน้าประเมินได้จาก role (นอกเหนือจากคนที่ถูก assign เป็น tier 1/2)
 // Tier 3 = HR/HRM, Tier 4 = PD (+superuser), ผู้มอบหมาย = ASSIGNER_ROLES
 export const EVALUATOR_ROLES = [

@@ -49,10 +49,17 @@ import {
 import {
   assignmentId,
   canActTier,
+  DEFAULT_EVAL_CRITERIA,
+  EVALUATED_EMPLOYEE_TYPES,
   EvalAssignment,
   EvalRound,
+  EvalScoreRecord,
   EvalTier,
+  isEvalComplete,
+  isSkippedRecord,
   monthLabelTh,
+  normalizeEmployeeType,
+  parseEmployeeProjectList,
   TIER_LABELS,
 } from "./evaluationConfig";
 import {
@@ -155,6 +162,15 @@ const FOLLOW_UP_STAGE_COLORS: Partial<Record<FollowUpStatus, string>> = {
   document_issued: "bg-cyan-100 text-cyan-800",
 };
 
+const NO_GROUP = "(ไม่ระบุชุด)";
+const NO_PROJECT = "(ไม่ระบุโครงการ)";
+
+interface EvalEmployeeLite {
+  id: string;
+  project: string;
+  group: string;
+}
+
 const EVAL_TIER_COLORS: Record<EvalTier, string> = {
   1: "bg-amber-100 text-amber-800",
   2: "bg-orange-100 text-orange-800",
@@ -190,6 +206,8 @@ export const ApprovalCenterPage = ({
   const [users, setUsers] = useState<AppUserLite[]>([]);
   const [pendingUsers, setPendingUsers] = useState<AppUserLite[]>([]);
   const [retroLeaveRequests, setRetroLeaveRequests] = useState<RetroLeaveRequest[]>([]);
+  const [evalEmployees, setEvalEmployees] = useState<EvalEmployeeLite[]>([]);
+  const [evalScores, setEvalScores] = useState<EvalScoreRecord[]>([]);
   const [loadedSources, setLoadedSources] = useState<Set<string>>(new Set());
 
   const markLoaded = (source: string) =>
@@ -251,6 +269,38 @@ export const ApprovalCenterPage = ({
     return () => unsub();
   }, [db]);
 
+  // ใช้คำนวณว่า Tier 1/2 "ค้างอยู่กับใคร" จริง ๆ (คนที่ให้คะแนน/ข้ามครบทุกคนในชุดแล้ว ไม่ควรถูกแสดงว่ายังค้างอยู่)
+  useEffect(() => {
+    const q = query(
+      collection(db, "CMG-HR-Database", "root", "employee_data"),
+      where("สถานะพนักงาน", "==", "ทำงาน")
+    );
+    const unsub = onSnapshot(q, (snap) => {
+      const list: EvalEmployeeLite[] = snap.docs
+        .map((d) => ({ docId: d.id, ...(d.data() as any) }))
+        .filter((e) => EVALUATED_EMPLOYEE_TYPES.has(normalizeEmployeeType(e)))
+        .map((e) => ({
+          id: String(e.รหัสพนักงาน || e.docId || ""),
+          project: parseEmployeeProjectList(e.สถานะโครงการ)[0] || NO_PROJECT,
+          group: String(e["ชื่อชุด"] || "").trim() || NO_GROUP,
+        }));
+      setEvalEmployees(list);
+      markLoaded("evalEmployees");
+    });
+    return () => unsub();
+  }, [db]);
+
+  useEffect(() => {
+    const unsub = onSnapshot(
+      collection(db, "CMG-HR-Database", "root", "evaluation_scores"),
+      (snap) => {
+        setEvalScores(snap.docs.map((d) => ({ ...(d.data() as EvalScoreRecord), id: d.id })));
+        markLoaded("evalScores");
+      }
+    );
+    return () => unsub();
+  }, [db]);
+
   useEffect(() => {
     const q = query(
       collection(db, "CMG-HR-Database", "root", "users"),
@@ -290,7 +340,7 @@ export const ApprovalCenterPage = ({
     return () => unsub();
   }, [db]);
 
-  const loading = loadedSources.size < 6;
+  const loading = loadedSources.size < 8;
 
   const usersByUid = useMemo(() => {
     const map: Record<string, AppUserLite> = {};
@@ -418,6 +468,47 @@ export const ApprovalCenterPage = ({
       });
   }, [followUps, roles, isProjectScopedOnly, assignedProjects]);
 
+  // สมาชิก (employeeId) ของแต่ละชุด project+group ที่อยู่ในขอบเขตประเมิน — ใช้ตรวจว่าผู้ประเมิน Tier 1/2
+  // แต่ละคน "จัดการครบทุกคนแล้ว" (ให้คะแนนหรือกดข้าม) หรือยัง จะได้ไม่โชว์ชื่อคนที่ประเมินเสร็จแล้วว่า "ค้างอยู่"
+  const evalMembersByGroup = useMemo(() => {
+    const map: Record<string, string[]> = {};
+    evalEmployees.forEach((e) => {
+      const key = `${e.project}|||${e.group}`;
+      (map[key] ||= []).push(e.id);
+    });
+    return map;
+  }, [evalEmployees]);
+
+  // uid ของผู้ประเมินที่ถูกมอบหมายในชุดนี้ ซึ่ง "จัดการครบทุกคนแล้ว" (ให้คะแนนสมบูรณ์ หรือมาร์กข้าม) สำหรับ tier ที่ระบุ
+  // (ตรรกะเดียวกับ tier1HandledUids ใน EvaluationPage.tsx แบบย่อ — ไม่รวมกรณีคะแนนติดตัวข้ามชุด/โครงการ)
+  const handledUidsForTier = (project: string, group: string, tier: EvalTier, period: string): Set<string> => {
+    const members = evalMembersByGroup[`${project}|||${group}`] || [];
+    const byUid = new Map<string, EvalScoreRecord[]>();
+    evalScores
+      .filter(
+        (s) =>
+          s.project === project &&
+          s.group === group &&
+          s.period === period &&
+          s.tier === tier &&
+          (s.status === "submitted" || s.status === "skipped")
+      )
+      .forEach((s) => {
+        const arr = byUid.get(s.evaluatorUid) || [];
+        arr.push(s);
+        byUid.set(s.evaluatorUid, arr);
+      });
+    const handled = new Set<string>();
+    byUid.forEach((recs, evaluatorUid) => {
+      const complete = members.every((empId) => {
+        const rec = recs.find((x) => x.employeeId === empId);
+        return !!rec && (isEvalComplete(rec.scores, DEFAULT_EVAL_CRITERIA) || isSkippedRecord(rec));
+      });
+      if (complete) handled.add(evaluatorUid);
+    });
+    return handled;
+  };
+
   const evaluationItems = useMemo<ApprovalItem[]>(() => {
     return rounds.map((r) => {
       const tier = r.currentTier;
@@ -426,11 +517,16 @@ export const ApprovalCenterPage = ({
       let mine = false;
       if (tier === 1 || tier === 2) {
         const uids = (tier === 1 ? assignment?.tier1Uids : assignment?.tier2Uids) || [];
+        const handled = handledUidsForTier(r.project, r.group, tier, r.period);
+        // ค้างอยู่กับคนที่ยัง "ไม่จัดการครบ" เท่านั้น — คนที่ให้คะแนน/ข้ามครบแล้วจะไม่ถูกแสดงว่าค้าง
+        const pendingUids = uids.filter((id) => !handled.has(id));
         waitingOn =
-          uids.length > 0
-            ? uids.map((id) => userDisplayName(usersByUid[id])).join(", ")
-            : "ยังไม่ได้มอบหมาย";
-        mine = uids.includes(uid);
+          uids.length === 0
+            ? "ยังไม่ได้มอบหมาย"
+            : pendingUids.length > 0
+              ? pendingUids.map((id) => userDisplayName(usersByUid[id])).join(", ")
+              : uids.map((id) => userDisplayName(usersByUid[id])).join(", ");
+        mine = uids.includes(uid) && !handled.has(uid);
       } else if (tier === 3) {
         waitingOn = "HR / HRM";
         mine = canActTier(roles, 3);
@@ -452,7 +548,7 @@ export const ApprovalCenterPage = ({
         actionLabel: tier === 4 ? "รออนุมัติ" : "รอดำเนินการ",
       };
     });
-  }, [rounds, assignments, usersByUid, uid, roles]);
+  }, [rounds, assignments, usersByUid, uid, roles, evalMembersByGroup, evalScores]);
 
   const retroLeaveItems = useMemo<ApprovalItem[]>(() => {
     const mine = canApproveRetroLeave(roles);
