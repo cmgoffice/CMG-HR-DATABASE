@@ -83,6 +83,263 @@ const DEFAULT_COLUMNS: ColumnConfig[] = [
   { id: "สถานะโครงการ", label: "โครงการ",       visible: false, widthPx: 160, sticky: true },
 ];
 
+const getProjectShortCode = (projectName: string): string => {
+  const cleanProjectNo = projectName.includes(' - ') ? projectName.split(' - ')[0] : projectName;
+  const match = cleanProjectNo.match(/PRJ-\d{4}-([A-Z]+)-0*(\d+[A-Z]*)$/i);
+  if (match) {
+    const letter = match[1].toUpperCase();
+    let number = match[2];
+    if (/^\d+$/.test(number)) number = number.padStart(2, '0');
+    else {
+      const numMatch = number.match(/^(\d+)([A-Z]+)$/i);
+      if (numMatch) number = numMatch[1].padStart(2, '0') + numMatch[2].toUpperCase();
+    }
+    return `${letter}${number}`;
+  }
+  return projectName;
+};
+
+const getOTStyles = (type: string, isToday: boolean, locked: boolean) => {
+  let bg = "", text = "";
+  if (type === 'x2') {
+    bg = locked ? "bg-orange-100" : "bg-orange-100 hover:bg-orange-200";
+    if (isToday) bg = locked ? "bg-orange-200 border border-gray-300" : "bg-orange-200 hover:bg-orange-300 border border-gray-300";
+    text = "text-orange-700 font-semibold";
+  } else { // x1.5
+    bg = locked ? "bg-fuchsia-100" : "bg-fuchsia-100 hover:bg-fuchsia-200";
+    if (isToday) bg = locked ? "bg-fuchsia-200 border border-gray-300" : "bg-fuchsia-200 hover:bg-fuchsia-300 border border-gray-300";
+    text = "text-purple-700 font-semibold";
+  }
+  return { bg, text };
+};
+
+interface OvertimeCellProps {
+  employeeId: string;
+  dateStr: string;
+  entry?: OvertimeEntry;
+  canEdit: boolean;
+  isOtherProject: boolean;
+  locked: boolean;
+  isToday: boolean;
+  isWeekend: boolean;
+  employee: Employee;
+  handleOvertimeChange: (
+    employeeId: string,
+    dateStr: string,
+    isOtherProject: boolean,
+    newHours: string,
+    newType?: string
+  ) => void;
+  filterOtType: string;
+  dayOffName?: string;
+  weeklyHours?: number;
+  weeklyCapHours?: number;
+}
+
+const OvertimeCell: React.FC<OvertimeCellProps> = React.memo(({
+  employeeId,
+  dateStr,
+  entry,
+  canEdit,
+  isOtherProject,
+  locked,
+  isToday,
+  isWeekend,
+  employee,
+  handleOvertimeChange,
+  filterOtType,
+  dayOffName,
+  weeklyHours,
+  weeklyCapHours,
+}) => {
+  const [localVal, setLocalVal] = useState(entry?.hours || "");
+  const [localType, setLocalType] = useState(entry?.type || "x1.5");
+  const [showPopup, setShowPopup] = useState(false);
+
+  useEffect(() => {
+    setLocalVal(entry?.hours || "");
+    setLocalType(entry?.type || "x1.5");
+  }, [entry?.hours, entry?.type]);
+
+  const commitValue = useCallback((valToCommit: string, typeToCommit: string) => {
+    if (!canEdit) return "";
+    let finalVal = valToCommit.trim();
+    if (finalVal !== "") {
+      const num = parseFloat(finalVal);
+      if (!isNaN(num) && num > 0) {
+        finalVal = num % 1 === 0 ? num.toFixed(1) : num.toString();
+      } else {
+        finalVal = "";
+      }
+    }
+    setLocalVal(finalVal);
+    if (finalVal !== (entry?.hours || "") || typeToCommit !== (entry?.type || "x1.5")) {
+      handleOvertimeChange(employeeId, dateStr, isOtherProject, finalVal, typeToCommit);
+    }
+    return finalVal;
+  }, [canEdit, employeeId, dateStr, isOtherProject, entry?.hours, entry?.type, handleOvertimeChange]);
+
+  const handleBlur = () => {
+    if (!canEdit) return;
+    setTimeout(() => setShowPopup(false), 150);
+    commitValue(localVal, localType);
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Enter" || e.key === "ArrowDown") {
+      e.preventDefault();
+      setShowPopup(false);
+      commitValue(localVal, localType);
+
+      const inputs = Array.from(
+        document.querySelectorAll(`input[data-date="${dateStr}"]`)
+      ) as HTMLInputElement[];
+      const currentIdx = inputs.indexOf(e.currentTarget);
+      if (currentIdx !== -1 && currentIdx < inputs.length - 1) {
+        const nextInput = inputs[currentIdx + 1];
+        nextInput.focus();
+        nextInput.select();
+      } else {
+        e.currentTarget.blur();
+      }
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      setShowPopup(false);
+      commitValue(localVal, localType);
+
+      const inputs = Array.from(
+        document.querySelectorAll(`input[data-date="${dateStr}"]`)
+      ) as HTMLInputElement[];
+      const currentIdx = inputs.indexOf(e.currentTarget);
+      if (currentIdx !== -1 && currentIdx > 0) {
+        const prevInput = inputs[currentIdx - 1];
+        prevInput.focus();
+        prevInput.select();
+      }
+    }
+  };
+
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const v = e.target.value;
+    if (v === "" || /^\d*\.?\d*$/.test(v)) {
+      setLocalVal(v);
+    }
+  };
+
+  let bg = dayOffName ? "bg-fuchsia-50 hover:bg-fuchsia-100" : (isWeekend ? "bg-gray-100" : "bg-white hover:bg-gray-50");
+  let textCls = "text-purple-700 font-semibold";
+
+  if (isToday && !localVal) {
+    bg = "bg-blue-100 hover:bg-blue-200 border border-gray-300";
+  }
+
+  let tooltipExtra = "";
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const targetDate = new Date(dateStr); targetDate.setHours(0, 0, 0, 0);
+  const isFuture = targetDate > today;
+
+  if (isFuture) {
+    bg = "bg-gray-50";
+    tooltipExtra = " ⏭️ ไม่สามารถลงล่วงหน้าได้";
+  } else if (isOtherProject) {
+    bg = locked ? "bg-green-100" : "bg-green-100 hover:bg-green-200";
+    textCls = "text-green-700 font-semibold";
+    if (isToday) bg = locked ? "bg-green-200 border border-gray-300" : "bg-green-200 hover:bg-green-300 border border-gray-300";
+    tooltipExtra = ` 📍 มีโอทีที่โครงการ: ${entry?.project}`;
+  } else if (localVal || localType !== "x1.5") {
+    if (filterOtType !== "all" && localType !== filterOtType) {
+      bg = isWeekend ? "bg-gray-100" : (locked ? "bg-gray-50" : "bg-white hover:bg-gray-50");
+      textCls = "text-gray-400";
+      if (isToday) bg = "bg-blue-50 border border-gray-300";
+    } else {
+      const styles = getOTStyles(localType, isToday, locked);
+      bg = styles.bg;
+      textCls = styles.text;
+    }
+
+    if (!locked) {
+      const remaining = 24 * 60 * 60 * 1000 - (Date.now() - (entry?.recordedAt || 0));
+      const hrs = Math.floor(remaining / 3_600_000);
+      const mins = Math.floor((remaining % 3_600_000) / 60_000);
+      tooltipExtra = ` (แก้ไขได้อีก ${hrs}ชม. ${mins}น.)`;
+    } else {
+      tooltipExtra = " 🔒 ล็อคแล้ว";
+    }
+  }
+
+  if (dayOffName) {
+    tooltipExtra = ` 🌴 ${dayOffName}` + tooltipExtra;
+  }
+
+  if (isToday) tooltipExtra = " 📅 วันนี้" + tooltipExtra;
+
+  const weeklyWarning = typeof weeklyHours === "number" && typeof weeklyCapHours === "number" ? (
+    <span className="absolute top-0 right-0 leading-none pointer-events-none" style={{ transform: "translate(15%, -25%)" }}>
+      <WeeklyOvertimeWarningIcon weeklyHours={weeklyHours} weeklyCapHours={weeklyCapHours} size={9} />
+    </span>
+  ) : null;
+
+  if (isOtherProject || !canEdit) {
+    return (
+      <td
+        className={`border border-gray-200 text-center select-none ${bg} ${textCls} cursor-not-allowed opacity-60 relative`}
+        style={{ minWidth: 40, maxWidth: 40, width: 40, padding: 0, fontSize: 10, height: 24 }}
+        title={`${dateStr}${tooltipExtra}`}
+      >
+        {isOtherProject ? getProjectShortCode(entry?.project || "") : localVal}
+        {weeklyWarning}
+      </td>
+    );
+  }
+
+  return (
+    <td
+      className={`border border-gray-200 text-center transition-colors p-0 relative ${bg} focus-within:ring-2 focus-within:ring-inset focus-within:ring-purple-500`}
+      style={{ minWidth: 40, maxWidth: 40, width: 40, height: 24 }}
+      title={`${dateStr}${tooltipExtra}`}
+    >
+      {weeklyWarning}
+      <input
+        data-date={dateStr}
+        type="text"
+        inputMode="decimal"
+        value={localVal}
+        onChange={handleChange}
+        onFocus={(e) => {
+          setShowPopup(true);
+          e.currentTarget.select();
+        }}
+        onBlur={handleBlur}
+        onKeyDown={handleKeyDown}
+        className={`relative z-10 w-full h-full text-center bg-transparent outline-none ${textCls} text-[10px] m-0 p-0 select-all`}
+      />
+      {showPopup && (
+        <div className="absolute top-full left-1/2 -translate-x-1/2 mt-1 z-50 bg-white shadow-xl border border-gray-200 rounded p-1 flex gap-1 items-center">
+          {['x1.5', 'x2'].map((t) => (
+            <button
+              key={t}
+              type="button"
+              tabIndex={-1}
+              onMouseDown={(e) => {
+                e.preventDefault();
+                setLocalType(t);
+                commitValue(localVal, t);
+              }}
+              className={`px-2 py-1 text-[10px] rounded border transition-colors ${
+                localType === t 
+                  ? 'bg-purple-500 text-white border-purple-500 font-bold' 
+                  : 'bg-gray-50 text-gray-700 border-gray-200 hover:bg-gray-100'
+              }`}
+            >
+              {t}
+            </button>
+          ))}
+        </div>
+      )}
+    </td>
+  );
+});
+
 export const OvertimePage = ({ projectOptions }: { projectOptions: string[] }) => {
   const { firebaseUser, userProfile, hasRole } = useAuth();
   const db = getFirestore();
@@ -411,22 +668,6 @@ export const OvertimePage = ({ projectOptions }: { projectOptions: string[] }) =
     });
   }, [db, firebaseUser, selectedProject]);
 
-  const getProjectShortCode = (projectName: string): string => {
-    const cleanProjectNo = projectName.includes(' - ') ? projectName.split(' - ')[0] : projectName;
-    const match = cleanProjectNo.match(/PRJ-\d{4}-([A-Z]+)-0*(\d+[A-Z]*)$/i);
-    if (match) {
-      const letter = match[1].toUpperCase();
-      let number = match[2];
-      if (/^\d+$/.test(number)) number = number.padStart(2, '0');
-      else {
-        const numMatch = number.match(/^(\d+)([A-Z]+)$/i);
-        if (numMatch) number = numMatch[1].padStart(2, '0') + numMatch[2].toUpperCase();
-      }
-      return `${letter}${number}`;
-    }
-    return projectName;
-  };
-
   const changeMonth = (offset: number) => {
     setCurrentMonth((prev) => {
       const d = new Date(prev);
@@ -455,183 +696,6 @@ export const OvertimePage = ({ projectOptions }: { projectOptions: string[] }) =
       return col;
     });
   }, [columns]);
-
-  const getOTStyles = (type: string, isToday: boolean, locked: boolean) => {
-    let bg = "", text = "";
-    if (type === 'x2') {
-      bg = locked ? "bg-orange-100" : "bg-orange-100 hover:bg-orange-200";
-      if (isToday) bg = locked ? "bg-orange-200 border border-gray-300" : "bg-orange-200 hover:bg-orange-300 border border-gray-300";
-      text = "text-orange-700 font-semibold";
-    } else { // x1.5
-      bg = locked ? "bg-fuchsia-100" : "bg-fuchsia-100 hover:bg-fuchsia-200";
-      if (isToday) bg = locked ? "bg-fuchsia-200 border border-gray-300" : "bg-fuchsia-200 hover:bg-fuchsia-300 border border-gray-300";
-      text = "text-purple-700 font-semibold";
-    }
-    return { bg, text };
-  };
-
-  // --- Overtima Input Component ---
-  const OvertimeCell = ({ 
-    employeeId, dateStr, entry, canEdit, isOtherProject, locked, isToday, isWeekend, employee, handleOvertimeChange, filterOtType, dayOffName, weeklyHours, weeklyCapHours
-  }: any) => {
-    const [localVal, setLocalVal] = useState(entry?.hours || "");
-    const [localType, setLocalType] = useState(entry?.type || "x1.5");
-    const [showPopup, setShowPopup] = useState(false);
-
-    useEffect(() => {
-      setLocalVal(entry?.hours || "");
-      setLocalType(entry?.type || "x1.5");
-    }, [entry?.hours, entry?.type]);
-
-    const handleBlur = () => {
-      if (!canEdit) return;
-      // Delay closing popup slightly to allow clicks on popup buttons
-      setTimeout(() => setShowPopup(false), 150);
-      
-      let finalVal = localVal.trim();
-      if (finalVal !== "") {
-        const num = parseFloat(finalVal);
-        if (!isNaN(num)) {
-          finalVal = num.toFixed(1);
-        } else {
-          finalVal = "";
-        }
-      }
-      setLocalVal(finalVal);
-      if (finalVal !== (entry?.hours || "") || localType !== (entry?.type || "x1.5")) {
-        handleOvertimeChange(employeeId, dateStr, isOtherProject, finalVal, localType);
-      }
-    };
-
-    const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-      if (e.key === "Enter" || e.key === "ArrowDown") {
-        e.preventDefault();
-        (e.target as HTMLInputElement).blur();
-        const inputs = Array.from(document.querySelectorAll(`input[data-date="${dateStr}"]`)) as HTMLInputElement[];
-        const currentIdx = inputs.indexOf(e.currentTarget);
-        if (currentIdx !== -1 && currentIdx < inputs.length - 1) inputs[currentIdx + 1].focus();
-      } else if (e.key === "ArrowUp") {
-        e.preventDefault();
-        (e.target as HTMLInputElement).blur();
-        const inputs = Array.from(document.querySelectorAll(`input[data-date="${dateStr}"]`)) as HTMLInputElement[];
-        const currentIdx = inputs.indexOf(e.currentTarget);
-        if (currentIdx !== -1 && currentIdx > 0) inputs[currentIdx - 1].focus();
-      }
-    };
-
-    let bg = dayOffName ? "bg-fuchsia-50 hover:bg-fuchsia-100" : (isWeekend ? "bg-gray-100" : "bg-white hover:bg-gray-50");
-    let textCls = "text-purple-700 font-semibold";
-    
-    if (isToday && !localVal) {
-      bg = "bg-blue-100 hover:bg-blue-200 border border-gray-300";
-    }
-
-    let tooltipExtra = "";
-    const today = new Date(); today.setHours(0, 0, 0, 0);
-    const targetDate = new Date(dateStr); targetDate.setHours(0, 0, 0, 0);
-    const isFuture = targetDate > today;
-
-    if (isFuture) {
-      bg = "bg-gray-50";
-      tooltipExtra = " ⏭️ ไม่สามารถลงล่วงหน้าได้";
-    } else if (isOtherProject) {
-      bg = locked ? "bg-green-100" : "bg-green-100 hover:bg-green-200";
-      textCls = "text-green-700 font-semibold";
-      if (isToday) bg = locked ? "bg-green-200 border border-gray-300" : "bg-green-200 hover:bg-green-300 border border-gray-300";
-      tooltipExtra = ` 📍 มีโอทีที่โครงการ: ${entry?.project}`;
-    } else if (localVal || localType !== "x1.5") {
-      if (filterOtType !== "all" && localType !== filterOtType) {
-        // Un-highlight if it doesn't match the selected filter
-        bg = isWeekend ? "bg-gray-100" : (locked ? "bg-gray-50" : "bg-white hover:bg-gray-50");
-        textCls = "text-gray-400";
-        if (isToday) bg = "bg-blue-50 border border-gray-300";
-      } else {
-        // Pastel coloring for overtime based on type
-        const styles = getOTStyles(localType, isToday, locked);
-        bg = styles.bg;
-        textCls = styles.text;
-      }
-      
-      if (!locked) {
-        const remaining = 24 * 60 * 60 * 1000 - (Date.now() - (entry?.recordedAt || 0));
-        const hrs = Math.floor(remaining / 3_600_000);
-        const mins = Math.floor((remaining % 3_600_000) / 60_000);
-        tooltipExtra = ` (แก้ไขได้อีก ${hrs}ชม. ${mins}น.)`;
-      } else {
-        tooltipExtra = " 🔒 ล็อคแล้ว";
-      }
-    }
-
-    if (dayOffName) {
-      tooltipExtra = ` 🌴 ${dayOffName}` + tooltipExtra;
-    }
-
-    if (isToday) tooltipExtra = " 📅 วันนี้" + tooltipExtra;
-
-    const weeklyWarning = typeof weeklyHours === "number" && typeof weeklyCapHours === "number" ? (
-      <span className="absolute top-0 right-0 leading-none pointer-events-none" style={{ transform: "translate(15%, -25%)" }}>
-        <WeeklyOvertimeWarningIcon weeklyHours={weeklyHours} weeklyCapHours={weeklyCapHours} size={9} />
-      </span>
-    ) : null;
-
-    if (isOtherProject || !canEdit) {
-      return (
-        <td
-          className={`border border-gray-200 text-center select-none ${bg} ${textCls} cursor-not-allowed opacity-60 relative`}
-          style={{ minWidth: 40, maxWidth: 40, width: 40, padding: 0, fontSize: 10, height: 24 }}
-          title={`${dateStr}${tooltipExtra}`}
-        >
-          {isOtherProject ? getProjectShortCode(entry?.project || "") : localVal}
-          {weeklyWarning}
-        </td>
-      );
-    }
-
-    return (
-      <td
-        className={`border border-gray-200 text-center transition-colors p-0 relative ${bg} focus-within:ring-2 focus-within:ring-inset focus-within:ring-purple-500`}
-        style={{ minWidth: 40, maxWidth: 40, width: 40, height: 24 }}
-        title={`${dateStr}${tooltipExtra}`}
-      >
-        {weeklyWarning}
-        <input
-          data-date={dateStr}
-          type="number"
-          step="0.1"
-          value={localVal}
-          onChange={(e) => setLocalVal(e.target.value)}
-          onFocus={() => setShowPopup(true)}
-          onBlur={handleBlur}
-          onKeyDown={handleKeyDown}
-          className={`relative z-10 w-full h-full text-center bg-transparent outline-none ${textCls} text-[10px] m-0 p-0`}
-          style={{ appearance: 'textfield' }} // Remove browser spinners if possible
-        />
-        {showPopup && (
-          <div className="absolute top-full left-1/2 -translate-x-1/2 mt-1 z-50 bg-white shadow-xl border border-gray-200 rounded p-1 flex gap-1 items-center">
-            {['x1.5', 'x2'].map((t) => (
-              <button
-                key={t}
-                type="button"
-                tabIndex={-1}
-                onMouseDown={(e) => {
-                  e.preventDefault();
-                  setLocalType(t);
-                  // Keep focus on input, type will be saved on blur
-                }}
-                className={`px-2 py-1 text-[10px] rounded border transition-colors ${
-                  localType === t 
-                    ? 'bg-purple-500 text-white border-purple-500 font-bold' 
-                    : 'bg-gray-50 text-gray-700 border-gray-200 hover:bg-gray-100'
-                }`}
-              >
-                {t}
-              </button>
-            ))}
-          </div>
-        )}
-      </td>
-    );
-  };
 
   const renderStatusCell = (employeeId: string, dateStr: string, isWeekend: boolean, isToday: boolean, employee: Employee) => {
     const entry = overtimeData[dateStr]?.[employeeId];
@@ -795,7 +859,9 @@ export const OvertimePage = ({ projectOptions }: { projectOptions: string[] }) =
             {item.desc && <span className="text-gray-600">{item.desc}</span>}
           </div>
         ))}
-        <span className="text-gray-400 ml-auto">🔒 = ล็อคหลังกรอก 24 ชม.</span>
+        <span className="text-gray-400 ml-auto">
+          🔒 = ล็อคหลังกรอก 24 ชม. | คีย์ลัด: ใส่เลขแล้วกด Enter เพื่อลงแถวล่าง (ลูกศรขึ้น/ลง เพื่อเลื่อนช่อง)
+        </span>
       </div>
 
       {/* ── Legend: เพดาน OT ── */}
