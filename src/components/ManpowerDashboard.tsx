@@ -496,6 +496,15 @@ const extractProjectPosition = (
 const projectListIncludes = (projects: string[], target: string): boolean =>
   projects.some((project) => projectsMatch(project, target));
 
+// "ลา½" = ลาครึ่งวัน — นับเป็นวันลาแบบถ่วงน้ำหนัก 0.5 วัน (ไม่ใช่วันลาเต็ม 1 วัน)
+// ในทุกจุดที่ต้องนับ/แสดงจำนวนวันลา ให้ใช้ isLeaveStatus() เพื่อตรวจว่าเป็นสถานะลา (เต็มวันหรือครึ่งวัน)
+// และใช้ leaveWeight() แทนการ ++ ตรงๆ เพื่อให้ลาครึ่งวันนับได้ถูกต้องเป็น 0.5
+const HALF_DAY_LEAVE_STATUS = "ลา½";
+const isLeaveStatus = (status: string | undefined | null): boolean =>
+  status === "ลา" || status === HALF_DAY_LEAVE_STATUS;
+const leaveWeight = (status: string | undefined | null): number =>
+  status === HALF_DAY_LEAVE_STATUS ? 0.5 : status === "ลา" ? 1 : 0;
+
 const safeNumber = (value: unknown): number => {
   if (typeof value === "number") return Number.isFinite(value) ? value : 0;
   const parsed = Number(String(value || "").replace(/,/g, ""));
@@ -1506,7 +1515,7 @@ export const ManpowerDashboard = ({
       fullName: string;
       position: string;
       employeeType: string;
-      status: "ไม่มา" | "ลา";
+      status: "ไม่มา" | "ลา" | "ลา½";
       projectNames: string[];
     }> = [];
 
@@ -1597,10 +1606,11 @@ export const ManpowerDashboard = ({
             if (projectRiskMap[project]) projectRiskMap[project].absent++;
             if (projectDailyStats[project]?.[date]) projectDailyStats[project][date].absent++;
           });
-        } else if (attendance?.status === "ลา") {
-          leave++;
-          dayLeave++;
-          metrics.leaveDays++;
+        } else if (isLeaveStatus(attendance?.status)) {
+          const weight = leaveWeight(attendance?.status);
+          leave += weight;
+          dayLeave += weight;
+          metrics.leaveDays += weight;
           metrics.latestIncidentDate = date;
           if (date === todayReferenceDate) {
             todayAbsentLeaveRows.push({
@@ -1609,13 +1619,13 @@ export const ManpowerDashboard = ({
               fullName: getEmployeeName(emp),
               position: String(emp["ตำแหน่ง"] || "-"),
               employeeType: normalizeEmployeeType(emp),
-              status: "ลา",
+              status: attendance?.status === HALF_DAY_LEAVE_STATUS ? HALF_DAY_LEAVE_STATUS : "ลา",
               projectNames: assignedProjects,
             });
           }
           assignedProjects.forEach((project) => {
-            if (projectRiskMap[project]) projectRiskMap[project].leave++;
-            if (projectDailyStats[project]?.[date]) projectDailyStats[project][date].leave++;
+            if (projectRiskMap[project]) projectRiskMap[project].leave += weight;
+            if (projectDailyStats[project]?.[date]) projectDailyStats[project][date].leave += weight;
           });
         } else if (attendance?.status === "H") {
           // วันหยุดพนักงาน (รายบุคคล) — ไม่นับขาด ไม่นับค้างลงเวลา และตัดออกจากตัวหารของอัตราต่างๆ
@@ -1707,12 +1717,13 @@ export const ManpowerDashboard = ({
             if (followUpProjectRiskMap[project]) followUpProjectRiskMap[project].absent++;
             if (followUpProjectDailyStats[project]?.[date]) followUpProjectDailyStats[project][date].absent++;
           });
-        } else if (attendance?.status === "ลา") {
-          metrics.leaveDays++;
+        } else if (isLeaveStatus(attendance?.status)) {
+          const weight = leaveWeight(attendance?.status);
+          metrics.leaveDays += weight;
           metrics.latestIncidentDate = date;
           assignedProjects.forEach((project) => {
-            if (followUpProjectRiskMap[project]) followUpProjectRiskMap[project].leave++;
-            if (followUpProjectDailyStats[project]?.[date]) followUpProjectDailyStats[project][date].leave++;
+            if (followUpProjectRiskMap[project]) followUpProjectRiskMap[project].leave += weight;
+            if (followUpProjectDailyStats[project]?.[date]) followUpProjectDailyStats[project][date].leave += weight;
           });
         } else if (attendance?.status === "H") {
           // วันหยุดพนักงาน (รายบุคคล) — ไม่นับขาด ไม่นับค้างลงเวลา และตัดออกจากตัวหารของอัตราต่างๆ
@@ -2218,13 +2229,14 @@ export const ManpowerDashboard = ({
           counts.forEach((row) => { row.absent++; });
           if (groupStats) groupStats.absent++;
           if (posGroupStats) posGroupStats.absent++;
-        } else if (attendance?.status === "ลา") {
-          leave++;
-          dayLeave++;
-          employeeRisk.leaveDays++;
-          counts.forEach((row) => { row.leave++; });
-          if (groupStats) groupStats.leave++;
-          if (posGroupStats) posGroupStats.leave++;
+        } else if (isLeaveStatus(attendance?.status)) {
+          const weight = leaveWeight(attendance?.status);
+          leave += weight;
+          dayLeave += weight;
+          employeeRisk.leaveDays += weight;
+          counts.forEach((row) => { row.leave += weight; });
+          if (groupStats) groupStats.leave += weight;
+          if (posGroupStats) posGroupStats.leave += weight;
         } else if (attendance?.status === "H") {
           // วันหยุดพนักงาน (รายบุคคล) — ไม่นับในบัคเก็ตไหนเลย ทำให้ตัดออกจากตัวหาร (slots) ของตารางนี้โดยอัตโนมัติ
         } else {
@@ -2321,7 +2333,7 @@ export const ManpowerDashboard = ({
             row.pendingDetails.push({ date, type: "wrong", project: attendance?.project });
           }
           else if (attendance?.status === "ไม่มา") row.absentDays++;
-          else if (attendance?.status === "ลา") row.leaveDays++;
+          else if (isLeaveStatus(attendance?.status)) row.leaveDays += leaveWeight(attendance?.status);
           else if (attendance?.status === "H") { /* วันหยุดพนักงาน — ไม่นับเป็นบัคเก็ตไหน */ }
           else {
             row.notRecordedDays++;
@@ -2426,7 +2438,7 @@ export const ManpowerDashboard = ({
     const todayAbsentLeaveProjectRows = scopedEmployees
       .map((emp) => {
         const attendance = attendanceByDate[todayReferenceDate]?.[emp.id];
-        if (attendance?.status !== "ไม่มา" && attendance?.status !== "ลา") return null;
+        if (attendance?.status !== "ไม่มา" && !isLeaveStatus(attendance?.status)) return null;
         const positionStr = selectedProject
           ? extractProjectPosition(emp.สถานะโครงการ, selectedProject, String(emp["ตำแหน่ง"] || "ไม่ระบุ"))
           : String(emp["ตำแหน่ง"] || "ไม่ระบุ");
@@ -2439,7 +2451,7 @@ export const ManpowerDashboard = ({
           status: attendance.status,
         };
       })
-      .filter((row): row is { employeeId: string; employeeCode: string; fullName: string; position: string; employeeType: string; status: "ไม่มา" | "ลา" } => row !== null)
+      .filter((row): row is { employeeId: string; employeeCode: string; fullName: string; position: string; employeeType: string; status: "ไม่มา" | "ลา" | "ลา½" } => row !== null)
       .sort((a, b) => (a.status === b.status ? a.fullName.localeCompare(b.fullName, "th") : a.status === "ไม่มา" ? -1 : 1));
 
     const coverageByType: CoverageInsightRow[] = Object.values(breakdownByType)
@@ -3409,7 +3421,7 @@ export const ManpowerDashboard = ({
               const status = attendance?.status || "ค้างลงเวลา";
               const notes: string[] = [];
               if (status === "ไม่มา") notes.push("ขาด");
-              if (status === "ลา") notes.push("ลา");
+              if (isLeaveStatus(status)) notes.push(status === HALF_DAY_LEAVE_STATUS ? "ลาครึ่งวัน" : "ลา");
               if (!attendance) notes.push("ค้างลงเวลา");
               if (attendance?.project && activeRisk.projectNames.length > 0 && !projectListIncludes(activeRisk.projectNames, attendance.project)) {
                 notes.push(`ลง ${attendance.project}`);
@@ -3695,7 +3707,7 @@ export const ManpowerDashboard = ({
               if (attendance?.status === "มา" && (!attendance.project || projectsMatch(attendance.project, selectedProject))) present++;
               else if (attendance?.status === "มา" && attendance.project && !projectsMatch(attendance.project, selectedProject)) wrongProject++;
               else if (attendance?.status === "ไม่มา") absent++;
-              else if (attendance?.status === "ลา") leave++;
+              else if (isLeaveStatus(attendance?.status)) leave += leaveWeight(attendance?.status);
               else if (attendance?.status === "H") { /* วันหยุดพนักงาน — ไม่นับเป็นบัคเก็ตไหน */ }
               else notRecorded++;
               const overtimeHours = safeNumber(overtime?.hours);
@@ -3875,7 +3887,7 @@ export const ManpowerDashboard = ({
               if (attendance?.status === "มา" && (!attendance.project || projectsMatch(attendance.project, selectedProject))) present++;
               else if (attendance?.status === "มา" && attendance.project && !projectsMatch(attendance.project, selectedProject)) wrongProject++;
               else if (attendance?.status === "ไม่มา") absent++;
-              else if (attendance?.status === "ลา") leave++;
+              else if (isLeaveStatus(attendance?.status)) leave += leaveWeight(attendance?.status);
               else if (attendance?.status === "H") { /* วันหยุดพนักงาน — ไม่นับเป็นบัคเก็ตไหน */ }
               else notRecorded++;
               const overtimeHours = safeNumber(overtime?.hours);
