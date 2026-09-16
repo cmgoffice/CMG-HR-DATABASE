@@ -640,6 +640,11 @@ const computeNationalityBreakdown = (employeeList: Employee[]) => {
 
 type NationalityBreakdown = ReturnType<typeof computeNationalityBreakdown>;
 
+// เหมือน computeNationalityBreakdown แต่ไม่นับพนักงาน DC ที่มีสถานะกลุ่มงาน Staff (DC Daily - Staff) เลย
+// (ใช้กับการ์ด "สัดส่วนกำลังคนทั้งหมด/สัดส่วนกำลังคน (แบ่งตามประเภท)" และ "สัดส่วนกลุ่มแรงงาน Thai และ Foreigner")
+const computeEmployeeTypeBreakdown = (employeeList: Employee[]) =>
+  computeNationalityBreakdown(employeeList.filter((emp) => normalizeEmployeeType(emp) !== "DC Daily - Staff"));
+
 const buildEmployeeTypeDonutData = (breakdown: NationalityBreakdown) => [
   { name: "DC (รวม)", value: breakdown.dcTotal, color: "#2563eb" },
   { name: "Supply Thai", value: breakdown.supplyThai, color: "#22c55e" },
@@ -2561,7 +2566,8 @@ export const ManpowerDashboard = ({
   );
 
   // สรุปสัดส่วนกำลังคนตาม DC / Supply Thai / Supply Foreigner และ Thai / Foreigner ทั้งหมด (ภาพรวมทุกโครงการ)
-  const nationalityBreakdown = useMemo(() => computeNationalityBreakdown(employees), [employees]);
+  // ไม่นับ DC ที่มีสถานะกลุ่มงาน Staff (DC Daily - Staff) ในการ์ดสรุปทั้งสอง
+  const nationalityBreakdown = useMemo(() => computeEmployeeTypeBreakdown(employees), [employees]);
 
   const employeeTypeDonutData = useMemo(() => buildEmployeeTypeDonutData(nationalityBreakdown), [nationalityBreakdown]);
 
@@ -2569,7 +2575,7 @@ export const ManpowerDashboard = ({
 
   // สรุปเดียวกัน แต่ scoped เฉพาะโครงการที่เลือก (ใช้ในโหมด Project Dashboard)
   const projectNationalityBreakdown = useMemo(
-    () => computeNationalityBreakdown(projectData.scopedEmployees),
+    () => computeEmployeeTypeBreakdown(projectData.scopedEmployees),
     [projectData.scopedEmployees]
   );
 
@@ -4357,7 +4363,7 @@ export const ManpowerDashboard = ({
                 <SectionCard
                   title="สัดส่วนกำลังคนทั้งหมด (แบ่งตามประเภท)"
                   subtitle={`รวมทั้งสิ้น ${nationalityBreakdown.grandTotal} คน`}
-                  tooltip="DC (รวม) = พนักงานกลุ่ม DC Daily ทั้งหมด, Supply Thai/Foreigner = พนักงานกลุ่ม Supply manpower แยกตามสัญชาติ (ต้องกรอกฟิลด์ 'สัญชาติ' ในข้อมูลพนักงาน)"
+                  tooltip="DC (รวม) = พนักงานกลุ่ม DC Daily ทั้งหมด ไม่รวม DC ที่มีสถานะกลุ่มงาน Staff, Supply Thai/Foreigner = พนักงานกลุ่ม Supply manpower แยกตามสัญชาติ (ต้องกรอกฟิลด์ 'สัญชาติ' ในข้อมูลพนักงาน)"
                 >
                   <div className="flex flex-col sm:flex-row items-center gap-3">
                     <div className="w-full sm:w-1/2">
@@ -4421,7 +4427,7 @@ export const ManpowerDashboard = ({
                 <SectionCard
                   title="สัดส่วนกลุ่มแรงงาน Thai และ Foreigner (ทั้งหมด)"
                   subtitle={`รวมทั้งสิ้น ${nationalityBreakdown.grandTotal} คน`}
-                  tooltip="สรุปจำนวนพนักงานทั้งหมดแยกตามสัญชาติไทย/ต่างชาติ โดยไม่แยกประเภทงาน (ต้องกรอกฟิลด์ 'สัญชาติ' ในข้อมูลพนักงาน)"
+                  tooltip="สรุปจำนวนพนักงานทั้งหมดแยกตามสัญชาติไทย/ต่างชาติ โดยไม่แยกประเภทงาน ไม่นับ DC ที่มีสถานะกลุ่มงาน Staff (ต้องกรอกฟิลด์ 'สัญชาติ' ในข้อมูลพนักงาน)"
                 >
                   <DonutChart
                     data={nationalityDonutData}
@@ -4883,7 +4889,7 @@ export const ManpowerDashboard = ({
             <SectionCard
               title="สัดส่วนกำลังคน (แบ่งตามประเภท)"
               subtitle={`โครงการ ${selectedProjectLabel || "-"} · รวม ${projectNationalityBreakdown.grandTotal} คน`}
-              tooltip="DC (รวม) = พนักงานกลุ่ม DC Daily ทั้งหมดในโครงการนี้, Supply Thai/Foreigner = พนักงานกลุ่ม Supply manpower แยกตามสัญชาติ (ต้องกรอกฟิลด์ 'สัญชาติ' ในข้อมูลพนักงาน)"
+              tooltip="DC (รวม) = พนักงานกลุ่ม DC Daily ในโครงการนี้ ไม่รวม DC ที่มีสถานะกลุ่มงาน Staff, Supply Thai/Foreigner = พนักงานกลุ่ม Supply manpower แยกตามสัญชาติ (ต้องกรอกฟิลด์ 'สัญชาติ' ในข้อมูลพนักงาน)"
             >
               {projectNationalityBreakdown.grandTotal === 0 ? (
                 <div className="text-sm text-slate-500">ยังไม่มีพนักงานในโครงการนี้</div>
@@ -4953,7 +4959,7 @@ export const ManpowerDashboard = ({
             <SectionCard
               title="สัดส่วนกลุ่มแรงงาน Thai และ Foreigner"
               subtitle={`โครงการ ${selectedProjectLabel || "-"} · รวม ${projectNationalityBreakdown.grandTotal} คน`}
-              tooltip="สรุปจำนวนพนักงานในโครงการนี้แยกตามสัญชาติไทย/ต่างชาติ โดยไม่แยกประเภทงาน (ต้องกรอกฟิลด์ 'สัญชาติ' ในข้อมูลพนักงาน)"
+              tooltip="สรุปจำนวนพนักงานในโครงการนี้แยกตามสัญชาติไทย/ต่างชาติ โดยไม่แยกประเภทงาน ไม่นับ DC ที่มีสถานะกลุ่มงาน Staff (ต้องกรอกฟิลด์ 'สัญชาติ' ในข้อมูลพนักงาน)"
             >
               {projectNationalityBreakdown.grandTotal === 0 ? (
                 <div className="text-sm text-slate-500">ยังไม่มีพนักงานในโครงการนี้</div>
