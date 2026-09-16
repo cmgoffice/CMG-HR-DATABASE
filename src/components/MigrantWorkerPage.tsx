@@ -73,13 +73,18 @@ const EMPLOYEE_TYPE_OPTIONS = [
   { value: "Direct_SubContractor", label: "Direct: Sub Contractor" },
 ];
 
-// รหัสประเภทพนักงาน แยกกลุ่มให้อ่านง่าย: DC (Direct/รายวัน) กับ SC (Sub Contractor)
+// รหัสประเภทพนักงาน แยกกลุ่มให้อ่านง่าย: DC Daily (Team Leader) / Supply DC / SC (Sub Contractor)
+// ไม่รวม Indirect (Staff Monthly) เพราะแรงงานต่างด้าวแทบไม่มีในกลุ่มนี้
 const EMPLOYEE_TYPE_GROUPS: Array<{ key: string; label: string; match: (type: string) => boolean }> = [
-  { key: "Indirect", label: "Indirect (Staff Monthly)", match: (t) => t === "Indirect" },
   {
     key: "DC",
-    label: "DC (Direct: Team Leader / Supply DC)",
-    match: (t) => t === "Direct_TeamLeader" || t === "Direct_SupplyDC" || t.includes("Team Leader") || t.includes("Supply DC"),
+    label: "DC Daily (Direct: Team Leader)",
+    match: (t) => t === "Direct_TeamLeader" || t.includes("Team Leader"),
+  },
+  {
+    key: "Supply DC",
+    label: "Supply DC",
+    match: (t) => t === "Direct_SupplyDC" || t.includes("Supply DC"),
   },
   {
     key: "SC",
