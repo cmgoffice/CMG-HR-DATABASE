@@ -210,6 +210,7 @@ import {
   ShieldCheck,
   ArrowLeftRight,
   ListChecks,
+  Globe2,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
@@ -496,6 +497,7 @@ import { ActivityLogPage } from './components/ActivityLogPage';
 import { RiskMonitoringPage } from './components/RiskMonitoringPage';
 import { EvaluationPage } from './components/EvaluationPage';
 import { ProjectTransferPage } from './components/ProjectTransferPage';
+import { MigrantWorkerPage } from './components/MigrantWorkerPage';
 import { ApprovalCenterPage } from './components/ApprovalCenterPage';
 import { InfoTooltip } from './components/InfoTooltip';
 import { ColumnMappingModal } from './components/ColumnMappingModal';
@@ -628,6 +630,12 @@ const Sidebar = ({ activeModule, setActiveModule, dbConnected, sidebarOpen, onTo
       : []),
     ...(visibleEmployeeSubs.length > 0
       ? [{ id: "employees", label: "พนักงาน (Employees)", icon: Users, sub: visibleEmployeeSubs } as SidebarGroupItem]
+      : []),
+    ...(canSee(
+      "migrant_workers",
+      hasRole(["MasterAdmin", "MD", "GM", "PD", "HRM", "HR", "Admin Site", "Safety", "PM", "CM"])
+    )
+      ? [{ id: "migrant_workers", label: "แรงงานต่างด้าว", icon: Globe2 } as SidebarLinkItem]
       : []),
   ];
 
@@ -3138,6 +3146,8 @@ function MasterDatabaseApp() {
                       ? 'Risk Monitoring'
                     : activeModule === 'project_transfer'
                       ? 'ย้ายโครงการ'
+                    : activeModule === 'migrant_workers'
+                      ? 'ระบบจัดการแรงงานต่างด้าว'
                     : activeModule === 'evaluation'
                       ? 'ประเมินผลพนักงาน'
                     : activeModule === 'approval_center'
@@ -3451,6 +3461,8 @@ function MasterDatabaseApp() {
               <RiskMonitoringPage projectOptions={projectStatusOptions} />
             ) : activeModule === 'project_transfer' ? (
               <ProjectTransferPage projectOptions={projectStatusOptions} />
+            ) : activeModule === 'migrant_workers' ? (
+              <MigrantWorkerPage projectOptions={projectStatusOptions} />
             ) : activeModule === 'evaluation' ? (
               <EvaluationPage projectOptions={projectStatusOptions} />
             ) : activeModule === 'approval_center' ? (

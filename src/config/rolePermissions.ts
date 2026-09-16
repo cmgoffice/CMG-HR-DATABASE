@@ -57,6 +57,7 @@ export const ROLE_PERMISSION_MODULES: RolePermissionModule[] = [
   { key: "approval_center", label: "ศูนย์อนุมัติ" },
   { key: "risk_monitoring", label: "Risk Monitoring" },
   { key: "project_transfer", label: "ย้ายโครงการ" },
+  { key: "migrant_workers", label: "แรงงานต่างด้าว" },
   { key: "activity_logs", label: "Activity Logs" },
   { key: ROLE_PERMISSIONS_MODULE_KEY, label: "จัดการสิทธิ์การเข้าถึงตาม Role" },
 ];
@@ -103,6 +104,9 @@ export const MODULE_DEFAULT_ROLES: Record<string, UserRole[] | "*"> = {
   risk_monitoring: ["MasterAdmin", "MD", "GM", "PD", "HRM", "HR", "Admin Site"],
   // Admin Site เห็นเฉพาะโครงการตัวเอง; Safety เห็นเพื่อรับเรื่องหลังอนุมัติ; PM/CM เห็นคำขอที่ถูกเลือกเป็นผู้อนุมัติ
   project_transfer: ["MasterAdmin", "MD", "GM", "PD", "PM", "CM", "HRM", "HR", "Admin Site", "Safety"],
+  // จัดการเอกสารได้: MasterAdmin/MD/GM/PD/HRM/HR — ดูได้อย่างเดียว: Admin Site/Safety/PM/CM
+  // (ดูรายละเอียดใน src/components/migrantWorkerConfig.ts: canManageMigrantWorkers / canViewMigrantWorkers)
+  migrant_workers: ["MasterAdmin", "MD", "GM", "PD", "HRM", "HR", "Admin Site", "Safety", "PM", "CM"],
   activity_logs: ["MasterAdmin", "MD", "GM", "HRM"],
   [ROLE_PERMISSIONS_MODULE_KEY]: ["MasterAdmin"],
 };
