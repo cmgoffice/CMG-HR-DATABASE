@@ -71,7 +71,8 @@ export const RETRO_LEAVE_STATUS_COLORS: Record<RetroLeaveStatus, string> = {
 export const RETRO_LEAVE_REQUESTABLE_STATUSES: { value: string; label: string }[] = [
   { value: "มา", label: "มา" },
   { value: "ไม่มา", label: "ไม่มา (จะแสดงเป็น \"ขาดงาน\" หลังอนุมัติ)" },
-  { value: "ลา", label: "ลา" },
+  { value: "ลา", label: "ลา (เต็มวัน)" },
+  { value: "ลา½", label: "ลาครึ่งวัน (ลา½)" },
   { value: "H", label: "H (วันหยุดพนักงาน)" },
   { value: "", label: "ล้างสถานะ (ว่าง)" },
 ];

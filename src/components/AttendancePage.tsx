@@ -77,7 +77,20 @@ interface AttendanceDayData {
 }
 
 // "H" = วันหยุดพนักงาน (รายบุคคล) ไม่นับเป็นขาดงานและไม่นับเป็นค้างลงเวลา
-type AttendanceStatus = "มา" | "ไม่มา" | "ลา" | "ขาดงาน" | "H" | "";
+// "ลา½" = ลาครึ่งวัน (นับเป็น 0.5 วันลาในหน้า Manpower Dashboard)
+type AttendanceStatus = "มา" | "ไม่มา" | "ลา" | "ลา½" | "ขาดงาน" | "H" | "";
+
+const HALF_DAY_LEAVE_STATUS: AttendanceStatus = "ลา½";
+
+// ตัวเลือกสถานะทั้งหมดที่เลือกได้ผ่านเมนูคลิกขวา (คลิกขวาที่ช่องลงเวลาเพื่อเปิดเมนูนี้)
+const ATTENDANCE_STATUS_MENU_OPTIONS: { value: string; label: string }[] = [
+  { value: "มา", label: "มา" },
+  { value: "ไม่มา", label: "ไม่มา" },
+  { value: "ลา", label: "ลา (เต็มวัน)" },
+  { value: HALF_DAY_LEAVE_STATUS, label: "ลาครึ่งวัน (ลา½)" },
+  { value: "H", label: "H (วันหยุดพนักงาน)" },
+  { value: "", label: "ล้างสถานะ (ว่าง)" },
+];
 
 interface ColumnConfig {
   id: string;
@@ -138,6 +151,15 @@ export const AttendancePage = ({ projectOptions }: { projectOptions: string[] })
   const [retroSubmitting, setRetroSubmitting] = useState(false);
   const [retroRejectTargetId, setRetroRejectTargetId] = useState<string | null>(null);
   const [retroRejectNote, setRetroRejectNote] = useState("");
+
+  // ── เมนูคลิกขวา: เลือกสถานะลงเวลาแบบเต็ม (รวม "ลาครึ่งวัน") ────────────────
+  const [statusMenu, setStatusMenu] = useState<{
+    employeeId: string;
+    dateStr: string;
+    isOtherProject: boolean;
+    x: number;
+    y: number;
+  } | null>(null);
 
   // ── Sort state ────────────────────────────────────────────────────────────
   type SortKey = 'รหัสพนักงาน' | 'name' | 'ตำแหน่ง' | 'ชื่อชุด';
@@ -1024,6 +1046,11 @@ export const AttendancePage = ({ projectOptions }: { projectOptions: string[] })
       textCls = "text-orange-700 font-semibold";
       text = "ลา";
       if (isToday) bg = locked ? "bg-orange-200 border border-gray-300" : "bg-orange-200 hover:bg-orange-300 border border-gray-300";
+    } else if (displayStatus === HALF_DAY_LEAVE_STATUS) {
+      bg = locked ? "bg-yellow-100" : "bg-yellow-100 hover:bg-yellow-200";
+      textCls = "text-yellow-700 font-semibold";
+      text = "ลา½";
+      if (isToday) bg = locked ? "bg-yellow-200 border border-gray-300" : "bg-yellow-200 hover:bg-yellow-300 border border-gray-300";
     } else if (displayStatus === "ขาดงาน") {
       bg = "bg-red-200";
       textCls = "text-red-900 font-bold";
@@ -1074,6 +1101,10 @@ export const AttendancePage = ({ projectOptions }: { projectOptions: string[] })
       tooltipExtra = " 🔒 ล็อคแล้ว";
     }
 
+    if (canEdit) {
+      tooltipExtra += " • คลิกขวาเพื่อเลือกสถานะ (รวม \"ลาครึ่งวัน\")";
+    }
+
     if (dayOffName) {
       tooltipExtra = ` 🌴 ${dayOffName}` + tooltipExtra;
     }
@@ -1108,6 +1139,13 @@ export const AttendancePage = ({ projectOptions }: { projectOptions: string[] })
         onDoubleClick={(e) => {
           e.stopPropagation(); // ป้องกัน event bubble ไปที่ scroll container
           if (canEdit) handleAttendanceClick(employeeId, dateStr, isOtherProject);
+        }}
+        onContextMenu={(e) => {
+          // คลิกขวา = เปิดเมนูเลือกสถานะแบบเต็ม (รวม "ลาครึ่งวัน" ที่ไม่มีคีย์ลัด/ไม่อยู่ใน cycle ดับเบิ้ลคลิก)
+          if (!canEdit) return;
+          e.preventDefault();
+          e.stopPropagation();
+          setStatusMenu({ employeeId, dateStr, isOtherProject, x: e.clientX, y: e.clientY });
         }}
         onKeyDown={(e) => {
           if (!canEdit) return;
@@ -1302,6 +1340,7 @@ export const AttendancePage = ({ projectOptions }: { projectOptions: string[] })
           { bg: "bg-green-100 border-green-300", text: "text-green-700 font-semibold", label: "J01", desc: "= มาที่โครงการอื่น" },
           { bg: "bg-red-100 border-red-300",     text: "text-red-700",   label: "ไม่มา", desc: "= ไม่มา" },
           { bg: "bg-orange-100 border-orange-300",text: "text-orange-700",label: "ลา",   desc: "= ลา" },
+          { bg: "bg-yellow-100 border-yellow-300", text: "text-yellow-700", label: "ลา½", desc: "= ลาครึ่งวัน" },
           { bg: "bg-red-200 border-red-400",      text: "text-red-900 font-bold", label: "ขาด", desc: "= ขาดงาน 🔒" },
           { bg: "bg-purple-100 border-purple-300",text: "text-purple-700 font-semibold", label: "H",    desc: "= วันหยุดพนักงาน (ไม่นับขาด/ค้างลงเวลา)" },
           { bg: "bg-gray-100 border-gray-300",    text: "",              label: "",     desc: "= วันหยุด" },
@@ -1314,7 +1353,7 @@ export const AttendancePage = ({ projectOptions }: { projectOptions: string[] })
           </div>
         ))}
         <span className="text-gray-400 ml-auto">
-          🔒 = ล็อคหลังกรอก 24 ชม. | คีย์ลัด: 1=มา 2=ไม่มา 3=ลา 4=H
+          🔒 = ล็อคหลังกรอก 24 ชม. | คีย์ลัด: 1=มา 2=ไม่มา 3=ลา 4=H | คลิกขวา = เลือกสถานะ (รวมลาครึ่งวัน)
           {canSubmitRetro && " | ช่องกรอบม่วง = คลิกเพื่อยื่นคำร้องขอลาย้อนหลัง"}
         </span>
       </div>
@@ -1498,6 +1537,44 @@ export const AttendancePage = ({ projectOptions }: { projectOptions: string[] })
           );
         })
       )}
+
+      {/* เมนูคลิกขวา: เลือกสถานะลงเวลาแบบเต็ม (รวม "ลาครึ่งวัน") */}
+      {statusMenu && (() => {
+        const dayRecords = attendanceData[statusMenu.dateStr] || {};
+        const currentStatus = dayRecords[statusMenu.employeeId]?.status || "";
+        // จัดตำแหน่งเมนูไม่ให้ล้นขอบจอ
+        const menuWidth = 200;
+        const left = Math.min(statusMenu.x, window.innerWidth - menuWidth - 8);
+        const top = Math.min(statusMenu.y, window.innerHeight - 260);
+        return (
+          <>
+            <div className="fixed inset-0 z-40" onClick={() => setStatusMenu(null)} onContextMenu={(e) => { e.preventDefault(); setStatusMenu(null); }} />
+            <div
+              className="fixed z-50 w-[200px] bg-white border border-gray-200 rounded-lg shadow-xl overflow-hidden py-1"
+              style={{ left, top }}
+            >
+              <div className="px-3 py-1.5 text-[10px] font-semibold text-gray-400 uppercase tracking-wide">
+                เลือกสถานะ
+              </div>
+              {ATTENDANCE_STATUS_MENU_OPTIONS.map((opt) => (
+                <button
+                  key={opt.value || "clear"}
+                  onClick={() => {
+                    handleAttendanceClick(statusMenu.employeeId, statusMenu.dateStr, statusMenu.isOtherProject, opt.value);
+                    setStatusMenu(null);
+                  }}
+                  className={`w-full text-left px-3 py-1.5 text-sm hover:bg-gray-50 flex items-center justify-between ${
+                    currentStatus === opt.value ? "bg-blue-50 text-blue-700 font-semibold" : "text-gray-700"
+                  }`}
+                >
+                  {opt.label}
+                  {currentStatus === opt.value && <Check size={13} />}
+                </button>
+              ))}
+            </div>
+          </>
+        );
+      })()}
 
       {/* Saving toast */}
       {saving && (
