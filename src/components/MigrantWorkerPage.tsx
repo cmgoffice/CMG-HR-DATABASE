@@ -27,7 +27,7 @@ import {
   X,
 } from "lucide-react";
 import { useAuth } from "../auth/AuthContext";
-import { MetricCard } from "./DashboardUI";
+import { HorizontalBreakdown, MetricCard, SectionCard } from "./DashboardUI";
 import {
   canManageMigrantWorkers,
   canViewMigrantWorkers,
@@ -62,6 +62,7 @@ interface MigrantEmployee {
   ตำแหน่ง?: string;
   employee_type?: string;
   start_date?: string;
+  resignation_date?: string;
   [MIGRANT_DOCUMENTS_FIELD]?: MigrantDocumentsMap;
 }
 
@@ -71,6 +72,52 @@ const EMPLOYEE_TYPE_OPTIONS = [
   { value: "Direct_SupplyDC", label: "Direct: Supply DC" },
   { value: "Direct_SubContractor", label: "Direct: Sub Contractor" },
 ];
+
+// รหัสประเภทพนักงาน แยกกลุ่มให้อ่านง่าย: DC (Direct/รายวัน) กับ SC (Sub Contractor)
+const EMPLOYEE_TYPE_GROUPS: Array<{ key: string; label: string; match: (type: string) => boolean }> = [
+  { key: "Indirect", label: "Indirect (Staff Monthly)", match: (t) => t === "Indirect" },
+  {
+    key: "DC",
+    label: "DC (Direct: Team Leader / Supply DC)",
+    match: (t) => t === "Direct_TeamLeader" || t === "Direct_SupplyDC" || t.includes("Team Leader") || t.includes("Supply DC"),
+  },
+  {
+    key: "SC",
+    label: "SC (Sub Contractor)",
+    match: (t) => t === "Direct_SubContractor" || t.includes("Sub Contractor"),
+  },
+];
+
+// สถานะที่ถือว่า "พ้นสภาพ" แล้ว ไม่นับรวมในทะเบียนแรงงานต่างด้าวที่ยังทำงานอยู่
+const INACTIVE_STATUSES = ["ลาออก", "เลิกจ้าง"];
+const isActiveEmployment = (status: unknown) => !INACTIVE_STATUSES.includes(String(status || "").trim());
+
+const monthKey = (dateStr?: string): string | null => {
+  if (!dateStr) return null;
+  const d = new Date(dateStr);
+  if (Number.isNaN(d.getTime())) return null;
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+};
+
+const monthLabel = (key: string): string => {
+  const [y, m] = key.split("-").map(Number);
+  const thaiMonths = [
+    "ม.ค.", "ก.พ.", "มี.ค.", "เม.ย.", "พ.ค.", "มิ.ย.",
+    "ก.ค.", "ส.ค.", "ก.ย.", "ต.ค.", "พ.ย.", "ธ.ค.",
+  ];
+  return `${thaiMonths[(m || 1) - 1]} ${y + 543}`;
+};
+
+// สร้างรายการ 6 เดือนล่าสุด (เก่า -> ใหม่) เป็น key รูปแบบ YYYY-MM
+const getLastMonthKeys = (count: number): string[] => {
+  const keys: string[] = [];
+  const now = new Date();
+  for (let i = count - 1; i >= 0; i--) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    keys.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`);
+  }
+  return keys;
+};
 
 const employeeName = (e: MigrantEmployee) => `${e.ชื่อต้น || ""}${e.ชื่อตัว || ""} ${e.ชื่อสกุล || ""}`.trim() || "(ไม่ระบุชื่อ)";
 
@@ -94,7 +141,9 @@ export const MigrantWorkerPage = ({ projectOptions }: { projectOptions: string[]
   const canView = canViewMigrantWorkers(roles);
 
   const [tab, setTab] = useState<"overview" | "registry" | "tracking">("overview");
-  const [employees, setEmployees] = useState<MigrantEmployee[]>([]);
+  // rawEmployees: แรงงานต่างด้าวทั้งหมด (รวมคนที่ลาออก/เลิกจ้างแล้ว) — ใช้เฉพาะสำหรับสถิติเข้า-ออกรายเดือน
+  // และกันรหัสพนักงานซ้ำตอนเพิ่มใหม่ ส่วนฟีเจอร์หลัก (ทะเบียน/ติดตามเอกสาร/ภาพรวม) ใช้เฉพาะคนที่ยังทำงานอยู่
+  const [rawEmployees, setRawEmployees] = useState<MigrantEmployee[]>([]);
   const [files, setFiles] = useState<MigrantDocumentFileRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
@@ -107,11 +156,14 @@ export const MigrantWorkerPage = ({ projectOptions }: { projectOptions: string[]
       const rows = snap.docs
         .map((d) => ({ id: d.id, ...(d.data() as any) } as MigrantEmployee))
         .filter((e) => isMigrantWorker(e.สัญชาติ));
-      setEmployees(rows);
+      setRawEmployees(rows);
       setLoading(false);
     });
     return () => unsub();
   }, [db]);
+
+  // ไม่นับสถานะ "ลาออก"/"เลิกจ้าง" ในทะเบียนแรงงานต่างด้าวที่ยังทำงานอยู่
+  const employees = useMemo(() => rawEmployees.filter((e) => isActiveEmployment(e.สถานะพนักงาน)), [rawEmployees]);
 
   useEffect(() => {
     const unsub = onSnapshot(collection(db, "CMG-HR-Database", "root", MIGRANT_DOCUMENT_FILES_COLLECTION), (snap) => {
@@ -167,8 +219,10 @@ export const MigrantWorkerPage = ({ projectOptions }: { projectOptions: string[]
     let urgent = 0;
     let warning = 0;
     let watch = 0;
-    let missingDocs = 0;
+    let missingDocs = 0; // นับเป็น "รายเอกสาร" (คนละ 4 ประเภท)
+    let missingDocsPeople = 0; // นับเป็น "รายคน" ที่มีเอกสารอย่างน้อย 1 ประเภทยังไม่ครบ
     enriched.forEach(({ summaries }) => {
+      let personHasMissing = false;
       summaries.forEach((s) => {
         if (s.completeness === "complete") {
           if (s.urgency === "expired") expired++;
@@ -177,11 +231,33 @@ export const MigrantWorkerPage = ({ projectOptions }: { projectOptions: string[]
           else if (s.urgency === "watch") watch++;
         } else {
           missingDocs++;
+          personHasMissing = true;
         }
       });
+      if (personHasMissing) missingDocsPeople++;
     });
-    return { total: enriched.length, expired, urgent, warning, watch, missingDocs };
+    return { total: enriched.length, expired, urgent, warning, watch, missingDocs, missingDocsPeople };
   }, [enriched]);
+
+  // สัดส่วนตามประเภทพนักงาน (Indirect / DC / SC) — นับเฉพาะคนที่ยังทำงานอยู่
+  const typeBreakdown = useMemo(() => {
+    return EMPLOYEE_TYPE_GROUPS.map((group) => ({
+      label: group.label,
+      value: employees.filter((e) => group.match(String(e.employee_type || ""))).length,
+    }));
+  }, [employees]);
+
+  // สถิติเข้า-ออกรายเดือน (ย้อนหลัง 6 เดือน) — ใช้ rawEmployees เพื่อให้นับคนที่ออกไปแล้วด้วย
+  const monthlyHireExit = useMemo(() => {
+    const months = getLastMonthKeys(6);
+    return months.map((key) => {
+      const hires = rawEmployees.filter((e) => monthKey(e.start_date) === key).length;
+      const exits = rawEmployees.filter(
+        (e) => INACTIVE_STATUSES.includes(String(e.สถานะพนักงาน || "").trim()) && monthKey(e.resignation_date) === key
+      ).length;
+      return { key, label: monthLabel(key), hires, exits };
+    });
+  }, [rawEmployees]);
 
   const trackingRows = useMemo(() => {
     const rows: Array<{ employee: MigrantEmployee; summary: WorkerDocumentSummary }> = [];
@@ -261,7 +337,14 @@ export const MigrantWorkerPage = ({ projectOptions }: { projectOptions: string[]
           <Loader2 className="animate-spin mr-2" size={20} /> กำลังโหลดข้อมูล...
         </div>
       ) : tab === "overview" ? (
-        <OverviewTab stats={stats} recentWorkers={recentWorkers} onSelect={setSelectedId} onGoTracking={() => setTab("tracking")} />
+        <OverviewTab
+          stats={stats}
+          recentWorkers={recentWorkers}
+          typeBreakdown={typeBreakdown}
+          monthlyHireExit={monthlyHireExit}
+          onSelect={setSelectedId}
+          onGoTracking={() => setTab("tracking")}
+        />
       ) : tab === "registry" ? (
         <RegistryTab
           filtered={filtered}
@@ -290,7 +373,7 @@ export const MigrantWorkerPage = ({ projectOptions }: { projectOptions: string[]
         <AddMigrantWorkerModal
           db={db}
           projectOptions={projectOptions}
-          existingCodes={employees.map((e) => String(e.รหัสพนักงาน || "").trim().toLowerCase()).filter(Boolean)}
+          existingCodes={rawEmployees.map((e) => String(e.รหัสพนักงาน || "").trim().toLowerCase()).filter(Boolean)}
           actorEmail={firebaseUser?.email || userProfile?.email || "unknown"}
           onClose={() => setShowAddModal(false)}
           onCreated={(id) => {
@@ -309,22 +392,57 @@ export const MigrantWorkerPage = ({ projectOptions }: { projectOptions: string[]
 const OverviewTab = ({
   stats,
   recentWorkers,
+  typeBreakdown,
+  monthlyHireExit,
   onSelect,
   onGoTracking,
 }: {
-  stats: { total: number; expired: number; urgent: number; warning: number; watch: number; missingDocs: number };
+  stats: { total: number; expired: number; urgent: number; warning: number; watch: number; missingDocs: number; missingDocsPeople: number };
   recentWorkers: Array<{ employee: MigrantEmployee; overall: ReturnType<typeof overallWorkerStatus> }>;
+  typeBreakdown: Array<{ label: string; value: number }>;
+  monthlyHireExit: Array<{ key: string; label: string; hires: number; exits: number }>;
   onSelect: (id: string) => void;
   onGoTracking: () => void;
 }) => (
   <div className="space-y-4">
     <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-2">
-      <MetricCard title="แรงงานต่างด้าวทั้งหมด" value={stats.total} icon={Users} accent="text-blue-600" />
+      <MetricCard title="แรงงานต่างด้าวทั้งหมด" value={stats.total} icon={Users} accent="text-blue-600" subvalue="นับเฉพาะคนที่ยังทำงานอยู่ (ไม่รวมลาออก/เลิกจ้าง)" />
       <MetricCard title="หมดอายุแล้ว" value={stats.expired} icon={AlertTriangle} accent="text-red-600" onClick={onGoTracking} />
       <MetricCard title="ด่วน (≤30 วัน)" value={stats.urgent} icon={AlertTriangle} accent="text-orange-600" onClick={onGoTracking} />
       <MetricCard title="แจ้งเตือน (≤60 วัน)" value={stats.warning} icon={FileWarning} accent="text-amber-600" onClick={onGoTracking} />
       <MetricCard title="เฝ้าระวัง (≤90 วัน)" value={stats.watch} icon={FileWarning} accent="text-yellow-600" onClick={onGoTracking} />
-      <MetricCard title="เอกสารยังไม่ครบ" value={stats.missingDocs} icon={ShieldAlert} accent="text-slate-600" onClick={onGoTracking} />
+      <MetricCard
+        title="เอกสารยังไม่ครบ (รายการ)"
+        value={stats.missingDocs}
+        subvalue={`คิดเป็น ${stats.missingDocsPeople} คนที่มีเอกสารอย่างน้อย 1 รายการยังไม่ครบ`}
+        icon={ShieldAlert}
+        accent="text-slate-600"
+        onClick={onGoTracking}
+      />
+    </div>
+
+    <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+      <SectionCard title="สัดส่วนตามประเภทพนักงาน" subtitle="DC = Direct Team Leader / Supply DC, SC = Sub Contractor (นับเฉพาะคนที่ยังทำงานอยู่)">
+        <HorizontalBreakdown items={typeBreakdown} total={stats.total} accent="bg-blue-500" />
+      </SectionCard>
+
+      <SectionCard title="สถิติคนเข้า-ออก รายเดือน (ย้อนหลัง 6 เดือน)" subtitle="เข้าใหม่ = วันที่เริ่มงานอยู่ในเดือนนั้น, ออก = วันที่ลาออก/เลิกจ้างอยู่ในเดือนนั้น">
+        <div className="space-y-1.5">
+          {monthlyHireExit.map((m) => (
+            <div key={m.key} className="flex items-center justify-between text-xs">
+              <span className="text-slate-600 font-medium w-20 shrink-0">{m.label}</span>
+              <div className="flex items-center gap-3">
+                <span className="inline-flex items-center gap-1 text-emerald-700">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" /> เข้า {m.hires}
+                </span>
+                <span className="inline-flex items-center gap-1 text-rose-700">
+                  <span className="w-1.5 h-1.5 rounded-full bg-rose-500" /> ออก {m.exits}
+                </span>
+              </div>
+            </div>
+          ))}
+        </div>
+      </SectionCard>
     </div>
 
     <div className="bg-white rounded-lg border border-slate-200 shadow-sm">
