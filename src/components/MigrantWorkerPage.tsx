@@ -73,39 +73,56 @@ const EMPLOYEE_TYPE_OPTIONS = [
   { value: "Direct_SubContractor", label: "Direct: Sub Contractor" },
 ];
 
-// รหัสประเภทพนักงาน แยกกลุ่มให้อ่านง่าย: DC Daily (Team Leader) / Supply DC
+// รหัสประเภทพนักงาน ในหมวด "พนักงานบริษัท" เหลือเฉพาะ DC Daily (Team Leader) เท่านั้น
+// เพราะ Supply DC ถูกแยกออกไปเป็นหมวด "SP Supply" ต่างหากแล้ว (ดู CATEGORY_* ด้านล่าง)
 // ไม่รวม Indirect (Staff Monthly) เพราะแรงงานต่างด้าวแทบไม่มีในกลุ่มนี้
-// (SC แยกออกไปเป็นอีกหมวดต่างหากแล้ว ดู CATEGORY_* ด้านล่าง)
 const EMPLOYEE_TYPE_GROUPS: Array<{ key: string; label: string; match: (type: string) => boolean }> = [
   {
     key: "DC",
     label: "DC Daily (Direct: Team Leader)",
     match: (t) => t === "Direct_TeamLeader" || t.includes("Team Leader"),
   },
-  {
-    key: "Supply DC",
-    label: "Supply DC",
-    match: (t) => t === "Direct_SupplyDC" || t.includes("Supply DC"),
-  },
 ];
 
-// แยกแรงงานต่างด้าวเป็น 2 หมวดใหญ่: พนักงานที่บริษัทจ้างเอง (DC/Supply DC/Indirect)
-// กับผู้รับเหมา (SC) ซึ่งเช็ค/เฝ้าระวังเฉพาะเอกสารเท่านั้น ไม่ได้จัดการเต็มรูปแบบเหมือนพนักงาน
-type WorkerCategory = "employee" | "sc";
+// แยกแรงงานต่างด้าวเป็น 3 หมวดใหญ่:
+// - employee: พนักงานที่บริษัทจ้างเองโดยตรง (DC Daily) จัดการเต็มรูปแบบ
+// - sc: ผู้รับเหมา (Sub Contractor) เช็ค/เฝ้าระวังเฉพาะเอกสาร ไม่ได้จัดการเต็มรูปแบบ
+// - sp: SP Supply (Direct_SupplyDC) เช็ค/เฝ้าระวังเฉพาะเอกสารเหมือน SC ไม่ได้จัดการเต็มรูปแบบ
+type WorkerCategory = "employee" | "sc" | "sp";
 const isSubContractorType = (t: unknown) => {
   const value = String(t || "");
   return value === "Direct_SubContractor" || value.includes("Sub Contractor");
 };
-const CATEGORY_META: Record<WorkerCategory, { label: string; shortLabel: string; description: string }> = {
+const isSupplyDCType = (t: unknown) => {
+  const value = String(t || "");
+  return value === "Direct_SupplyDC" || value.includes("Supply DC");
+};
+const categoryOfEmployeeType = (t: unknown): WorkerCategory => {
+  if (isSubContractorType(t)) return "sc";
+  if (isSupplyDCType(t)) return "sp";
+  return "employee";
+};
+const CATEGORY_META: Record<WorkerCategory, { label: string; shortLabel: string; description: string; addLabel: string; defaultEmployeeType: string }> = {
   employee: {
-    label: "พนักงานบริษัท (DC / Supply DC)",
+    label: "พนักงานบริษัท (DC Daily)",
     shortLabel: "พนักงานบริษัท",
     description: "แรงงานต่างด้าวที่บริษัทจ้างเองโดยตรง จัดการเต็มรูปแบบ",
+    addLabel: "แรงงานต่างด้าว",
+    defaultEmployeeType: "",
   },
   sc: {
     label: "ผู้รับเหมา (SC)",
     shortLabel: "ผู้รับเหมา (SC)",
     description: "แรงงานของผู้รับเหมาช่วง เช็ค/เฝ้าระวังเฉพาะเอกสารเพื่อความปลอดภัย ไม่ได้จัดการเต็มรูปแบบ",
+    addLabel: "ผู้รับเหมา (SC)",
+    defaultEmployeeType: "Direct_SubContractor",
+  },
+  sp: {
+    label: "SP Supply",
+    shortLabel: "SP Supply",
+    description: "แรงงานจาก Supply DC เช็ค/เฝ้าระวังเฉพาะเอกสารเพื่อความปลอดภัย ไม่ได้จัดการเต็มรูปแบบ",
+    addLabel: "SP Supply",
+    defaultEmployeeType: "Direct_SupplyDC",
   },
 };
 
@@ -188,13 +205,13 @@ export const MigrantWorkerPage = ({ projectOptions }: { projectOptions: string[]
   // ไม่นับสถานะ "ลาออก"/"เลิกจ้าง" ในทะเบียนแรงงานต่างด้าวที่ยังทำงานอยู่
   const activeEmployees = useMemo(() => rawEmployees.filter((e) => isActiveEmployment(e.สถานะพนักงาน)), [rawEmployees]);
 
-  // กรองตามหมวดที่เลือก (พนักงานบริษัท vs ผู้รับเหมา SC) — ทุกฟีเจอร์หลักด้านล่างคำนวณจากชุดนี้เท่านั้น
+  // กรองตามหมวดที่เลือก (พนักงานบริษัท / SC / SP Supply) — ทุกฟีเจอร์หลักด้านล่างคำนวณจากชุดนี้เท่านั้น
   const employees = useMemo(
-    () => activeEmployees.filter((e) => isSubContractorType(e.employee_type) === (category === "sc")),
+    () => activeEmployees.filter((e) => categoryOfEmployeeType(e.employee_type) === category),
     [activeEmployees, category]
   );
   const rawCategoryEmployees = useMemo(
-    () => rawEmployees.filter((e) => isSubContractorType(e.employee_type) === (category === "sc")),
+    () => rawEmployees.filter((e) => categoryOfEmployeeType(e.employee_type) === category),
     [rawEmployees, category]
   );
 
@@ -272,10 +289,10 @@ export const MigrantWorkerPage = ({ projectOptions }: { projectOptions: string[]
     return { total: enriched.length, expired, urgent, warning, watch, missingDocs, missingDocsPeople };
   }, [enriched]);
 
-  // สัดส่วนตามประเภทพนักงาน (DC / Supply DC) — เฉพาะหมวด "พนักงานบริษัท" เท่านั้น (SC มีประเภทเดียว ไม่ต้องแบ่ง)
-  // หมวด SC จะแสดง "สัดส่วนตามโครงการ" แทน เพราะมีประโยชน์ในการเฝ้าระวังตามหน้างานมากกว่า
+  // สัดส่วนตามประเภทพนักงาน (DC Daily) — เฉพาะหมวด "พนักงานบริษัท" เท่านั้น
+  // หมวด SC และ SP Supply จะแสดง "สัดส่วนตามโครงการ" แทน เพราะมีประโยชน์ในการเฝ้าระวังตามหน้างานมากกว่า
   const typeBreakdown = useMemo(() => {
-    if (category === "sc") {
+    if (category === "sc" || category === "sp") {
       const counts = new Map<string, number>();
       employees.forEach((e) => {
         const key = String(e.โครงการปัจจุบัน || e.โครงการ || "ไม่ระบุโครงการ").trim() || "ไม่ระบุโครงการ";
@@ -351,7 +368,7 @@ export const MigrantWorkerPage = ({ projectOptions }: { projectOptions: string[]
             onClick={() => setShowAddModal(true)}
             className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors shadow-sm"
           >
-            <Plus size={16} /> เพิ่ม{category === "sc" ? "ผู้รับเหมา (SC)" : "แรงงานต่างด้าว"}
+            <Plus size={16} /> เพิ่ม{CATEGORY_META[category].addLabel}
           </button>
         )}
       </div>
@@ -434,7 +451,7 @@ export const MigrantWorkerPage = ({ projectOptions }: { projectOptions: string[]
           projectOptions={projectOptions}
           existingCodes={rawEmployees.map((e) => String(e.รหัสพนักงาน || "").trim().toLowerCase()).filter(Boolean)}
           actorEmail={firebaseUser?.email || userProfile?.email || "unknown"}
-          defaultEmployeeType={category === "sc" ? "Direct_SubContractor" : ""}
+          defaultEmployeeType={CATEGORY_META[category].defaultEmployeeType}
           onClose={() => setShowAddModal(false)}
           onCreated={(id) => {
             setShowAddModal(false);
@@ -491,11 +508,11 @@ const OverviewTab = ({
 
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
       <SectionCard
-        title={category === "sc" ? "สัดส่วนตามโครงการ" : "สัดส่วนตามประเภทพนักงาน"}
+        title={category === "employee" ? "สัดส่วนตามประเภทพนักงาน" : "สัดส่วนตามโครงการ"}
         subtitle={
-          category === "sc"
-            ? "จำนวนผู้รับเหมา (SC) แยกตามโครงการที่สังกัดอยู่ (นับเฉพาะคนที่ยังทำงานอยู่)"
-            : "DC = Direct Team Leader, Supply DC = Direct Supply DC (นับเฉพาะคนที่ยังทำงานอยู่)"
+          category === "employee"
+            ? "DC = Direct Team Leader (นับเฉพาะคนที่ยังทำงานอยู่)"
+            : `จำนวน${CATEGORY_META[category].shortLabel} แยกตามโครงการที่สังกัดอยู่ (นับเฉพาะคนที่ยังทำงานอยู่)`
         }
       >
         <HorizontalBreakdown items={typeBreakdown} total={stats.total} accent="bg-blue-500" />
