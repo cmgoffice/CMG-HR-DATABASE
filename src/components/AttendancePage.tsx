@@ -78,7 +78,7 @@ interface AttendanceDayData {
 
 // "H" = วันหยุดพนักงาน (รายบุคคล) ไม่นับเป็นขาดงานและไม่นับเป็นค้างลงเวลา
 // "ลา½" = ลาครึ่งวัน (นับเป็น 0.5 วันลาในหน้า Manpower Dashboard)
-type AttendanceStatus = "มา" | "ไม่มา" | "ลา" | "ลา½" | "ขาดงาน" | "H" | "";
+type AttendanceStatus = "มา" | "ไม่มา" | "ลา" | "ลา½" | "ลาครึ่งเช้า" | "ลาครึ่งบ่าย" | "ขาดงาน" | "H" | "";
 
 const HALF_DAY_LEAVE_STATUS: AttendanceStatus = "ลา½";
 
@@ -88,9 +88,28 @@ const ATTENDANCE_STATUS_MENU_OPTIONS: { value: string; label: string }[] = [
   { value: "ไม่มา", label: "ไม่มา" },
   { value: "ลา", label: "ลา (เต็มวัน)" },
   { value: HALF_DAY_LEAVE_STATUS, label: "ลาครึ่งวัน (ลา½)" },
+  { value: "ลาครึ่งเช้า", label: "ลาครึ่งเช้า" },
+  { value: "ลาครึ่งบ่าย", label: "ลาครึ่งบ่าย" },
   { value: "H", label: "H (วันหยุดพนักงาน)" },
   { value: "", label: "ล้างสถานะ (ว่าง)" },
 ];
+
+// SVG keeps the divider corner-to-corner even in the rectangular attendance cells.
+const HalfDayStatus = ({ morning, isToday = false }: { morning: boolean; isToday?: boolean }) => (
+  <span className="absolute inset-0 pointer-events-none" aria-hidden="true">
+    <svg className="absolute inset-0 w-full h-full" viewBox="0 0 40 24" preserveAspectRatio="none">
+      <polygon points="0,0 40,0 0,24" fill={morning ? (isToday ? "#fed7aa" : "#ffedd5") : (isToday ? "#bbf7d0" : "#dcfce7")} />
+      <polygon points="40,0 40,24 0,24" fill={morning ? (isToday ? "#bbf7d0" : "#dcfce7") : (isToday ? "#fed7aa" : "#ffedd5")} />
+      <line x1="0" y1="24" x2="40" y2="0" stroke="#9ca3af" strokeWidth="0.6" />
+    </svg>
+    <span className={`absolute font-semibold ${morning ? "text-orange-900" : "text-green-900"}`} style={{ left: "27%", top: "30%", transform: "translate(-50%, -50%)", fontSize: 9, lineHeight: 1, whiteSpace: "nowrap" }}>
+      เช้า
+    </span>
+    <span className={`absolute font-semibold ${morning ? "text-green-900" : "text-orange-900"}`} style={{ left: "69%", top: "68%", transform: "translate(-50%, -50%)", fontSize: 9, lineHeight: 1, whiteSpace: "nowrap" }}>
+      บ่าย
+    </span>
+  </span>
+);
 
 interface ColumnConfig {
   id: string;
@@ -985,6 +1004,7 @@ export const AttendancePage = ({ projectOptions }: { projectOptions: string[] })
     const displayStatus = isFuture
       ? (entry?.status as AttendanceStatus) || ""
       : getDisplayStatus(entry);
+    const isSplitHalfDay = displayStatus === "ลาครึ่งเช้า" || displayStatus === "ลาครึ่งบ่าย";
 
     // ตรวจสอบว่าพนักงานอยู่หลายโครงการหรือไม่
     const empProjects = employee.สถานะโครงการ;
@@ -1046,6 +1066,10 @@ export const AttendancePage = ({ projectOptions }: { projectOptions: string[] })
       textCls = "text-orange-700 font-semibold";
       text = "ลา";
       if (isToday) bg = locked ? "bg-orange-200 border border-gray-300" : "bg-orange-200 hover:bg-orange-300 border border-gray-300";
+    } else if (isSplitHalfDay) {
+      bg = "bg-green-100";
+      textCls = "text-orange-900 font-semibold";
+      text = displayStatus === "ลาครึ่งเช้า" ? "เช้า" : "บ่าย";
     } else if (displayStatus === HALF_DAY_LEAVE_STATUS) {
       bg = locked ? "bg-yellow-100" : "bg-yellow-100 hover:bg-yellow-200";
       textCls = "text-yellow-700 font-semibold";
@@ -1183,9 +1207,10 @@ export const AttendancePage = ({ projectOptions }: { projectOptions: string[] })
             if (currentIdx !== -1 && currentIdx > 0) cells[currentIdx - 1].focus();
           }
         }}
-        title={`${dateStr}${tooltipExtra}`}
+        aria-label={`${dateStr} ${displayStatus || "ว่าง"}`}
+        title={`${dateStr} ${displayStatus}${tooltipExtra}`}
       >
-        {text}
+        {isSplitHalfDay && !forceRed ? <HalfDayStatus morning={displayStatus === "ลาครึ่งเช้า"} isToday={isToday} /> : text}
         {wasRetroApproved && (
           <span
             className="absolute top-0 right-0 w-[6px] h-[6px] rounded-full bg-indigo-500"
@@ -1335,6 +1360,14 @@ export const AttendancePage = ({ projectOptions }: { projectOptions: string[] })
       {/* ── Legend ── */}
       <div className="bg-blue-50 border border-blue-200 rounded-lg px-3 py-2 flex items-center gap-4 text-xs flex-wrap">
         <span className="font-semibold text-blue-900">คำอธิบาย:</span>
+        {[true, false].map((morning) => (
+          <div key={String(morning)} className="flex items-center gap-1">
+            <div className="relative border border-gray-300" style={{ width: 40, height: 24 }}>
+              <HalfDayStatus morning={morning} />
+            </div>
+            <span className="text-gray-600">= ลาครึ่ง{morning ? "เช้า" : "บ่าย"}</span>
+          </div>
+        ))}
         {[
           { bg: "bg-green-100 border-green-300", text: "text-green-700", label: "มา", desc: "= มา" },
           { bg: "bg-green-100 border-green-300", text: "text-green-700 font-semibold", label: "J01", desc: "= มาที่โครงการอื่น" },
@@ -1545,7 +1578,7 @@ export const AttendancePage = ({ projectOptions }: { projectOptions: string[] })
         // จัดตำแหน่งเมนูไม่ให้ล้นขอบจอ
         const menuWidth = 200;
         const left = Math.min(statusMenu.x, window.innerWidth - menuWidth - 8);
-        const top = Math.min(statusMenu.y, window.innerHeight - 260);
+        const top = Math.max(8, Math.min(statusMenu.y, window.innerHeight - 340));
         return (
           <>
             <div className="fixed inset-0 z-40" onClick={() => setStatusMenu(null)} onContextMenu={(e) => { e.preventDefault(); setStatusMenu(null); }} />

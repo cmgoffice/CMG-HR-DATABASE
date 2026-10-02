@@ -1,12 +1,12 @@
 {
   "files": {
-    "main.js": "/static/js/main.d0718e35.js",
+    "main.js": "/static/js/main.80cd1f30.js",
     "static/media/sarabun-latin-600-normal.woff": "/static/media/sarabun-latin-600-normal.184c86caf8fc6a149230.woff",
     "static/media/sarabun-latin-400-normal.woff": "/static/media/sarabun-latin-400-normal.f942697218ffa4f487ab.woff",
     "index.html": "/index.html",
-    "main.d0718e35.js.map": "/static/js/main.d0718e35.js.map"
+    "main.80cd1f30.js.map": "/static/js/main.80cd1f30.js.map"
   },
   "entrypoints": [
-    "static/js/main.d0718e35.js"
+    "static/js/main.80cd1f30.js"
   ]
 }

@@ -500,10 +500,12 @@ const projectListIncludes = (projects: string[], target: string): boolean =>
 // ในทุกจุดที่ต้องนับ/แสดงจำนวนวันลา ให้ใช้ isLeaveStatus() เพื่อตรวจว่าเป็นสถานะลา (เต็มวันหรือครึ่งวัน)
 // และใช้ leaveWeight() แทนการ ++ ตรงๆ เพื่อให้ลาครึ่งวันนับได้ถูกต้องเป็น 0.5
 const HALF_DAY_LEAVE_STATUS = "ลา½";
+const isHalfDayLeaveStatus = (status: string | undefined | null): boolean =>
+  status === HALF_DAY_LEAVE_STATUS || status === "ลาครึ่งเช้า" || status === "ลาครึ่งบ่าย";
 const isLeaveStatus = (status: string | undefined | null): boolean =>
-  status === "ลา" || status === HALF_DAY_LEAVE_STATUS;
+  status === "ลา" || isHalfDayLeaveStatus(status);
 const leaveWeight = (status: string | undefined | null): number =>
-  status === HALF_DAY_LEAVE_STATUS ? 0.5 : status === "ลา" ? 1 : 0;
+  isHalfDayLeaveStatus(status) ? 0.5 : status === "ลา" ? 1 : 0;
 
 const safeNumber = (value: unknown): number => {
   if (typeof value === "number") return Number.isFinite(value) ? value : 0;
@@ -1619,7 +1621,7 @@ export const ManpowerDashboard = ({
               fullName: getEmployeeName(emp),
               position: String(emp["ตำแหน่ง"] || "-"),
               employeeType: normalizeEmployeeType(emp),
-              status: attendance?.status === HALF_DAY_LEAVE_STATUS ? HALF_DAY_LEAVE_STATUS : "ลา",
+              status: isHalfDayLeaveStatus(attendance?.status) ? HALF_DAY_LEAVE_STATUS : "ลา",
               projectNames: assignedProjects,
             });
           }
@@ -2451,7 +2453,7 @@ export const ManpowerDashboard = ({
           status: attendance.status,
         };
       })
-      .filter((row): row is { employeeId: string; employeeCode: string; fullName: string; position: string; employeeType: string; status: "ไม่มา" | "ลา" | "ลา½" } => row !== null)
+      .filter((row): row is { employeeId: string; employeeCode: string; fullName: string; position: string; employeeType: string; status: "ไม่มา" | "ลา" | "ลา½" | "ลาครึ่งเช้า" | "ลาครึ่งบ่าย" } => row !== null)
       .sort((a, b) => (a.status === b.status ? a.fullName.localeCompare(b.fullName, "th") : a.status === "ไม่มา" ? -1 : 1));
 
     const coverageByType: CoverageInsightRow[] = Object.values(breakdownByType)
@@ -3421,7 +3423,7 @@ export const ManpowerDashboard = ({
               const status = attendance?.status || "ค้างลงเวลา";
               const notes: string[] = [];
               if (status === "ไม่มา") notes.push("ขาด");
-              if (isLeaveStatus(status)) notes.push(status === HALF_DAY_LEAVE_STATUS ? "ลาครึ่งวัน" : "ลา");
+              if (isLeaveStatus(status)) notes.push(isHalfDayLeaveStatus(status) ? (status === HALF_DAY_LEAVE_STATUS ? "ลาครึ่งวัน" : status) : "ลา");
               if (!attendance) notes.push("ค้างลงเวลา");
               if (attendance?.project && activeRisk.projectNames.length > 0 && !projectListIncludes(activeRisk.projectNames, attendance.project)) {
                 notes.push(`ลง ${attendance.project}`);

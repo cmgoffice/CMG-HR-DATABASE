@@ -73,6 +73,8 @@ export const RETRO_LEAVE_REQUESTABLE_STATUSES: { value: string; label: string }[
   { value: "ไม่มา", label: "ไม่มา (จะแสดงเป็น \"ขาดงาน\" หลังอนุมัติ)" },
   { value: "ลา", label: "ลา (เต็มวัน)" },
   { value: "ลา½", label: "ลาครึ่งวัน (ลา½)" },
+  { value: "ลาครึ่งเช้า", label: "ลาครึ่งเช้า" },
+  { value: "ลาครึ่งบ่าย", label: "ลาครึ่งบ่าย" },
   { value: "H", label: "H (วันหยุดพนักงาน)" },
   { value: "", label: "ล้างสถานะ (ว่าง)" },
 ];
