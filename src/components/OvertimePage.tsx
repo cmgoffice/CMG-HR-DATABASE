@@ -867,6 +867,10 @@ export const OvertimePage = ({ projectOptions }: { projectOptions: string[] }) =
       const rows: string[][] = [];
       rows.push([`รายงาน OT - ${projectLabel}`]);
       rows.push([`เดือน ${monthLabel}`]);
+      const schedule = selectedProject !== "all" ? projectSchedules[selectedProject] : undefined;
+      if (schedule?.workStartTime || schedule?.otStartTime) {
+        rows.push([`เวลาเริ่มงาน: ${schedule?.workStartTime || "-"} น.  |  เวลาเริ่ม OT: ${schedule?.otStartTime || "-"} น.`]);
+      }
       rows.push([]);
 
       Object.entries(groupedEmployees).forEach(([groupName, groupEmps]) => {
@@ -1053,6 +1057,9 @@ export const OvertimePage = ({ projectOptions }: { projectOptions: string[] }) =
         </div>
       </div>
 
+      {/* ── ตั้งแต่จุดนี้ลงไปคือเนื้อหาที่ครอบด้วย exportTablesRef เพื่อรวมอยู่ในไฟล์ส่งออก (รูปภาพ/PDF) ── */}
+      <div ref={exportTablesRef} data-export-tables="true" className="space-y-3">
+
       {/* ── เวลาเริ่มงาน/เวลาเริ่ม OT ของโครงการที่เลือก (ข้อมูลอ้างอิง ตั้งค่าได้ที่เมนู "โครงการ") ── */}
       {selectedProject !== "all" && (projectSchedules[selectedProject]?.workStartTime || projectSchedules[selectedProject]?.otStartTime) && (
         <div className="bg-amber-50 border border-amber-200 rounded-lg px-4 py-2.5 flex flex-wrap items-center gap-x-6 gap-y-1">
@@ -1111,7 +1118,6 @@ export const OvertimePage = ({ projectOptions }: { projectOptions: string[] }) =
       </div>
 
       {/* ── Tables ── */}
-      <div ref={exportTablesRef} data-export-tables="true" className="space-y-3">
       {!hasAssignedProjects ? (
         <div className="bg-white rounded-lg border border-purple-200 p-12 text-center">
           <AlertCircle size={48} className="mx-auto mb-4 text-purple-500" />
