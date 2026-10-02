@@ -907,7 +907,7 @@ export const OvertimePage = ({ projectOptions }: { projectOptions: string[] }) =
 
   return (
     <div className="space-y-3">
-      <div className="bg-white rounded-lg shadow-sm border border-gray-200 px-4 py-3 flex items-start justify-between gap-3">
+      <div className="bg-white rounded-lg shadow-sm border border-gray-200 px-4 py-3 flex flex-wrap items-start justify-between gap-3">
         <div>
           <h2 className="text-xl font-bold text-gray-800 flex items-center gap-2">
             <span>Overtime</span>
