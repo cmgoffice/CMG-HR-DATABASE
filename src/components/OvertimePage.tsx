@@ -6,6 +6,8 @@ import {
   setDoc,
   onSnapshot,
 } from "firebase/firestore";
+import html2canvas from "html2canvas";
+import { PDFDocument } from "pdf-lib";
 import {
   Calendar,
   ChevronLeft,
@@ -23,6 +25,9 @@ import {
   Trash2,
   X,
   AlertTriangle,
+  Image as ImageIcon,
+  FileText,
+  FileSpreadsheet,
 } from "lucide-react";
 import { useAuth } from "../auth/AuthContext";
 import { InfoTooltip } from "./InfoTooltip";
@@ -393,6 +398,10 @@ export const OvertimePage = ({ projectOptions }: { projectOptions: string[] }) =
     active: false, startX: 0, scrollLeft: 0,
   });
 
+  // ── ส่งออกตาราง OT (รูปภาพ / PDF / Excel) ของเดือน-โครงการที่กำลังแสดงอยู่ ──────────
+  const exportTablesRef = useRef<HTMLDivElement>(null);
+  const [exportingType, setExportingType] = useState<null | "image" | "pdf" | "excel">(null);
+
   const onMouseDown = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
     if ((e.target as HTMLElement).tagName === "INPUT") return;
     const el = e.currentTarget;
@@ -735,6 +744,157 @@ export const OvertimePage = ({ projectOptions }: { projectOptions: string[] }) =
     />;
   };
 
+  // ความกว้างจริงของตาราง (รวมทุกคอลัมน์วันในเดือน) ใช้คำนวณ windowWidth ตอนส่งออก เพื่อไม่ให้ html2canvas ตัดคอลัมน์ที่ล้นจอ
+  const getTableContentWidth = useCallback((hasSetColumn: boolean) => {
+    const colsWidth = visibleColumns.reduce((s, c) => s + c.widthPx, 0);
+    return colsWidth + (hasSetColumn ? 100 : 0) + OT_SUMMARY_COL_WIDTH + daysInMonth.length * 40;
+  }, [visibleColumns, daysInMonth]);
+
+  const buildExportFileBase = useCallback(() => {
+    const monthTag = `${currentMonth.getFullYear()}-${String(currentMonth.getMonth() + 1).padStart(2, "0")}`;
+    const projectLabel = selectedProject === "all" ? "ทุกโครงการ" : selectedProject;
+    const safeProject = projectLabel.replace(/[^\w\u0E00-\u0E7F]+/g, "_").slice(0, 60);
+    return `OT-${safeProject}-${monthTag}`;
+  }, [currentMonth, selectedProject]);
+
+  // แคปตารางทั้งหมดที่กำลังแสดง (ทุกกลุ่มงาน) เป็น canvas เดียว โดยบังคับให้คอลัมน์ที่ปกติต้องเลื่อนดูแสดงเต็มความกว้างจริง
+  const captureTablesCanvas = useCallback(async (): Promise<HTMLCanvasElement> => {
+    const node = exportTablesRef.current;
+    if (!node) throw new Error("ไม่พบตารางสำหรับส่งออก");
+    await new Promise((resolve) => setTimeout(resolve, 60));
+    const targetWidth = getTableContentWidth(true) + 160;
+    return html2canvas(node, {
+      backgroundColor: "#ffffff",
+      scale: 2,
+      useCORS: true,
+      logging: false,
+      windowWidth: Math.max(targetWidth, 1440),
+      scrollX: 0,
+      scrollY: 0,
+      onclone: (clonedDoc) => {
+        clonedDoc.querySelectorAll('[data-ot-scroll="true"]').forEach((el) => {
+          const htmlEl = el as HTMLElement;
+          htmlEl.style.overflow = "visible";
+          htmlEl.style.width = "max-content";
+          htmlEl.style.maxWidth = "none";
+        });
+        const style = clonedDoc.createElement("style");
+        style.textContent = `[data-export-tables] * { line-height: 1.3 !important; }`;
+        clonedDoc.head.appendChild(style);
+      },
+    });
+  }, [getTableContentWidth]);
+
+  const handleExportImage = async () => {
+    if (exportingType) return;
+    setExportingType("image");
+    try {
+      const canvas = await captureTablesCanvas();
+      const link = document.createElement("a");
+      link.download = `${buildExportFileBase()}.png`;
+      link.href = canvas.toDataURL("image/png");
+      link.click();
+    } catch (err) {
+      console.error("export OT image failed", err);
+      window.alert("ส่งออกรูปภาพไม่สำเร็จ กรุณาลองใหม่อีกครั้ง");
+    } finally {
+      setExportingType(null);
+    }
+  };
+
+  const handleExportPdf = async () => {
+    if (exportingType) return;
+    setExportingType("pdf");
+    try {
+      const canvas = await captureTablesCanvas();
+      const base64 = canvas.toDataURL("image/png").split(",")[1];
+      const binary = atob(base64);
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+
+      const pdfDoc = await PDFDocument.create();
+      const pngImage = await pdfDoc.embedPng(bytes);
+      // จำกัดความกว้างหน้าไม่ให้ใหญ่เกินไป แล้วคำนวณความสูงตามสัดส่วนภาพจริง (หน้าเดียวจบ ไม่ตัดตาราง)
+      const maxPageWidthPt = 2200;
+      const scale = Math.min(1, maxPageWidthPt / pngImage.width);
+      const pageWidth = pngImage.width * scale;
+      const pageHeight = pngImage.height * scale;
+      const page = pdfDoc.addPage([pageWidth, pageHeight]);
+      page.drawImage(pngImage, { x: 0, y: 0, width: pageWidth, height: pageHeight });
+
+      const pdfBytes = await pdfDoc.save();
+      const blob = new Blob([pdfBytes], { type: "application/pdf" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `${buildExportFileBase()}.pdf`;
+      link.click();
+      setTimeout(() => URL.revokeObjectURL(url), 4000);
+    } catch (err) {
+      console.error("export OT pdf failed", err);
+      window.alert("ส่งออก PDF ไม่สำเร็จ กรุณาลองใหม่อีกครั้ง");
+    } finally {
+      setExportingType(null);
+    }
+  };
+
+  const handleExportExcel = () => {
+    if (exportingType) return;
+    setExportingType("excel");
+    try {
+      const monthLabel = currentMonth.toLocaleDateString("th-TH", { year: "numeric", month: "long" });
+      const projectLabel = selectedProject === "all" ? "ทุกโครงการ" : selectedProject;
+      const rows: string[][] = [];
+      rows.push([`รายงาน OT - ${projectLabel}`]);
+      rows.push([`เดือน ${monthLabel}`]);
+      rows.push([]);
+
+      Object.entries(groupedEmployees).forEach(([groupName, groupEmps]) => {
+        const hasSetColumn = groupName === "Supply Contract" || groupName === "Worker" || groupName === "Subcontract";
+        rows.push([`กลุ่มงาน: ${groupName} (${groupEmps.length} คน)`]);
+        const header = ["ลำดับ", "รหัสพนักงาน", "ชื่อ-นามสกุล", "ตำแหน่ง"];
+        if (hasSetColumn) header.push("ชื่อชุด");
+        header.push("OT เดือนนี้ (ชม.)");
+        daysInMonth.forEach(({ day }) => header.push(String(day)));
+        rows.push(header);
+
+        groupEmps.forEach((emp, idx) => {
+          const row: string[] = [
+            String(idx + 1),
+            emp.รหัสพนักงาน || "-",
+            `${emp.ชื่อตัว || ""} ${emp.ชื่อสกุล || ""}`.trim() || "-",
+            emp.ตำแหน่ง || "-",
+          ];
+          if (hasSetColumn) row.push(emp.ชื่อชุด || "-");
+          row.push(String(monthlyOtByEmployee[emp.id] || 0));
+          daysInMonth.forEach(({ dateStr }) => {
+            const entry = overtimeData[dateStr]?.[emp.id];
+            if (!entry?.hours) { row.push(""); return; }
+            const typeTag = entry.type === "x2" ? " (x2)" : "";
+            row.push(`${entry.hours}${typeTag}`);
+          });
+          rows.push(row);
+        });
+        rows.push([]);
+      });
+
+      const csvEscape = (val: string) => (/[",\n]/.test(val) ? `"${val.replace(/"/g, '""')}"` : val);
+      const csvContent = rows.map((r) => r.map(csvEscape).join(",")).join("\r\n");
+      const blob = new Blob(["\uFEFF" + csvContent], { type: "text/csv;charset=utf-8;" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `${buildExportFileBase()}.csv`;
+      link.click();
+      setTimeout(() => URL.revokeObjectURL(url), 4000);
+    } catch (err) {
+      console.error("export OT excel failed", err);
+      window.alert("ส่งออกไฟล์ Excel ไม่สำเร็จ กรุณาลองใหม่อีกครั้ง");
+    } finally {
+      setExportingType(null);
+    }
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-96">
@@ -766,14 +926,43 @@ export const OvertimePage = ({ projectOptions }: { projectOptions: string[] }) =
             ใช้ตรวจสอบชั่วโมง OT, ประเภท OT และโครงการที่มีภาระงานสูง
           </p>
         </div>
-        <button
-          onClick={() => setIsLimitsModalOpen(true)}
-          className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 text-sm border rounded hover:bg-gray-50 text-gray-700"
-          title={canEditLimits ? "ตั้งค่าเพดาน OT" : "ดูเพดาน OT ที่ตั้งไว้ (แก้ไขได้เฉพาะ MasterAdmin/MD/GM/HR)"}
-        >
-          <Settings size={14} />
-          {canEditLimits ? "ตั้งค่าเพดาน OT" : "ดูเพดาน OT"}
-        </button>
+        <div className="shrink-0 flex items-center gap-1.5 flex-wrap justify-end">
+          <button
+            onClick={handleExportImage}
+            disabled={!!exportingType}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-sm border rounded hover:bg-gray-50 text-gray-700 disabled:cursor-not-allowed disabled:opacity-60"
+            title="ส่งออกตาราง OT ของเดือน/โครงการนี้เป็นรูปภาพ PNG"
+          >
+            {exportingType === "image" ? <Loader2 size={14} className="animate-spin" /> : <ImageIcon size={14} />}
+            รูปภาพ
+          </button>
+          <button
+            onClick={handleExportPdf}
+            disabled={!!exportingType}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-sm border rounded hover:bg-gray-50 text-gray-700 disabled:cursor-not-allowed disabled:opacity-60"
+            title="ส่งออกตาราง OT ของเดือน/โครงการนี้เป็น PDF"
+          >
+            {exportingType === "pdf" ? <Loader2 size={14} className="animate-spin" /> : <FileText size={14} />}
+            PDF
+          </button>
+          <button
+            onClick={handleExportExcel}
+            disabled={!!exportingType}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-sm border rounded hover:bg-gray-50 text-gray-700 disabled:cursor-not-allowed disabled:opacity-60"
+            title="ส่งออกตาราง OT ของเดือน/โครงการนี้เป็นไฟล์ Excel (CSV)"
+          >
+            {exportingType === "excel" ? <Loader2 size={14} className="animate-spin" /> : <FileSpreadsheet size={14} />}
+            Excel
+          </button>
+          <button
+            onClick={() => setIsLimitsModalOpen(true)}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-sm border rounded hover:bg-gray-50 text-gray-700"
+            title={canEditLimits ? "ตั้งค่าเพดาน OT" : "ดูเพดาน OT ที่ตั้งไว้ (แก้ไขได้เฉพาะ MasterAdmin/MD/GM/HR)"}
+          >
+            <Settings size={14} />
+            {canEditLimits ? "ตั้งค่าเพดาน OT" : "ดูเพดาน OT"}
+          </button>
+        </div>
       </div>
       {/* ── Controls ── */}
       <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-3">
@@ -881,6 +1070,7 @@ export const OvertimePage = ({ projectOptions }: { projectOptions: string[] }) =
       </div>
 
       {/* ── Tables ── */}
+      <div ref={exportTablesRef} data-export-tables="true" className="space-y-3">
       {!hasAssignedProjects ? (
         <div className="bg-white rounded-lg border border-purple-200 p-12 text-center">
           <AlertCircle size={48} className="mx-auto mb-4 text-purple-500" />
@@ -907,6 +1097,7 @@ export const OvertimePage = ({ projectOptions }: { projectOptions: string[] }) =
             </div>
             <div
               className="overflow-x-auto"
+              data-ot-scroll="true"
               style={{ cursor: "grab" }}
               onMouseDown={onMouseDown}
               onMouseMove={onMouseMove}
@@ -1060,6 +1251,7 @@ export const OvertimePage = ({ projectOptions }: { projectOptions: string[] }) =
         );
       })
       )}
+      </div>
 
       {saving && (
         <div className="fixed bottom-4 right-4 bg-purple-600 text-white px-3 py-2 rounded-lg shadow-lg flex items-center gap-2 z-50 text-xs">
