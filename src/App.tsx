@@ -459,6 +459,8 @@ const DEFAULT_SCHEMAS = {
     { id: "required_role_plan", label: "แผนกำลังคนรายตำแหน่ง (required_role_plan)", type: "textarea" },
     { id: "start_date", label: "วันที่เริ่มสัญญา", type: "date" },
     { id: "end_date", label: "วันที่สิ้นสุดสัญญา", type: "date" },
+    { id: "work_start_time", label: "เวลาเริ่มงาน", type: "time" },
+    { id: "ot_start_time", label: "เวลาเริ่ม OT", type: "time" },
     { id: "project_manager", label: "Project Manager", type: "text" },
     { id: "construction_manager", label: "Construction Manager", type: "text" },
   ],
@@ -3511,6 +3513,7 @@ function MasterDatabaseApp() {
                             <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500">โครงการ</th>
                             <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500">ชื่อโครงการ</th>
                             <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500">ระยะสัญญา</th>
+                            <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500">เวลาเริ่มงาน / OT</th>
                             <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500">Project Manager</th>
                             <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500">Construction Manager</th>
                             <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wider text-gray-500">จัดการ</th>
@@ -3527,6 +3530,8 @@ function MasterDatabaseApp() {
                               : startDate || endDate || "-";
                             const projectManager = String(row.project_manager || "-");
                             const constructionManager = String(row.construction_manager || "-");
+                            const workStartTime = String(row.work_start_time || "").trim();
+                            const otStartTime = String(row.ot_start_time || "").trim();
 
                             return (
                               <tr key={row.id} className="border-b border-gray-100 last:border-b-0 hover:bg-slate-50/70">
@@ -3548,6 +3553,12 @@ function MasterDatabaseApp() {
                                   <span className="inline-flex px-2.5 py-1 rounded-full bg-amber-50 text-amber-700 border border-amber-100 text-xs font-medium">
                                     {projectPeriod}
                         </span>
+                                </td>
+                                <td className="px-4 py-3 align-top">
+                                  <div className="text-xs text-gray-700 space-y-0.5">
+                                    <div>เริ่มงาน: <span className="font-medium">{workStartTime || "-"}</span></div>
+                                    <div>เริ่ม OT: <span className="font-medium">{otStartTime || "-"}</span></div>
+                                  </div>
                                 </td>
                                 <td className="px-4 py-3 align-top">
                                   <div className="text-sm text-gray-700 break-words">{projectManager}</div>

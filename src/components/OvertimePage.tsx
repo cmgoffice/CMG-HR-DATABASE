@@ -28,6 +28,7 @@ import {
   Image as ImageIcon,
   FileText,
   FileSpreadsheet,
+  Clock,
 } from "lucide-react";
 import { useAuth } from "../auth/AuthContext";
 import { InfoTooltip } from "./InfoTooltip";
@@ -84,6 +85,7 @@ const DEFAULT_COLUMNS: ColumnConfig[] = [
   { id: "รหัสพนักงาน",  label: "รหัสพนักงาน",   visible: true,  widthPx: 100, sticky: true },
   { id: "name",         label: "ชื่อ-นามสกุล",  visible: true,  widthPx: 160, sticky: true },
   { id: "ตำแหน่ง",      label: "ตำแหน่ง",       visible: true,  widthPx: 130, sticky: true },
+  { id: "เพศ",          label: "เพศ",           visible: true,  widthPx: 70,  sticky: true },
   { id: "สถานะกลุ่มงาน",label: "กลุ่มงาน",      visible: false, widthPx: 90,  sticky: true },
   { id: "สถานะโครงการ", label: "โครงการ",       visible: false, widthPx: 160, sticky: true },
 ];
@@ -361,6 +363,8 @@ export const OvertimePage = ({ projectOptions }: { projectOptions: string[] }) =
   const [filterOtType, setFilterOtType] = useState<string>("all");
   const [dayOffs, setDayOffs] = useState<Record<string, string>>({});
   const [isLimitsModalOpen, setIsLimitsModalOpen] = useState(false);
+  // ── เวลาเริ่มงาน/เวลาเริ่ม OT รายโครงการ (ข้อมูลอ้างอิงเท่านั้น ตั้งค่าได้ที่เมนู "โครงการ") ──
+  const [projectSchedules, setProjectSchedules] = useState<Record<string, { workStartTime?: string; otStartTime?: string }>>({});
 
   const { limits: otLimits, canEditLimits, updateLimits: saveOtLimits, saving: savingLimits } = useOvertimeLimits();
 
@@ -481,6 +485,22 @@ export const OvertimePage = ({ projectOptions }: { projectOptions: string[] }) =
       unsubscribes.forEach((unsub) => unsub());
     };
   }, [currentMonth, employees, db]);
+
+  // ── โหลดเวลาเริ่มงาน/เวลาเริ่ม OT รายโครงการ (Realtime) — ใช้แสดงเป็นข้อมูลอ้างอิงเท่านั้น ──
+  useEffect(() => {
+    const projectsRef = collection(db, "CMG-HR-Database", "root", "projects");
+    const unsubscribe = onSnapshot(projectsRef, (snapshot) => {
+      const map: Record<string, { workStartTime?: string; otStartTime?: string }> = {};
+      snapshot.docs.forEach((d) => {
+        const data = d.data() as any;
+        const label = data.project_name ? `${data.project_no} - ${data.project_name}` : data.project_no;
+        if (!label) return;
+        map[label] = { workStartTime: data.work_start_time || "", otStartTime: data.ot_start_time || "" };
+      });
+      setProjectSchedules(map);
+    }, (error) => console.error("Error listening to projects:", error));
+    return () => unsubscribe();
+  }, [db]);
 
   // ── โหลดข้อมูลวันหยุด (Realtime) ────────────────────────────────
   useEffect(() => {
@@ -852,7 +872,7 @@ export const OvertimePage = ({ projectOptions }: { projectOptions: string[] }) =
       Object.entries(groupedEmployees).forEach(([groupName, groupEmps]) => {
         const hasSetColumn = groupName === "Supply Contract" || groupName === "Worker" || groupName === "Subcontract";
         rows.push([`กลุ่มงาน: ${groupName} (${groupEmps.length} คน)`]);
-        const header = ["ลำดับ", "รหัสพนักงาน", "ชื่อ-นามสกุล", "ตำแหน่ง"];
+        const header = ["ลำดับ", "รหัสพนักงาน", "ชื่อ-นามสกุล", "ตำแหน่ง", "เพศ"];
         if (hasSetColumn) header.push("ชื่อชุด");
         header.push("OT เดือนนี้ (ชม.)");
         daysInMonth.forEach(({ day }) => header.push(String(day)));
@@ -864,6 +884,7 @@ export const OvertimePage = ({ projectOptions }: { projectOptions: string[] }) =
             emp.รหัสพนักงาน || "-",
             `${emp.ชื่อตัว || ""} ${emp.ชื่อสกุล || ""}`.trim() || "-",
             emp.ตำแหน่ง || "-",
+            emp.เพศ || emp.gender || "-",
           ];
           if (hasSetColumn) row.push(emp.ชื่อชุด || "-");
           row.push(String(monthlyOtByEmployee[emp.id] || 0));
@@ -1032,6 +1053,26 @@ export const OvertimePage = ({ projectOptions }: { projectOptions: string[] }) =
         </div>
       </div>
 
+      {/* ── เวลาเริ่มงาน/เวลาเริ่ม OT ของโครงการที่เลือก (ข้อมูลอ้างอิง ตั้งค่าได้ที่เมนู "โครงการ") ── */}
+      {selectedProject !== "all" && (projectSchedules[selectedProject]?.workStartTime || projectSchedules[selectedProject]?.otStartTime) && (
+        <div className="bg-amber-50 border border-amber-200 rounded-lg px-4 py-2.5 flex flex-wrap items-center gap-x-6 gap-y-1">
+          <span className="text-xs font-semibold text-amber-800">เวลาทำงานโครงการนี้:</span>
+          {projectSchedules[selectedProject]?.workStartTime && (
+            <span className="flex items-center gap-1.5 text-sm font-bold text-amber-900">
+              <Clock size={15} className="text-amber-600" />
+              เริ่มงาน {projectSchedules[selectedProject]?.workStartTime} น.
+            </span>
+          )}
+          {projectSchedules[selectedProject]?.otStartTime && (
+            <span className="flex items-center gap-1.5 text-sm font-bold text-amber-900">
+              <Clock size={15} className="text-amber-600" />
+              เริ่ม OT {projectSchedules[selectedProject]?.otStartTime} น.
+            </span>
+          )}
+          <span className="text-[11px] text-amber-600 ml-auto">ข้อมูลอ้างอิง · แก้ไขได้ที่เมนู "โครงการ"</span>
+        </div>
+      )}
+
       {/* ── Legend ── */}
       <div className="bg-purple-50 border border-purple-200 rounded-lg px-3 py-2 flex items-center gap-4 text-xs flex-wrap">
         <span className="font-semibold text-purple-900">คำอธิบาย (Overtime):</span>
@@ -1179,6 +1220,7 @@ export const OvertimePage = ({ projectOptions }: { projectOptions: string[] }) =
                         else if (col.id === "รหัสพนักงาน") content = emp.รหัสพนักงาน || "-";
                         else if (col.id === "name") content = `${emp.ชื่อตัว || ""} ${emp.ชื่อสกุล || ""}`.trim() || "-";
                         else if (col.id === "ตำแหน่ง") content = emp.ตำแหน่ง || "-";
+                        else if (col.id === "เพศ") content = emp.เพศ || emp.gender || "-";
                         else if (col.id === "สถานะกลุ่มงาน") content = (
                           <span className="px-1 py-0.5 bg-fuchsia-100 text-fuchsia-700 rounded" style={{ fontSize: 10 }}>
                             {emp.สถานะกลุ่มงาน || "-"}
