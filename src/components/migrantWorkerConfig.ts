@@ -12,20 +12,65 @@ import { UserRole } from "../auth/AuthContext";
 // ไม่ได้แยกฐานข้อมูลคนใหม่) — โมดูลนี้เป็นเพียง "มุมมอง + ฟิลด์เพิ่ม" บนข้อมูลเดิม
 // ---------------------------------------------------------------------------
 
-export type MigrantDocumentTypeKey = "passport" | "work_permit" | "visa" | "border_pass";
+export type MigrantDocumentTypeKey = "passport" | "work_permit" | "permit_card" | "ci_book" | "visa" | "border_pass";
+
+// ระดับความสำคัญของเอกสาร ใช้กำหนดว่าจะนับเป็น "เอกสารไม่ครบ" หรือไม่:
+//   - critical: ต้องมีอย่างน้อย 1 รายการในกลุ่มเดียวกัน (ดู MIGRANT_DOCUMENT_GROUPS) ไม่งั้นถือว่า "ยังทำงานไม่ได้"
+//   - recommended: ควรมีอย่างน้อย 1 รายการในกลุ่มเดียวกัน แต่ไม่บังคับทุกโครงการ (เตือนแบบเบากว่า)
+//   - supplementary: เก็บไว้เพื่อข้อมูล + แจ้งเตือนวันหมดอายุเท่านั้น ไม่นับว่า "ไม่ครบ" หากไม่มี
+export type MigrantDocumentTier = "critical" | "recommended" | "supplementary";
 
 export interface MigrantDocumentTypeDef {
   key: MigrantDocumentTypeKey;
   label: string;
   shortLabel: string;
+  tier: MigrantDocumentTier;
+  groupKey?: string; // เอกสารที่อยู่กลุ่มเดียวกัน นับแค่ "มีอย่างน้อย 1 อย่าง" ก็พอ
+  hasQrCode?: boolean; // true เฉพาะ Permit Card — มีช่องแนบ QR Code เพิ่มเติมจากไฟล์เอกสารหลัก
 }
 
 export const MIGRANT_DOCUMENT_TYPES: MigrantDocumentTypeDef[] = [
-  { key: "passport", label: "หนังสือเดินทาง (Passport)", shortLabel: "พาสปอร์ต" },
-  { key: "work_permit", label: "ใบอนุญาตทำงาน (Work Permit)", shortLabel: "Work Permit" },
-  { key: "visa", label: "วีซ่า (Visa)", shortLabel: "วีซ่า" },
-  { key: "border_pass", label: "บัตรผ่านแดน (Border Pass)", shortLabel: "Border Pass" },
+  { key: "work_permit", label: "ใบอนุญาตทำงาน (Work Permit)", shortLabel: "Work Permit", tier: "critical", groupKey: "work_authorization" },
+  { key: "permit_card", label: "บัตรอนุญาตทำงาน (Permit Card)", shortLabel: "Permit Card", tier: "critical", groupKey: "work_authorization", hasQrCode: true },
+  { key: "passport", label: "หนังสือเดินทาง (Passport)", shortLabel: "พาสปอร์ต", tier: "recommended", groupKey: "identity_document" },
+  { key: "ci_book", label: "เล่มประจำตัวคนซึ่งไม่มีสัญชาติไทย (CI)", shortLabel: "เล่ม CI", tier: "recommended", groupKey: "identity_document" },
+  { key: "visa", label: "วีซ่า (Visa)", shortLabel: "วีซ่า", tier: "supplementary" },
+  { key: "border_pass", label: "บัตรผ่านแดน (Border Pass)", shortLabel: "Border Pass", tier: "supplementary" },
 ];
+
+export const DOCUMENT_TIER_META: Record<MigrantDocumentTier, { label: string; badge: string }> = {
+  critical: { label: "เอกสารสำคัญ (ต้องมี)", badge: "bg-red-50 text-red-600 border border-red-200" },
+  recommended: { label: "แนะนำให้มี", badge: "bg-amber-50 text-amber-600 border border-amber-200" },
+  supplementary: { label: "ข้อมูลเสริม", badge: "bg-slate-100 text-slate-500 border border-slate-200" },
+};
+
+// กลุ่มเอกสารที่ถือว่า "มี" แล้วเมื่อมีสมาชิกอย่างน้อย 1 รายการครบ (ข้อมูล+ไฟล์)
+export interface MigrantDocumentGroupDef {
+  key: string;
+  label: string;
+  tier: "critical" | "recommended";
+  memberKeys: MigrantDocumentTypeKey[];
+}
+
+export const MIGRANT_DOCUMENT_GROUPS: MigrantDocumentGroupDef[] = [
+  {
+    key: "work_authorization",
+    label: "ใบอนุญาตทำงาน / บัตรอนุญาตทำงาน",
+    tier: "critical",
+    memberKeys: ["work_permit", "permit_card"],
+  },
+  {
+    key: "identity_document",
+    label: "หนังสือเดินทาง / เล่ม CI",
+    tier: "recommended",
+    memberKeys: ["passport", "ci_book"],
+  },
+];
+
+// pseudo-key สำหรับไฟล์แนบ "QR Code" ของ Permit Card โดยเฉพาะ — เก็บแยกจากไฟล์เอกสารหลัก
+// ไม่นับเป็นเอกสาร 1 ประเภทใน MIGRANT_DOCUMENT_TYPES (ไม่มีเลขที่/วันหมดอายุของตัวเอง)
+export const PERMIT_CARD_QR_FILE_KEY = "permit_card_qr" as const;
+export type MigrantDocumentFileKey = MigrantDocumentTypeKey | typeof PERMIT_CARD_QR_FILE_KEY;
 
 // Firestore: CMG-HR-Database/root/<collection>
 export const MIGRANT_DOCUMENT_FILES_COLLECTION = "migrant_worker_files";
@@ -44,12 +89,48 @@ export type MigrantDocumentsMap = Partial<Record<MigrantDocumentTypeKey, Migrant
 export interface MigrantDocumentFileRecord {
   id: string;
   employeeId: string;
-  docType: MigrantDocumentTypeKey;
+  docType: MigrantDocumentFileKey;
   fileName: string;
   fileUrl: string;
   uploadedBy?: string;
   uploadedAt?: number;
 }
+
+// ---------------------------------------------------------------------------
+// ประกัน — เก็บเป็นข้อมูลทั่วไปของแรงงาน (ไม่มีไฟล์/วันหมดอายุผูกด้วยในเวอร์ชันนี้)
+// เลือกได้หลายอย่างพร้อมกัน (เช่น มีทั้งประกันสังคม + ประกันกลุ่ม)
+// ---------------------------------------------------------------------------
+export type MigrantInsuranceType = "social_security" | "group_insurance" | "other";
+
+export const MIGRANT_INSURANCE_OPTIONS: Array<{ key: MigrantInsuranceType; label: string }> = [
+  { key: "social_security", label: "ประกันสังคม" },
+  { key: "group_insurance", label: "ประกันกลุ่ม" },
+  { key: "other", label: "ประกันอื่นๆ" },
+];
+
+export interface MigrantInsuranceInfo {
+  types?: MigrantInsuranceType[];
+  otherDetail?: string;
+}
+
+export const MIGRANT_INSURANCE_FIELD = "migrant_insurance";
+
+// ---------------------------------------------------------------------------
+// บริษัทนายจ้าง — CMG หรือระบุชื่ออื่น (กรณีจ้างผ่านผู้รับเหมา/บริษัทจัดหางานอื่น)
+// ---------------------------------------------------------------------------
+export type MigrantEmployerType = "CMG" | "other";
+
+export const MIGRANT_EMPLOYER_OPTIONS: Array<{ value: MigrantEmployerType; label: string }> = [
+  { value: "CMG", label: "CMG" },
+  { value: "other", label: "อื่นๆ (ระบุ)" },
+];
+
+export interface MigrantEmployerInfo {
+  type?: MigrantEmployerType;
+  otherDetail?: string;
+}
+
+export const MIGRANT_EMPLOYER_FIELD = "migrant_employer";
 
 export interface MigrantWorkerHistoryRecord {
   id: string;
@@ -143,25 +224,86 @@ export function summarizeWorkerDocuments(
   });
 }
 
-export function overallWorkerStatus(summaries: WorkerDocumentSummary[]): {
-  completeness: DocumentCompleteness | "mixed";
-  urgency: UrgencyLevel;
-} {
-  const anyIncomplete = summaries.some((s) => s.completeness !== "complete");
-  const anyMissingOrAwaiting = summaries.some((s) => s.completeness !== "complete");
-  const worstUrgency = summaries
+// ---------------------------------------------------------------------------
+// สถานะระดับ "กลุ่มเอกสาร" (critical/recommended) — ถือว่า "มี" แล้วถ้ามีสมาชิกอย่างน้อย 1 รายการครบ
+// ---------------------------------------------------------------------------
+export interface WorkerGroupStatus {
+  groupKey: string;
+  label: string;
+  tier: "critical" | "recommended";
+  satisfied: boolean;
+  bestSummary?: WorkerDocumentSummary; // ตัวที่ดีที่สุด (เร่งด่วนน้อยที่สุด) ในกลุ่มที่ "ครบ" แล้ว ใช้แสดงวันหมดอายุ
+}
+
+export function summarizeWorkerGroups(summaries: WorkerDocumentSummary[]): WorkerGroupStatus[] {
+  return MIGRANT_DOCUMENT_GROUPS.map((group) => {
+    const members = summaries.filter((s) => group.memberKeys.includes(s.docType));
+    const completeMembers = members.filter((s) => s.completeness === "complete");
+    const best = completeMembers.reduce<WorkerDocumentSummary | undefined>((acc, s) => {
+      if (!acc) return s;
+      return URGENCY_META[s.urgency].order < URGENCY_META[acc.urgency].order ? s : acc;
+    }, undefined);
+    return { groupKey: group.key, label: group.label, tier: group.tier, satisfied: completeMembers.length > 0, bestSummary: best };
+  });
+}
+
+// ---------------------------------------------------------------------------
+// สรุปสถานะ "ภาพรวม" ของแรงงาน 1 คน สำหรับใช้แสดง badge/กรองในหน้า Overview, ทะเบียน, ติดตามเอกสาร
+//   - canWork = false  -> ไม่มีทั้ง Work Permit และ Permit Card เลย = ยังทำงานไม่ได้ (ร้ายแรงสุด)
+//   - hasIdentityDoc = false -> ไม่มีทั้ง Passport และเล่ม CI = ควรมีแต่ไม่บังคับ (เตือนแบบเบากว่า)
+//   - worstUrgency = เร่งด่วนที่สุดจากเอกสารทุกประเภทที่ "ครบ" แล้ว (รวมเอกสารเสริมด้วย เพื่อแจ้งเตือนวันหมดอายุ)
+// ---------------------------------------------------------------------------
+export interface WorkerComplianceSummary {
+  canWork: boolean;
+  hasIdentityDoc: boolean;
+  worstUrgency: UrgencyLevel;
+  worstUrgencyDocType?: MigrantDocumentTypeKey;
+}
+
+export function computeWorkerCompliance(summaries: WorkerDocumentSummary[]): WorkerComplianceSummary {
+  const groups = summarizeWorkerGroups(summaries);
+  const critical = groups.find((g) => g.tier === "critical");
+  const recommended = groups.find((g) => g.tier === "recommended");
+  const worst = summaries
     .filter((s) => s.completeness === "complete")
-    .reduce<UrgencyLevel>((worst, s) => (URGENCY_META[s.urgency].order < URGENCY_META[worst].order ? s.urgency : worst), "none");
+    .reduce<{ urgency: UrgencyLevel; docType?: MigrantDocumentTypeKey }>(
+      (acc, s) => (URGENCY_META[s.urgency].order < URGENCY_META[acc.urgency].order ? { urgency: s.urgency, docType: s.docType } : acc),
+      { urgency: "none" }
+    );
+  return {
+    canWork: critical?.satisfied ?? true,
+    hasIdentityDoc: recommended?.satisfied ?? true,
+    worstUrgency: worst.urgency,
+    worstUrgencyDocType: worst.docType,
+  };
+}
 
-  const completeness: DocumentCompleteness | "mixed" = summaries.every((s) => s.completeness === "complete")
-    ? "complete"
-    : summaries.every((s) => s.completeness === "missing")
-    ? "missing"
-    : anyMissingOrAwaiting
-    ? "mixed"
-    : "complete";
+export const CANNOT_WORK_META = { label: "ยังทำงานไม่ได้", badge: "bg-red-600 text-white border border-red-700", dot: "bg-white" };
+export const MISSING_IDENTITY_META = { label: "ขาดเอกสารยืนยันตัวตน", badge: "bg-orange-100 text-orange-700 border border-orange-300", dot: "bg-orange-500" };
 
-  return { completeness: anyIncomplete ? completeness : "complete", urgency: worstUrgency };
+export interface WorkerBadge {
+  key: string;
+  label: string;
+  badge: string;
+  dot: string;
+}
+
+// ลำดับความสำคัญของ badge ที่แสดง: ยังทำงานไม่ได้ > ขาดเอกสารยืนยันตัวตน > เร่งด่วนตามวันหมดอายุ > ปกติ
+export function getWorkerBadge(compliance: WorkerComplianceSummary): WorkerBadge {
+  if (!compliance.canWork) return { key: "cannot_work", ...CANNOT_WORK_META };
+  if (!compliance.hasIdentityDoc) return { key: "missing_identity", ...MISSING_IDENTITY_META };
+  if (compliance.worstUrgency !== "none") {
+    const meta = URGENCY_META[compliance.worstUrgency];
+    return { key: compliance.worstUrgency, label: meta.label, badge: meta.badge, dot: meta.dot };
+  }
+  return { key: "normal", label: "ปกติ", badge: URGENCY_META.normal.badge, dot: URGENCY_META.normal.dot };
+}
+
+// เอกสารเสริม (supplementary) ไม่ต้องแสดงในแท็บ "ติดตามเอกสาร" หากยังไม่มีข้อมูลเลย
+// (เก็บไว้เพื่อข้อมูล + แจ้งเตือนวันหมดอายุเท่านั้น ไม่ถือว่า "ไม่ครบ")
+export function shouldShowInTracking(def: MigrantDocumentTypeDef, summary: WorkerDocumentSummary): boolean {
+  if (def.tier !== "supplementary") return true;
+  return summary.completeness !== "missing";
 }
 
 // ---------------------------------------------------------------------------

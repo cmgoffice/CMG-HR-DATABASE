@@ -1,14 +1,15 @@
 import { getStorage, ref, uploadBytes, getDownloadURL, deleteObject } from "firebase/storage";
-import { MigrantDocumentTypeKey } from "../components/migrantWorkerConfig";
+import { MigrantDocumentFileKey } from "../components/migrantWorkerConfig";
 
 /**
- * ไฟล์สแกนเอกสารแรงงานต่างด้าว (พาสปอร์ต/Work Permit/วีซ่า/Border Pass) เก็บที่
- * Firebase Storage ใต้ migrant-worker-documents/{employeeId}/{docType}/... โดยตั้งใจแยกจาก
+ * ไฟล์สแกนเอกสารแรงงานต่างด้าว (พาสปอร์ต/Work Permit/Permit Card/เล่ม CI/วีซ่า/Border Pass
+ * รวมถึง QR Code ของ Permit Card) เก็บที่ Firebase Storage ใต้
+ * migrant-worker-documents/{employeeId}/{docType}/... โดยตั้งใจแยกจาก
  * "ข้อมูลเอกสาร" (เลขที่ + วันหมดอายุ) ซึ่งเก็บอยู่ใน employee_data ทะเบียนแรงงานเดิม
  */
 export const uploadMigrantDocumentFile = async (
   employeeId: string,
-  docType: MigrantDocumentTypeKey,
+  docType: MigrantDocumentFileKey,
   file: File
 ): Promise<{ url: string; fileName: string }> => {
   const storage = getStorage();

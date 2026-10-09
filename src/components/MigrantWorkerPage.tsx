@@ -32,19 +32,33 @@ import {
   canManageMigrantWorkers,
   canViewMigrantWorkers,
   COMPLETENESS_META,
+  computeWorkerCompliance,
+  DOCUMENT_TIER_META,
+  getWorkerBadge,
   isMigrantWorker,
   MIGRANT_DOCUMENT_FILES_COLLECTION,
   MIGRANT_DOCUMENT_HISTORY_COLLECTION,
   MIGRANT_DOCUMENT_TYPES,
   MIGRANT_DOCUMENTS_FIELD,
+  MIGRANT_EMPLOYER_FIELD,
+  MIGRANT_EMPLOYER_OPTIONS,
+  MIGRANT_INSURANCE_FIELD,
+  MIGRANT_INSURANCE_OPTIONS,
   MigrantDocumentEntry,
+  MigrantDocumentFileKey,
   MigrantDocumentFileRecord,
+  MigrantDocumentTier,
   MigrantDocumentTypeKey,
   MigrantDocumentsMap,
+  MigrantEmployerInfo,
+  MigrantInsuranceInfo,
+  MigrantInsuranceType,
   MigrantWorkerHistoryRecord,
-  overallWorkerStatus,
+  PERMIT_CARD_QR_FILE_KEY,
+  shouldShowInTracking,
   summarizeWorkerDocuments,
   URGENCY_META,
+  WorkerComplianceSummary,
   WorkerDocumentSummary,
 } from "./migrantWorkerConfig";
 import { removeMigrantDocumentFile, uploadMigrantDocumentFile } from "../utils/migrantWorkerAttachments";
@@ -64,6 +78,8 @@ interface MigrantEmployee {
   start_date?: string;
   resignation_date?: string;
   [MIGRANT_DOCUMENTS_FIELD]?: MigrantDocumentsMap;
+  [MIGRANT_INSURANCE_FIELD]?: MigrantInsuranceInfo;
+  [MIGRANT_EMPLOYER_FIELD]?: MigrantEmployerInfo;
 }
 
 const EMPLOYEE_TYPE_OPTIONS = [
@@ -222,9 +238,9 @@ export const MigrantWorkerPage = ({ projectOptions }: { projectOptions: string[]
     return () => unsub();
   }, [db]);
 
-  // employeeId -> docType -> latest file record
+  // employeeId -> docType -> latest file record (docType รวม pseudo-key "permit_card_qr" ของ QR Code ด้วย)
   const fileMapByEmployee = useMemo(() => {
-    const map = new Map<string, Partial<Record<MigrantDocumentTypeKey, MigrantDocumentFileRecord>>>();
+    const map = new Map<string, Partial<Record<MigrantDocumentFileKey, MigrantDocumentFileRecord>>>();
     for (const f of files) {
       const current = map.get(f.employeeId) || {};
       const existing = current[f.docType];
@@ -244,8 +260,8 @@ export const MigrantWorkerPage = ({ projectOptions }: { projectOptions: string[]
         fileByType[key] = !!fileRecByType[key];
       });
       const summaries = summarizeWorkerDocuments(e[MIGRANT_DOCUMENTS_FIELD], fileByType);
-      const overall = overallWorkerStatus(summaries);
-      return { employee: e, summaries, overall };
+      const compliance = computeWorkerCompliance(summaries);
+      return { employee: e, summaries, compliance };
     });
   }, [employees, fileMapByEmployee]);
 
@@ -264,29 +280,28 @@ export const MigrantWorkerPage = ({ projectOptions }: { projectOptions: string[]
   }, [enriched, search, projectFilter]);
 
   // ภาพรวมสำหรับ Dashboard mini cards
+  // หมายเหตุ: เอกสาร "เสริม" (วีซ่า/Border Pass) ไม่นับเป็น "ไม่ครบ" แล้ว ใช้แค่แจ้งเตือนวันหมดอายุ (expired/urgent/warning/watch)
+  // ส่วน "ไม่ครบ" โฟกัสเฉพาะเอกสารสำคัญ 2 กลุ่ม: Work Permit/Permit Card (critical) และ Passport/เล่ม CI (recommended)
   const stats = useMemo(() => {
     let expired = 0;
     let urgent = 0;
     let warning = 0;
     let watch = 0;
-    let missingDocs = 0; // นับเป็น "รายเอกสาร" (คนละ 4 ประเภท)
-    let missingDocsPeople = 0; // นับเป็น "รายคน" ที่มีเอกสารอย่างน้อย 1 ประเภทยังไม่ครบ
-    enriched.forEach(({ summaries }) => {
-      let personHasMissing = false;
+    let cannotWork = 0; // ไม่มีทั้ง Work Permit และ Permit Card เลย = ยังทำงานไม่ได้
+    let missingIdentity = 0; // มี Work Permit/Permit Card แล้ว แต่ไม่มีทั้ง Passport และเล่ม CI
+    enriched.forEach(({ summaries, compliance }) => {
       summaries.forEach((s) => {
         if (s.completeness === "complete") {
           if (s.urgency === "expired") expired++;
           else if (s.urgency === "urgent") urgent++;
           else if (s.urgency === "warning") warning++;
           else if (s.urgency === "watch") watch++;
-        } else {
-          missingDocs++;
-          personHasMissing = true;
         }
       });
-      if (personHasMissing) missingDocsPeople++;
+      if (!compliance.canWork) cannotWork++;
+      else if (!compliance.hasIdentityDoc) missingIdentity++;
     });
-    return { total: enriched.length, expired, urgent, warning, watch, missingDocs, missingDocsPeople };
+    return { total: enriched.length, expired, urgent, warning, watch, cannotWork, missingIdentity };
   }, [enriched]);
 
   // สัดส่วนตามประเภทพนักงาน (DC Daily) — เฉพาะหมวด "พนักงานบริษัท" เท่านั้น
@@ -322,9 +337,16 @@ export const MigrantWorkerPage = ({ projectOptions }: { projectOptions: string[]
   }, [rawCategoryEmployees]);
 
   const trackingRows = useMemo(() => {
-    const rows: Array<{ employee: MigrantEmployee; summary: WorkerDocumentSummary }> = [];
+    // โฟกัสเฉพาะเอกสารสำคัญ: critical/recommended แสดงเสมอ (แม้ยังไม่มี), เอกสารเสริม (visa/border pass)
+    // แสดงเฉพาะตอนที่มีข้อมูลบันทึกไว้แล้วเท่านั้น (เก็บไว้เพื่อแจ้งเตือนวันหมดอายุ ไม่ใช่เพื่อฟ้อง "ไม่ครบ")
+    const rows: Array<{ employee: MigrantEmployee; summary: WorkerDocumentSummary; tier: MigrantDocumentTier }> = [];
     enriched.forEach(({ employee, summaries }) => {
-      summaries.forEach((summary) => rows.push({ employee, summary }));
+      summaries.forEach((summary) => {
+        const def = MIGRANT_DOCUMENT_TYPES.find((d) => d.key === summary.docType);
+        if (def && shouldShowInTracking(def, summary)) {
+          rows.push({ employee, summary, tier: def.tier });
+        }
+      });
     });
     rows.sort((a, b) => {
       const orderA = COMPLETENESS_ORDER[a.summary.completeness === "complete" ? a.summary.urgency : a.summary.completeness];
@@ -437,6 +459,7 @@ export const MigrantWorkerPage = ({ projectOptions }: { projectOptions: string[]
 
       {selected && (
         <WorkerProfileDrawer
+          key={selected.employee.id}
           data={selected}
           canManage={canManage}
           db={db}
@@ -476,15 +499,15 @@ const OverviewTab = ({
   onGoTracking,
 }: {
   category: WorkerCategory;
-  stats: { total: number; expired: number; urgent: number; warning: number; watch: number; missingDocs: number; missingDocsPeople: number };
-  recentWorkers: Array<{ employee: MigrantEmployee; overall: ReturnType<typeof overallWorkerStatus> }>;
+  stats: { total: number; expired: number; urgent: number; warning: number; watch: number; cannotWork: number; missingIdentity: number };
+  recentWorkers: Array<{ employee: MigrantEmployee; compliance: WorkerComplianceSummary }>;
   typeBreakdown: Array<{ label: string; value: number }>;
   monthlyHireExit: Array<{ key: string; label: string; hires: number; exits: number }>;
   onSelect: (id: string) => void;
   onGoTracking: () => void;
 }) => (
   <div className="space-y-4">
-    <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-2">
+    <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-7 gap-2">
       <MetricCard
         title={`${CATEGORY_META[category].shortLabel}ทั้งหมด`}
         value={stats.total}
@@ -492,18 +515,26 @@ const OverviewTab = ({
         accent="text-blue-600"
         subvalue="นับเฉพาะคนที่ยังทำงานอยู่ (ไม่รวมลาออก/เลิกจ้าง)"
       />
+      <MetricCard
+        title="ยังทำงานไม่ได้"
+        value={stats.cannotWork}
+        subvalue="ไม่มีทั้ง Work Permit และ Permit Card"
+        icon={ShieldAlert}
+        accent="text-red-700"
+        onClick={onGoTracking}
+      />
+      <MetricCard
+        title="ขาดเอกสารยืนยันตัวตน"
+        value={stats.missingIdentity}
+        subvalue="ไม่มีทั้ง Passport และเล่ม CI"
+        icon={ShieldAlert}
+        accent="text-orange-600"
+        onClick={onGoTracking}
+      />
       <MetricCard title="หมดอายุแล้ว" value={stats.expired} icon={AlertTriangle} accent="text-red-600" onClick={onGoTracking} />
       <MetricCard title="ด่วน (≤30 วัน)" value={stats.urgent} icon={AlertTriangle} accent="text-orange-600" onClick={onGoTracking} />
       <MetricCard title="แจ้งเตือน (≤60 วัน)" value={stats.warning} icon={FileWarning} accent="text-amber-600" onClick={onGoTracking} />
       <MetricCard title="เฝ้าระวัง (≤90 วัน)" value={stats.watch} icon={FileWarning} accent="text-yellow-600" onClick={onGoTracking} />
-      <MetricCard
-        title="เอกสารยังไม่ครบ (รายการ)"
-        value={stats.missingDocs}
-        subvalue={`คิดเป็น ${stats.missingDocsPeople} คนที่มีเอกสารอย่างน้อย 1 รายการยังไม่ครบ`}
-        icon={ShieldAlert}
-        accent="text-slate-600"
-        onClick={onGoTracking}
-      />
     </div>
 
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
@@ -543,7 +574,7 @@ const OverviewTab = ({
       </div>
       <div className="divide-y divide-slate-100">
         {recentWorkers.length === 0 && <div className="p-4 text-sm text-slate-400 text-center">ยังไม่มีข้อมูลแรงงานต่างด้าว</div>}
-        {recentWorkers.map(({ employee, overall }) => (
+        {recentWorkers.map(({ employee, compliance }) => (
           <button
             key={employee.id}
             onClick={() => onSelect(employee.id)}
@@ -554,7 +585,7 @@ const OverviewTab = ({
               <span className="text-xs text-slate-400 shrink-0">#{employee.รหัสพนักงาน || employee.id}</span>
             </div>
             <div className="flex items-center gap-2 shrink-0">
-              <StatusBadge completeness={overall.completeness} urgency={overall.urgency} />
+              <ComplianceBadge compliance={compliance} />
               <span className="text-xs text-slate-400">{employee.start_date || "-"}</span>
             </div>
           </button>
@@ -576,7 +607,7 @@ const RegistryTab = ({
   projectOptions,
   onSelect,
 }: {
-  filtered: Array<{ employee: MigrantEmployee; overall: ReturnType<typeof overallWorkerStatus> }>;
+  filtered: Array<{ employee: MigrantEmployee; compliance: WorkerComplianceSummary }>;
   search: string;
   setSearch: (v: string) => void;
   projectFilter: string;
@@ -620,7 +651,7 @@ const RegistryTab = ({
           </tr>
         </thead>
         <tbody>
-          {filtered.map(({ employee, overall }) => (
+          {filtered.map(({ employee, compliance }) => (
             <tr key={employee.id} className="border-b border-slate-100 last:border-b-0 hover:bg-slate-50/70">
               <td className="px-4 py-2">
                 <button onClick={() => onSelect(employee.id)} className="font-medium text-blue-700 hover:underline text-left">
@@ -631,7 +662,7 @@ const RegistryTab = ({
               <td className="px-4 py-2 text-slate-600">{employee.สัญชาติ || "-"}</td>
               <td className="px-4 py-2 text-slate-600">{employee.โครงการปัจจุบัน || employee.โครงการ || "-"}</td>
               <td className="px-4 py-2">
-                <StatusBadge completeness={overall.completeness} urgency={overall.urgency} />
+                <ComplianceBadge compliance={compliance} />
               </td>
             </tr>
           ))}
@@ -655,12 +686,15 @@ const TrackingTab = ({
   rows,
   onSelect,
 }: {
-  rows: Array<{ employee: MigrantEmployee; summary: WorkerDocumentSummary }>;
+  rows: Array<{ employee: MigrantEmployee; summary: WorkerDocumentSummary; tier: MigrantDocumentTier }>;
   onSelect: (id: string) => void;
 }) => (
   <div className="bg-white rounded-lg border border-slate-200 shadow-sm overflow-hidden">
+    <p className="px-4 py-2 text-xs text-slate-500 bg-slate-50 border-b border-slate-100">
+      แสดงเฉพาะเอกสารสำคัญ (Work Permit/Permit Card, Passport/เล่ม CI) เสมอ ส่วนเอกสารเสริม (วีซ่า/Border Pass) จะแสดงเฉพาะรายการที่มีข้อมูลบันทึกไว้แล้ว
+    </p>
     <div className="overflow-x-auto">
-      <table className="w-full min-w-[820px] text-sm">
+      <table className="w-full min-w-[860px] text-sm">
         <thead className="bg-slate-50 border-b border-slate-200">
           <tr>
             <th className="px-4 py-2 text-left text-xs font-semibold uppercase text-slate-500">ความเร่งด่วน</th>
@@ -672,7 +706,7 @@ const TrackingTab = ({
           </tr>
         </thead>
         <tbody>
-          {rows.map(({ employee, summary }, idx) => {
+          {rows.map(({ employee, summary, tier }, idx) => {
             const docLabel = MIGRANT_DOCUMENT_TYPES.find((d) => d.key === summary.docType)?.shortLabel || summary.docType;
             const urgencyMeta = summary.completeness === "complete" ? URGENCY_META[summary.urgency] : null;
             return (
@@ -694,7 +728,16 @@ const TrackingTab = ({
                   </button>
                   <span className="text-xs text-slate-400 ml-1">#{employee.รหัสพนักงาน || employee.id}</span>
                 </td>
-                <td className="px-4 py-2 text-slate-600">{docLabel}</td>
+                <td className="px-4 py-2 text-slate-600">
+                  <div className="flex items-center gap-1.5">
+                    <span>{docLabel}</span>
+                    {tier !== "supplementary" && (
+                      <span className={`inline-flex px-1.5 py-0.5 rounded text-[10px] font-semibold ${DOCUMENT_TIER_META[tier].badge}`}>
+                        {tier === "critical" ? "สำคัญ" : "แนะนำ"}
+                      </span>
+                    )}
+                  </div>
+                </td>
                 <td className="px-4 py-2">
                   <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium ${COMPLETENESS_META[summary.completeness].badge}`}>
                     {COMPLETENESS_META[summary.completeness].label}
@@ -721,20 +764,16 @@ const TrackingTab = ({
 );
 
 // ---------------------------------------------------------------------------
-// Status badge (worker-level)
+// Compliance badge (worker-level) — แสดงสถานะที่สำคัญที่สุดของคนนั้น:
+// ยังทำงานไม่ได้ > ขาดเอกสารยืนยันตัวตน > เร่งด่วนตามวันหมดอายุ > ปกติ
 // ---------------------------------------------------------------------------
-const StatusBadge = ({ completeness, urgency }: { completeness: string; urgency: string }) => {
-  if (completeness === "complete") {
-    const meta = URGENCY_META[urgency as keyof typeof URGENCY_META] || URGENCY_META.none;
-    return (
-      <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${meta.badge}`}>
-        <span className={`w-1.5 h-1.5 rounded-full ${meta.dot}`} /> {meta.label}
-      </span>
-    );
-  }
-  const label = completeness === "missing" ? "ไม่มีเอกสาร" : "เอกสารยังไม่ครบ";
-  const cls = completeness === "missing" ? COMPLETENESS_META.missing.badge : "bg-amber-100 text-amber-700 border border-amber-200";
-  return <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium ${cls}`}>{label}</span>;
+const ComplianceBadge = ({ compliance }: { compliance: WorkerComplianceSummary }) => {
+  const badge = getWorkerBadge(compliance);
+  return (
+    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${badge.badge}`}>
+      <span className={`w-1.5 h-1.5 rounded-full ${badge.dot}`} /> {badge.label}
+    </span>
+  );
 };
 
 // ---------------------------------------------------------------------------
@@ -747,17 +786,27 @@ const WorkerProfileDrawer = ({
   actorEmail,
   onClose,
 }: {
-  data: { employee: MigrantEmployee; summaries: WorkerDocumentSummary[]; overall: ReturnType<typeof overallWorkerStatus> };
+  data: { employee: MigrantEmployee; summaries: WorkerDocumentSummary[]; compliance: WorkerComplianceSummary };
   canManage: boolean;
   db: ReturnType<typeof getFirestore>;
   actorEmail: string;
   onClose: () => void;
 }) => {
-  const { employee, summaries, overall } = data;
+  const { employee, summaries, compliance } = data;
   const [history, setHistory] = useState<MigrantWorkerHistoryRecord[]>([]);
   const [drafts, setDrafts] = useState<Record<string, MigrantDocumentEntry>>({});
   const [savingType, setSavingType] = useState<string | null>(null);
   const [uploadingType, setUploadingType] = useState<string | null>(null);
+  const [uploadingQr, setUploadingQr] = useState(false);
+
+  // ---- ข้อมูลเพิ่มเติม: บริษัทนายจ้าง + ประกัน (ไม่มีไฟล์/วันหมดอายุ เป็นแค่ข้อมูลประกอบ) ----
+  const [employerDraft, setEmployerDraft] = useState<MigrantEmployerInfo>(
+    employee[MIGRANT_EMPLOYER_FIELD] || { type: undefined, otherDetail: "" }
+  );
+  const [insuranceDraft, setInsuranceDraft] = useState<MigrantInsuranceInfo>(
+    employee[MIGRANT_INSURANCE_FIELD] || { types: [], otherDetail: "" }
+  );
+  const [savingExtra, setSavingExtra] = useState(false);
 
   useEffect(() => {
     const q = query(collection(db, "CMG-HR-Database", "root", MIGRANT_DOCUMENT_HISTORY_COLLECTION), where("employeeId", "==", employee.id));
@@ -779,7 +828,7 @@ const WorkerProfileDrawer = ({
     setDrafts((prev) => ({ ...prev, [typeKey]: { ...draftFor(typeKey), ...patch } }));
   };
 
-  const logHistory = async (type: MigrantWorkerHistoryRecord["type"], docType: MigrantDocumentTypeKey | undefined, detail: string) => {
+  const logHistory = async (type: MigrantWorkerHistoryRecord["type"], docType: MigrantDocumentFileKey | undefined, detail: string) => {
     await addDoc(collection(db, "CMG-HR-Database", "root", MIGRANT_DOCUMENT_HISTORY_COLLECTION), {
       employeeId: employee.id,
       type,
@@ -833,6 +882,66 @@ const WorkerProfileDrawer = ({
     await logHistory("file_removed", record.docType, `ลบไฟล์${label}: ${record.fileName}`);
   };
 
+  // QR Code ของ Permit Card — แนบ/ลบแยกจากไฟล์เอกสารหลัก ใช้ pseudo-key เดียวกันทุกคน
+  const handleUploadQr = async (file: File) => {
+    setUploadingQr(true);
+    try {
+      const { url, fileName } = await uploadMigrantDocumentFile(employee.id, PERMIT_CARD_QR_FILE_KEY, file);
+      await addDoc(collection(db, "CMG-HR-Database", "root", MIGRANT_DOCUMENT_FILES_COLLECTION), {
+        employeeId: employee.id,
+        docType: PERMIT_CARD_QR_FILE_KEY,
+        fileName,
+        fileUrl: url,
+        uploadedBy: actorEmail,
+        uploadedAt: Date.now(),
+      });
+      await logHistory("file_upload", "permit_card", `แนบ QR Code บัตรอนุญาตทำงาน: ${fileName}`);
+    } finally {
+      setUploadingQr(false);
+    }
+  };
+
+  const handleRemoveQr = async (record: MigrantDocumentFileRecord) => {
+    await removeMigrantDocumentFile(record.fileUrl);
+    await deleteDoc(doc(db, "CMG-HR-Database", "root", MIGRANT_DOCUMENT_FILES_COLLECTION, record.id));
+    await logHistory("file_removed", "permit_card", `ลบ QR Code บัตรอนุญาตทำงาน: ${record.fileName}`);
+  };
+
+  // บันทึกบริษัทนายจ้าง + ประกัน พร้อมกันในปุ่มเดียว
+  const saveExtraInfo = async () => {
+    setSavingExtra(true);
+    try {
+      await updateDoc(doc(db, "CMG-HR-Database", "root", "employee_data", employee.id), {
+        [MIGRANT_EMPLOYER_FIELD]: {
+          type: employerDraft.type || null,
+          otherDetail: employerDraft.type === "other" ? employerDraft.otherDetail || "" : "",
+        },
+        [MIGRANT_INSURANCE_FIELD]: {
+          types: insuranceDraft.types || [],
+          otherDetail: (insuranceDraft.types || []).includes("other") ? insuranceDraft.otherDetail || "" : "",
+        },
+      });
+      const employerLabel = MIGRANT_EMPLOYER_OPTIONS.find((o) => o.value === employerDraft.type)?.label || "ไม่ระบุ";
+      const insuranceLabel =
+        (insuranceDraft.types || []).length > 0
+          ? (insuranceDraft.types || [])
+              .map((t) => (t === "other" ? `อื่นๆ (${insuranceDraft.otherDetail || "-"})` : MIGRANT_INSURANCE_OPTIONS.find((o) => o.key === t)?.label || t))
+              .join(", ")
+          : "ไม่ระบุ";
+      await logHistory("data_update", undefined, `อัปเดตบริษัทนายจ้าง: ${employerLabel} / ประกัน: ${insuranceLabel}`);
+    } finally {
+      setSavingExtra(false);
+    }
+  };
+
+  const toggleInsuranceType = (type: MigrantInsuranceType) => {
+    setInsuranceDraft((prev) => {
+      const current = prev.types || [];
+      const next = current.includes(type) ? current.filter((t) => t !== type) : [...current, type];
+      return { ...prev, types: next };
+    });
+  };
+
   return (
     <div className="fixed inset-0 z-40 flex justify-end bg-black/30" onClick={onClose}>
       <div className="w-full max-w-2xl h-full bg-white shadow-2xl overflow-y-auto" onClick={(e) => e.stopPropagation()}>
@@ -843,7 +952,7 @@ const WorkerProfileDrawer = ({
               #{employee.รหัสพนักงาน || employee.id} · {employee.สัญชาติ || "-"} · {employee.โครงการปัจจุบัน || employee.โครงการ || "-"}
             </p>
             <div className="mt-1.5">
-              <StatusBadge completeness={overall.completeness} urgency={overall.urgency} />
+              <ComplianceBadge compliance={compliance} />
             </div>
           </div>
           <button onClick={onClose} className="text-slate-400 hover:text-slate-600">
@@ -865,9 +974,81 @@ const WorkerProfileDrawer = ({
           </div>
 
           <div>
+            <h4 className="text-sm font-bold text-slate-700 mb-2">บริษัทนายจ้าง & ประกัน</h4>
+            <div className="bg-slate-50 rounded-lg p-3 border border-slate-100 space-y-3">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-[10px] uppercase text-slate-400 font-semibold">บริษัทนายจ้าง</label>
+                  <select
+                    disabled={!canManage}
+                    value={employerDraft.type || ""}
+                    onChange={(e) => setEmployerDraft((prev) => ({ ...prev, type: (e.target.value || undefined) as any }))}
+                    className="w-full mt-0.5 px-2 py-1.5 text-sm border border-slate-200 rounded-md disabled:bg-slate-100"
+                  >
+                    <option value="">— เลือก —</option>
+                    {MIGRANT_EMPLOYER_OPTIONS.map((o) => (
+                      <option key={o.value} value={o.value}>
+                        {o.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                {employerDraft.type === "other" && (
+                  <div>
+                    <label className="text-[10px] uppercase text-slate-400 font-semibold">ระบุชื่อบริษัท</label>
+                    <input
+                      disabled={!canManage}
+                      value={employerDraft.otherDetail || ""}
+                      onChange={(e) => setEmployerDraft((prev) => ({ ...prev, otherDetail: e.target.value }))}
+                      className="w-full mt-0.5 px-2 py-1.5 text-sm border border-slate-200 rounded-md disabled:bg-slate-100"
+                    />
+                  </div>
+                )}
+              </div>
+
+              <div>
+                <label className="text-[10px] uppercase text-slate-400 font-semibold">ประกัน (เลือกได้มากกว่า 1)</label>
+                <div className="mt-1 flex flex-wrap gap-3">
+                  {MIGRANT_INSURANCE_OPTIONS.map((o) => (
+                    <label key={o.key} className="flex items-center gap-1.5 text-sm text-slate-700">
+                      <input
+                        type="checkbox"
+                        disabled={!canManage}
+                        checked={(insuranceDraft.types || []).includes(o.key)}
+                        onChange={() => toggleInsuranceType(o.key)}
+                        className="rounded border-slate-300"
+                      />
+                      {o.label}
+                    </label>
+                  ))}
+                </div>
+                {(insuranceDraft.types || []).includes("other") && (
+                  <input
+                    disabled={!canManage}
+                    value={insuranceDraft.otherDetail || ""}
+                    onChange={(e) => setInsuranceDraft((prev) => ({ ...prev, otherDetail: e.target.value }))}
+                    placeholder="ระบุประกันอื่นๆ"
+                    className="w-full mt-1.5 px-2 py-1.5 text-sm border border-slate-200 rounded-md disabled:bg-slate-100"
+                  />
+                )}
+              </div>
+
+              {canManage && (
+                <button
+                  onClick={saveExtraInfo}
+                  disabled={savingExtra}
+                  className="px-3 py-1 text-xs font-medium bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50"
+                >
+                  {savingExtra ? "กำลังบันทึก..." : "บันทึกข้อมูลนายจ้าง/ประกัน"}
+                </button>
+              )}
+            </div>
+          </div>
+
+          <div>
             <h4 className="text-sm font-bold text-slate-700 mb-2">เอกสาร</h4>
             <div className="space-y-3">
-              {MIGRANT_DOCUMENT_TYPES.map(({ key, label }) => {
+              {MIGRANT_DOCUMENT_TYPES.map(({ key, label, tier, hasQrCode }) => {
                 const summary = summaries.find((s) => s.docType === key)!;
                 const draft = draftFor(key);
                 return (
@@ -875,14 +1056,19 @@ const WorkerProfileDrawer = ({
                     key={key}
                     typeKey={key}
                     label={label}
+                    tier={tier}
+                    hasQrCode={hasQrCode}
                     summary={summary}
                     draft={draft}
                     canManage={canManage}
                     saving={savingType === key}
                     uploading={uploadingType === key}
+                    uploadingQr={uploadingQr}
                     onChange={(patch) => updateDraft(key, patch)}
                     onSave={() => saveDocData(key)}
                     onUpload={(file) => handleUpload(key, file)}
+                    onUploadQr={handleUploadQr}
+                    onRemoveQr={handleRemoveQr}
                     employeeId={employee.id}
                     db={db}
                     onRemoveFile={handleRemoveFile}
@@ -1033,7 +1219,7 @@ const AddMigrantWorkerModal = ({
 
         <div className="p-5 space-y-3 max-h-[70vh] overflow-y-auto">
           <p className="text-xs text-slate-500">
-            ข้อมูลนี้จะถูกสร้างในทะเบียนพนักงานหลัก (เชื่อมกับระบบเดิม) แล้วจึงเปิดให้กรอกเอกสาร (พาสปอร์ต/Work Permit/วีซ่า/Border Pass) ต่อทันที
+            ข้อมูลนี้จะถูกสร้างในทะเบียนพนักงานหลัก (เชื่อมกับระบบเดิม) แล้วจึงเปิดให้กรอกเอกสาร (Work Permit/Permit Card/Passport/เล่ม CI/วีซ่า/Border Pass) ต่อทันที
           </p>
 
           <div className="grid grid-cols-2 gap-3">
@@ -1161,33 +1347,44 @@ const InfoRow = ({ label, value }: { label: string; value: string }) => (
 const DocumentCard = ({
   typeKey,
   label,
+  tier,
+  hasQrCode,
   summary,
   draft,
   canManage,
   saving,
   uploading,
+  uploadingQr,
   onChange,
   onSave,
   onUpload,
+  onUploadQr,
+  onRemoveQr,
   employeeId,
   db,
   onRemoveFile,
 }: {
   typeKey: MigrantDocumentTypeKey;
   label: string;
+  tier: MigrantDocumentTier;
+  hasQrCode?: boolean;
   summary: WorkerDocumentSummary;
   draft: MigrantDocumentEntry;
   canManage: boolean;
   saving: boolean;
   uploading: boolean;
+  uploadingQr?: boolean;
   onChange: (patch: Partial<MigrantDocumentEntry>) => void;
   onSave: () => void;
   onUpload: (file: File) => void;
+  onUploadQr?: (file: File) => void;
+  onRemoveQr?: (record: MigrantDocumentFileRecord) => void;
   employeeId: string;
   db: ReturnType<typeof getFirestore>;
   onRemoveFile: (record: MigrantDocumentFileRecord) => void;
 }) => {
   const [fileRecords, setFileRecords] = useState<MigrantDocumentFileRecord[]>([]);
+  const [qrFileRecords, setQrFileRecords] = useState<MigrantDocumentFileRecord[]>([]);
 
   useEffect(() => {
     const q = query(
@@ -1203,12 +1400,32 @@ const DocumentCard = ({
     return () => unsub();
   }, [db, employeeId, typeKey]);
 
+  useEffect(() => {
+    if (!hasQrCode) return;
+    const q = query(
+      collection(db, "CMG-HR-Database", "root", MIGRANT_DOCUMENT_FILES_COLLECTION),
+      where("employeeId", "==", employeeId),
+      where("docType", "==", PERMIT_CARD_QR_FILE_KEY)
+    );
+    const unsub = onSnapshot(q, (snap) => {
+      const rows = snap.docs.map((d) => ({ id: d.id, ...(d.data() as any) } as MigrantDocumentFileRecord));
+      rows.sort((a, b) => (b.uploadedAt || 0) - (a.uploadedAt || 0));
+      setQrFileRecords(rows);
+    });
+    return () => unsub();
+  }, [db, employeeId, hasQrCode]);
+
   const urgencyMeta = summary.completeness === "complete" ? URGENCY_META[summary.urgency] : null;
 
   return (
     <div className="border border-slate-200 rounded-lg p-3">
       <div className="flex items-center justify-between mb-2">
-        <span className="text-sm font-semibold text-slate-800">{label}</span>
+        <div className="flex items-center gap-1.5">
+          <span className="text-sm font-semibold text-slate-800">{label}</span>
+          <span className={`inline-flex px-1.5 py-0.5 rounded text-[10px] font-semibold ${DOCUMENT_TIER_META[tier].badge}`}>
+            {DOCUMENT_TIER_META[tier].label}
+          </span>
+        </div>
         {urgencyMeta ? (
           <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${urgencyMeta.badge}`}>
             <span className={`w-1.5 h-1.5 rounded-full ${urgencyMeta.dot}`} /> {urgencyMeta.label}
@@ -1281,6 +1498,48 @@ const DocumentCard = ({
               )}
             </div>
           ))}
+        </div>
+      )}
+
+      {hasQrCode && (
+        <div className="mt-3 pt-3 border-t border-dashed border-slate-200">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-semibold text-slate-600">QR Code บัตรอนุญาตทำงาน</span>
+            {canManage && (
+              <label className="px-2.5 py-1 text-xs font-medium border border-slate-300 rounded-md cursor-pointer hover:bg-slate-50 flex items-center gap-1">
+                <Upload size={11} /> {uploadingQr ? "กำลังอัปโหลด..." : "แนบ QR Code"}
+                <input
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  disabled={uploadingQr}
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file && onUploadQr) onUploadQr(file);
+                    e.target.value = "";
+                  }}
+                />
+              </label>
+            )}
+          </div>
+          {qrFileRecords.length > 0 ? (
+            <div className="mt-1.5 space-y-1">
+              {qrFileRecords.map((f) => (
+                <div key={f.id} className="flex items-center justify-between text-xs bg-slate-50 rounded-md px-2 py-1">
+                  <a href={f.fileUrl} target="_blank" rel="noreferrer" className="flex items-center gap-1 text-blue-700 hover:underline truncate">
+                    <Paperclip size={12} /> {f.fileName}
+                  </a>
+                  {canManage && (
+                    <button onClick={() => onRemoveQr && onRemoveQr(f)} className="text-slate-400 hover:text-red-600 shrink-0">
+                      <Trash2 size={12} />
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="text-xs text-slate-400 mt-1">ยังไม่มี QR Code แนบ</div>
+          )}
         </div>
       )}
     </div>
