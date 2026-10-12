@@ -40,6 +40,7 @@ import {
   OvertimeLimitConfig,
   OvertimeTier,
 } from "../config/overtimeLimits";
+import { isOvertimeDateAllowed } from "../utils/overtimeDateRules";
 
 interface Employee {
   id: string;
@@ -241,14 +242,8 @@ const OvertimeCell: React.FC<OvertimeCellProps> = React.memo(({
   }
 
   let tooltipExtra = "";
-  const today = new Date(); today.setHours(0, 0, 0, 0);
-  const targetDate = new Date(dateStr); targetDate.setHours(0, 0, 0, 0);
-  const isFuture = targetDate > today;
 
-  if (isFuture) {
-    bg = "bg-gray-50";
-    tooltipExtra = " ⏭️ ไม่สามารถลงล่วงหน้าได้";
-  } else if (isOtherProject) {
+  if (isOtherProject) {
     bg = locked ? "bg-green-100" : "bg-green-100 hover:bg-green-200";
     textCls = "text-green-700 font-semibold";
     if (isToday) bg = locked ? "bg-green-200 border border-gray-300" : "bg-green-200 hover:bg-green-300 border border-gray-300";
@@ -646,10 +641,7 @@ export const OvertimePage = ({ projectOptions }: { projectOptions: string[] }) =
       if (isOtherProject) return prevData;
 
       const currentEntry = prevData[dateStr]?.[employeeId];
-      const today = new Date(); today.setHours(0, 0, 0, 0);
-      const targetDate = new Date(dateStr); targetDate.setHours(0, 0, 0, 0);
-      
-      if (targetDate > today) return prevData;
+      if (!isOvertimeDateAllowed(dateStr)) return prevData;
       if (currentEntry && isLocked(currentEntry)) return prevData;
       
       const cur = currentEntry?.hours || "";
@@ -729,16 +721,13 @@ export const OvertimePage = ({ projectOptions }: { projectOptions: string[] }) =
   const renderStatusCell = (employeeId: string, dateStr: string, isWeekend: boolean, isToday: boolean, employee: Employee) => {
     const entry = overtimeData[dateStr]?.[employeeId];
     const locked = isLocked(entry);
-    const today = new Date(); today.setHours(0, 0, 0, 0);
-    const targetDate = new Date(dateStr); targetDate.setHours(0, 0, 0, 0);
-    const isFuture = targetDate > today;
 
     const empProjects = employee.สถานะโครงการ;
     const projectList = Array.isArray(empProjects) ? empProjects : empProjects ? [empProjects] : [];
     const isMultiProject = projectList.length > 1;
     const attendedProject = entry?.project;
     const isOtherProject = !!(isMultiProject && attendedProject && selectedProject !== "all" && attendedProject !== selectedProject && entry?.hours);
-    const canEdit = !isFuture && !locked && canEditOvertime && !isOtherProject;
+    const canEdit = isOvertimeDateAllowed(dateStr) && !locked && canEditOvertime && !isOtherProject;
     const dayOffName = dayOffs[dateStr];
 
     const isWeekEndDate = weekEndDates.has(dateStr);
