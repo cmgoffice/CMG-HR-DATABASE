@@ -66,6 +66,9 @@ import { removeMigrantDocumentFile, uploadMigrantDocumentFile } from "../utils/m
 interface MigrantEmployee {
   id: string;
   รหัสพนักงาน?: string;
+  // field จริงที่ DC Daily/Supply/Sub Contractor (schema: emp_direct_leader) ใช้เก็บคำนำหน้าชื่อ
+  คำนำหน้าชื่อ?: string;
+  // field เก่าที่เคยถูกใช้ผิดชื่อ เก็บไว้เพื่ออ่านข้อมูลเก่าที่เคยบันทึกพลาดเท่านั้น (ห้ามเขียนใหม่)
   ชื่อต้น?: string;
   ชื่อตัว?: string;
   ชื่อสกุล?: string;
@@ -180,7 +183,8 @@ const getLastMonthKeys = (count: number): string[] => {
   return keys;
 };
 
-const employeeName = (e: MigrantEmployee) => `${e.ชื่อต้น || ""}${e.ชื่อตัว || ""} ${e.ชื่อสกุล || ""}`.trim() || "(ไม่ระบุชื่อ)";
+const employeeName = (e: MigrantEmployee) =>
+  `${e.คำนำหน้าชื่อ || e.ชื่อต้น || ""}${e.ชื่อตัว || ""} ${e.ชื่อสกุล || ""}`.trim() || "(ไม่ระบุชื่อ)";
 
 const COMPLETENESS_ORDER: Record<string, number> = {
   expired: 0,
@@ -214,7 +218,7 @@ export const MigrantWorkerPage = ({ projectOptions }: { projectOptions: string[]
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [showAddModal, setShowAddModal] = useState(false);
 
-  // ดึง "ตัวเลือกจริง" ของฟิลด์ ชื่อต้น/สถานะพนักงาน/สถานะกลุ่มงาน/ตำแหน่ง จาก schema เดียวกับที่หน้า
+  // ดึง "ตัวเลือกจริง" ของฟิลด์ คำนำหน้าชื่อ/สถานะพนักงาน/สถานะกลุ่มงาน/ตำแหน่ง จาก schema เดียวกับที่หน้า
   // DC Daily/Supply/Sub Contractor ใช้จริง (module_schemas/emp_direct_leader) เพื่อไม่ให้ตัวเลือกใน
   // ฟอร์มแรงงานต่างด้าวเพี้ยนไปจากระบบหลัก แม้แอดมินจะไปปรับแก้ตัวเลือกใน "ตั้งค่า" ภายหลังก็ตาม
   // ถ้ายังโหลดไม่เสร็จ/ไม่มีข้อมูล จะ fallback ไปใช้ค่า default ที่ตรงกับ DEFAULT_SCHEMAS ของระบบหลักอยู่แล้ว
@@ -492,7 +496,7 @@ export const MigrantWorkerPage = ({ projectOptions }: { projectOptions: string[]
           data={selected}
           canManage={canManage}
           projectOptions={projectOptions}
-          titleOptions={fieldOptions("ชื่อต้น", ["นาย", "นาง", "นางสาว", "Mr.", "Mrs.", "Ms."])}
+          titleOptions={fieldOptions("คำนำหน้าชื่อ", ["นาย", "นาง", "นางสาว", "Mr.", "Mrs.", "Ms."])}
           employeeStatusOptions={fieldOptions("สถานะพนักงาน", EMPLOYEE_STATUS_OPTIONS)}
           workGroupOptions={fieldOptions("สถานะกลุ่มงาน", WORK_GROUP_OPTIONS)}
           db={db}
@@ -505,7 +509,7 @@ export const MigrantWorkerPage = ({ projectOptions }: { projectOptions: string[]
         <AddMigrantWorkerModal
           db={db}
           projectOptions={projectOptions}
-          titleOptions={fieldOptions("ชื่อต้น", ["นาย", "นาง", "นางสาว", "Mr.", "Mrs.", "Ms."])}
+          titleOptions={fieldOptions("คำนำหน้าชื่อ", ["นาย", "นาง", "นางสาว", "Mr.", "Mrs.", "Ms."])}
           employeeStatusOptions={fieldOptions("สถานะพนักงาน", EMPLOYEE_STATUS_OPTIONS)}
           workGroupOptions={fieldOptions("สถานะกลุ่มงาน", WORK_GROUP_OPTIONS)}
           existingCodes={rawEmployees.map((e) => String(e.รหัสพนักงาน || "").trim().toLowerCase()).filter(Boolean)}
@@ -849,7 +853,7 @@ const WorkerProfileDrawer = ({
   const [savingBasic, setSavingBasic] = useState(false);
   const toProjectArray = (v: string | string[] | undefined): string[] => (Array.isArray(v) ? v : v ? [v] : []);
   const [basicDraft, setBasicDraft] = useState(() => ({
-    ชื่อต้น: employee.ชื่อต้น || "นาย",
+    คำนำหน้าชื่อ: employee.คำนำหน้าชื่อ || employee.ชื่อต้น || "นาย",
     ชื่อตัว: employee.ชื่อตัว || "",
     ชื่อสกุล: employee.ชื่อสกุล || "",
     สัญชาติ: employee.สัญชาติ || "",
@@ -1017,7 +1021,7 @@ const WorkerProfileDrawer = ({
     setSavingBasic(true);
     try {
       await updateDoc(doc(db, "CMG-HR-Database", "root", "employee_data", employee.id), {
-        ชื่อต้น: basicDraft.ชื่อต้น,
+        คำนำหน้าชื่อ: basicDraft.คำนำหน้าชื่อ,
         ชื่อตัว: firstName,
         ชื่อสกุล: lastName,
         สัญชาติ: basicDraft.สัญชาติ.trim(),
@@ -1089,8 +1093,8 @@ const WorkerProfileDrawer = ({
                 <div className="grid grid-cols-2 gap-3">
                   <Field label="คำนำหน้า">
                     <select
-                      value={basicDraft.ชื่อต้น}
-                      onChange={(e) => setBasicDraft((p) => ({ ...p, ชื่อต้น: e.target.value }))}
+                      value={basicDraft.คำนำหน้าชื่อ}
+                      onChange={(e) => setBasicDraft((p) => ({ ...p, คำนำหน้าชื่อ: e.target.value }))}
                       className="w-full px-2.5 py-1.5 text-sm border border-slate-200 rounded-md"
                     >
                       {titleOptions.map((o) => (
@@ -1363,7 +1367,7 @@ const AddMigrantWorkerModal = ({
 }) => {
   const [form, setForm] = useState({
     รหัสพนักงาน: "",
-    ชื่อต้น: "นาย",
+    คำนำหน้าชื่อ: "นาย",
     ชื่อตัว: "",
     ชื่อสกุล: "",
     สัญชาติ: "",
@@ -1421,7 +1425,7 @@ const AddMigrantWorkerModal = ({
 
       await setDoc(docRef, {
         รหัสพนักงาน: code,
-        ชื่อต้น: form.ชื่อต้น,
+        คำนำหน้าชื่อ: form.คำนำหน้าชื่อ,
         ชื่อตัว: firstName,
         ชื่อสกุล: lastName,
         สัญชาติ: nationality,
@@ -1478,8 +1482,8 @@ const AddMigrantWorkerModal = ({
             </Field>
             <Field label="คำนำหน้า">
               <select
-                value={form.ชื่อต้น}
-                onChange={(e) => set({ ชื่อต้น: e.target.value })}
+                value={form.คำนำหน้าชื่อ}
+                onChange={(e) => set({ คำนำหน้าชื่อ: e.target.value })}
                 className="w-full px-2.5 py-1.5 text-sm border border-slate-200 rounded-md"
               >
                 {titleOptions.map((o) => (
