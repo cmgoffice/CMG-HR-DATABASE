@@ -1290,8 +1290,22 @@ export const ManpowerDashboard = ({
 
   const hasAssignedProjects = useMemo(() => {
     if (canSeeAllProjects) return true;
+    // HR–Safety tab ไม่ผูกกับ selectedProject เดียวเหมือน Project Dashboard (มี dropdown
+    // เลือกโครงการของตัวเองอยู่แล้ว และ query ข้อมูลโดยกรองตาม assignedProjects ภายในอยู่แล้ว)
+    // จึงไม่ควรบล็อกทั้งหน้าด้วยข้อความ "ยังไม่ได้ถูกกำหนดโครงการ" สำหรับ role ที่เห็นแท็บนี้ได้
+    // (เช่น Safety ที่อาจยังไม่ถูก assign โครงการเฉพาะเจาะจงแบบ PM/CM/Admin Site)
+    if (canSeeSafetyDashboard) return true;
     return filteredProjectOptions.length > 0;
-  }, [canSeeAllProjects, filteredProjectOptions]);
+  }, [canSeeAllProjects, canSeeSafetyDashboard, filteredProjectOptions]);
+
+  // ถ้า role เห็นได้แค่ HR–Safety (ไม่เห็น HR Dashboard เดิม) และยังไม่ถูก assign โครงการ
+  // (เช่น Safety ที่เพิ่งถูกสร้างบัญชี ยังไม่ได้ assign โครงการแบบ PM/CM/Admin Site) ให้พาไปแท็บ
+  // HR–Safety โดยตรงแทนที่จะค้างอยู่ที่ Project Dashboard ซึ่งจะว่างเปล่าไม่มีโครงการให้เลือก
+  useEffect(() => {
+    if (!canSeeHrDashboard && canSeeSafetyDashboard && filteredProjectOptions.length === 0) {
+      setDashboardMode("safety");
+    }
+  }, [canSeeHrDashboard, canSeeSafetyDashboard, filteredProjectOptions]);
 
   useEffect(() => {
     setLoading(true);
