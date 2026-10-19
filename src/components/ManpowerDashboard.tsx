@@ -1114,6 +1114,10 @@ export const ManpowerDashboard = ({
   // Safety Dashboard (Workforce & Exposure): เห็นได้โดย HR เดิม + role "Safety"/"Admin Site"
   // ที่ต้องใช้ข้อมูลนี้โดยตรง ยังไม่ผูกกับ settings/role_permissions เพิ่ม (เหมือนโหมด analytics เดิม)
   const canSeeSafetyDashboard = hasRole(["MasterAdmin", "MD", "GM", "PD", "HRM", "HR", "Safety", "Admin Site"]);
+  // Role "Safety" ทำหน้าที่ดูแลความปลอดภัยทั้งบริษัท ไม่ได้ผูกกับโครงการเดียวแบบ PM/CM/Admin Site
+  // จึงให้เห็นข้อมูล workforce/exposure ของทุกโครงการเฉพาะในหน้า HR–Safety (ไม่กระทบสิทธิ์
+  // canSeeAllProjects เดิมที่ใช้คุมหน้า Project Dashboard/Dropdown โครงการของโหมดอื่น)
+  const safetyCanSeeAllProjects = canSeeAllProjects || hasRole(["Safety"]);
   const defaultTodayRange = getTodayPresetRange();
   const [dashboardMode, setDashboardMode] = useState<DashboardMode>(showOnlyRiskMonitoring ? "hr" : (canSeeHrDashboard ? "hr" : "project"));
   const [timePreset, setTimePreset] = useState<TimePreset>("today");
@@ -1135,6 +1139,10 @@ export const ManpowerDashboard = ({
   const [riskEmployeeTypeFilter, setRiskEmployeeTypeFilter] = useState("all");
   const [loading, setLoading] = useState(true);
   const [employees, setEmployees] = useState<Employee[]>([]);
+  // รายชื่อพนักงานสถานะ "ทำงาน" แบบไม่กรองตาม assignedProjects — ใช้เฉพาะหน้า
+  // HR–Safety สำหรับ role "Safety" ที่ต้องเห็นภาพรวมความเสี่ยง/exposure ทั้งบริษัท
+  // แม้จะยังไม่ถูก assign โครงการเฉพาะเจาะจงแบบ PM/CM/Admin Site (ดู safetyCanSeeAllProjects ด้านล่าง)
+  const [allActiveEmployees, setAllActiveEmployees] = useState<Employee[]>([]);
   const [projectRecords, setProjectRecords] = useState<ProjectRecord[]>([]);
   const [attendanceByDate, setAttendanceByDate] = useState<Record<string, Record<string, AttendanceEntry>>>({});
   const [overtimeByDate, setOvertimeByDate] = useState<Record<string, Record<string, OvertimeEntry>>>({});
@@ -1321,6 +1329,8 @@ export const ManpowerDashboard = ({
         let list = snapshot.docs
           .map((docSnap) => ({ id: docSnap.id, ...docSnap.data() } as Employee))
           .filter((emp) => emp["สถานะพนักงาน"] === "ทำงาน");
+
+        setAllActiveEmployees(list);
 
         if (!canSeeAllProjects) {
           const assignedProjects = userProfile?.assignedProjects || [];
@@ -4299,7 +4309,11 @@ export const ManpowerDashboard = ({
       ) : dashboardMode === "analytics" && canSeeHrDashboard ? (
         <HRAnalyticsTab activeEmployees={employees} canSeeAllProjects={canSeeAllProjects} assignedProjects={userProfile?.assignedProjects || []} />
       ) : dashboardMode === "safety" && canSeeSafetyDashboard ? (
-        <SafetyDashboardTab activeEmployees={employees} canSeeAllProjects={canSeeAllProjects} assignedProjects={userProfile?.assignedProjects || []} />
+        <SafetyDashboardTab
+          activeEmployees={safetyCanSeeAllProjects ? allActiveEmployees : employees}
+          canSeeAllProjects={safetyCanSeeAllProjects}
+          assignedProjects={userProfile?.assignedProjects || []}
+        />
       ) : dashboardMode === "hr" && canSeeHrDashboard ? (
         <div className="p-2 space-y-2 lg:p-4 lg:space-y-4">
           {!showOnlyRiskMonitoring && (
