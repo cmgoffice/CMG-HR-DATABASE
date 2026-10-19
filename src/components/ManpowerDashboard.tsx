@@ -4232,45 +4232,36 @@ export const ManpowerDashboard = ({
                 )}
               </div>
             )}
-            {dashboardMode === "safety" ? (
-              // แท็บ HR–Safety ใช้ "ตัวเลือกเดือน/ปี" ของตัวเองด้านในการ์ด (รายเดือน ไม่ใช่รายวัน/ช่วงวันที่)
-              // จึงซ่อนตัวเลือกวันนี้/เมื่อวาน/เดือนนี้/เลือกวันที่ของ header เพื่อไม่ให้สับสนว่าทำไม
-              // เปลี่ยนวันที่ตรงนี้แล้วตัวเลขในแท็บไม่ขยับ (เพราะมันไม่ได้ผูกกับ field วันที่ชุดนี้)
-              <span className="text-[11px] text-slate-400 italic">
-                * แท็บนี้เลือกเดือน/ปี/โครงการจากตัวกรองด้านในการ์ดด้านล่างแทน
-              </span>
-            ) : (
-              <div className="inline-flex h-8 shrink-0 border border-slate-200 rounded-lg overflow-hidden bg-white">
-                <button
-                  type="button"
-                  onClick={() => applyTimePreset("today")}
-                  className={`px-3 text-xs font-bold ${timePreset === "today" ? "bg-slate-900 text-white" : "text-slate-600 hover:bg-slate-50"}`}
-                >
-                  วันนี้
-                </button>
-                <button
-                  type="button"
-                  onClick={() => applyTimePreset("yesterday")}
-                  className={`px-3 text-xs font-bold border-l border-slate-200 ${timePreset === "yesterday" ? "bg-slate-900 text-white" : "text-slate-600 hover:bg-slate-50"}`}
-                >
-                  เมื่อวานนี้
-                </button>
-                <button
-                  type="button"
-                  onClick={() => applyTimePreset("month")}
-                  className={`px-3 text-xs font-bold border-l border-slate-200 ${timePreset === "month" ? "bg-sky-500 text-white" : "text-slate-600 hover:bg-sky-50"}`}
-                >
-                  เดือนนี้
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setTimePreset("custom")}
-                  className={`px-3 text-xs font-bold border-l border-slate-200 ${timePreset === "custom" ? "bg-emerald-500 text-white" : "text-slate-600 hover:bg-emerald-50"}`}
-                >
-                  เลือกวันที่
-                </button>
-              </div>
-            )}
+            <div className="inline-flex h-8 shrink-0 border border-slate-200 rounded-lg overflow-hidden bg-white">
+              <button
+                type="button"
+                onClick={() => applyTimePreset("today")}
+                className={`px-3 text-xs font-bold ${timePreset === "today" ? "bg-slate-900 text-white" : "text-slate-600 hover:bg-slate-50"}`}
+              >
+                วันนี้
+              </button>
+              <button
+                type="button"
+                onClick={() => applyTimePreset("yesterday")}
+                className={`px-3 text-xs font-bold border-l border-slate-200 ${timePreset === "yesterday" ? "bg-slate-900 text-white" : "text-slate-600 hover:bg-slate-50"}`}
+              >
+                เมื่อวานนี้
+              </button>
+              <button
+                type="button"
+                onClick={() => applyTimePreset("month")}
+                className={`px-3 text-xs font-bold border-l border-slate-200 ${timePreset === "month" ? "bg-sky-500 text-white" : "text-slate-600 hover:bg-sky-50"}`}
+              >
+                เดือนนี้
+              </button>
+              <button
+                type="button"
+                onClick={() => setTimePreset("custom")}
+                className={`px-3 text-xs font-bold border-l border-slate-200 ${timePreset === "custom" ? "bg-emerald-500 text-white" : "text-slate-600 hover:bg-emerald-50"}`}
+              >
+                เลือกวันที่
+              </button>
+            </div>
             <button
               type="button"
               data-html2canvas-ignore="true"
@@ -4285,32 +4276,30 @@ export const ManpowerDashboard = ({
             <div data-html2canvas-ignore="true">
               <PageGuideButton onClick={() => setShowPageGuide(true)} />
             </div>
-            {/* ช่องวันที่: reserve พื้นที่ไว้เสมอเพื่อกัน layout เด้ง เปิดใช้งานเฉพาะโหมดเลือกวันที่ (ไม่ใช้ในแท็บ HR–Safety) */}
-            {dashboardMode !== "safety" && (
-              <div className={`shrink-0 items-center gap-2 transition-opacity ${timePreset === "custom" ? "flex opacity-100" : "hidden lg:flex pointer-events-none lg:opacity-0"}`}>
-                <input
-                  type="date"
-                  value={startDate}
-                  disabled={timePreset !== "custom"}
-                  onChange={(e) => {
-                    setTimePreset("custom");
-                    setStartDate(e.target.value);
-                  }}
-                  className="h-8 w-[150px] px-3 border border-slate-200 rounded-lg bg-white text-xs focus:ring-2 focus:ring-sky-300 outline-none"
-                />
-                <span className="text-xs text-slate-400">ถึง</span>
-                <input
-                  type="date"
-                  value={endDate}
-                  disabled={timePreset !== "custom"}
-                  onChange={(e) => {
-                    setTimePreset("custom");
-                    setEndDate(e.target.value);
-                  }}
-                  className="h-8 w-[150px] px-3 border border-slate-200 rounded-lg bg-white text-xs focus:ring-2 focus:ring-sky-300 outline-none"
-                />
-              </div>
-            )}
+            {/* ช่องวันที่: reserve พื้นที่ไว้เสมอเพื่อกัน layout เด้ง เปิดใช้งานเฉพาะโหมดเลือกวันที่ */}
+            <div className={`shrink-0 items-center gap-2 transition-opacity ${timePreset === "custom" ? "flex opacity-100" : "hidden lg:flex pointer-events-none lg:opacity-0"}`}>
+              <input
+                type="date"
+                value={startDate}
+                disabled={timePreset !== "custom"}
+                onChange={(e) => {
+                  setTimePreset("custom");
+                  setStartDate(e.target.value);
+                }}
+                className="h-8 w-[150px] px-3 border border-slate-200 rounded-lg bg-white text-xs focus:ring-2 focus:ring-sky-300 outline-none"
+              />
+              <span className="text-xs text-slate-400">ถึง</span>
+              <input
+                type="date"
+                value={endDate}
+                disabled={timePreset !== "custom"}
+                onChange={(e) => {
+                  setTimePreset("custom");
+                  setEndDate(e.target.value);
+                }}
+                className="h-8 w-[150px] px-3 border border-slate-200 rounded-lg bg-white text-xs focus:ring-2 focus:ring-sky-300 outline-none"
+              />
+            </div>
           </div>
         </div>
       </div>
@@ -4324,6 +4313,9 @@ export const ManpowerDashboard = ({
           activeEmployees={safetyCanSeeAllProjects ? allActiveEmployees : employees}
           canSeeAllProjects={safetyCanSeeAllProjects}
           assignedProjects={userProfile?.assignedProjects || []}
+          selectedDates={dateRange}
+          startDate={startDate}
+          endDate={endDate}
         />
       ) : dashboardMode === "hr" && canSeeHrDashboard ? (
         <div className="p-2 space-y-2 lg:p-4 lg:space-y-4">

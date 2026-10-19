@@ -3,6 +3,7 @@ import { collection, getFirestore, onSnapshot } from "firebase/firestore";
 import {
   AlertTriangle,
   ArrowLeftRight,
+  Calendar,
   Clock,
   Loader2,
   ShieldAlert,
@@ -101,24 +102,16 @@ const daysInMonthKey = (monthKey: string): string[] => {
   return dates;
 };
 
-const monthLabelTh = (monthKey: string): string => {
-  const [y, m] = monthKey.split("-").map((n) => parseInt(n, 10));
+/** แสดงวันที่แบบย่อ พ.ศ. เช่น "1 ต.ค. 2569" สำหรับ label ช่วงวันที่ที่เลือก */
+const formatThaiDateShort = (dateStr?: string): string => {
+  if (!dateStr) return "";
+  const d = new Date(`${dateStr}T00:00:00`);
+  if (Number.isNaN(d.getTime())) return dateStr;
   const thaiMonths = [
     "ม.ค.", "ก.พ.", "มี.ค.", "เม.ย.", "พ.ค.", "มิ.ย.",
     "ก.ค.", "ส.ค.", "ก.ย.", "ต.ค.", "พ.ย.", "ธ.ค.",
   ];
-  return `${thaiMonths[m - 1]} ${y + 543}`;
-};
-
-const shiftMonthKey = (monthKey: string, delta: number): string => {
-  const [y, m] = monthKey.split("-").map((n) => parseInt(n, 10));
-  const d = new Date(y, m - 1 + delta, 1);
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
-};
-
-const currentMonthKey = (): string => {
-  const now = new Date();
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+  return `${d.getDate()} ${thaiMonths[d.getMonth()]} ${d.getFullYear() + 543}`;
 };
 
 const THAI_MONTHS_SHORT = ["ม.ค.", "ก.พ.", "มี.ค.", "เม.ย.", "พ.ค.", "มิ.ย.", "ก.ค.", "ส.ค.", "ก.ย.", "ต.ค.", "พ.ย.", "ธ.ค."];
@@ -145,10 +138,17 @@ export const SafetyDashboardTab = ({
   activeEmployees,
   canSeeAllProjects,
   assignedProjects,
+  selectedDates,
+  startDate,
+  endDate,
 }: {
   activeEmployees: Employee[];
   canSeeAllProjects: boolean;
   assignedProjects: string[];
+  /** ช่วงวันที่ที่เลือกจาก header หลัก (วันนี้/เมื่อวาน/เดือนนี้/กำหนดเอง) ใช้คำนวณ Workforce & Exposure Summary */
+  selectedDates: string[];
+  startDate: string;
+  endDate: string;
 }) => {
   const db = getFirestore();
   const { limits: otLimits, loading: otLimitsLoading } = useOvertimeLimits();
@@ -160,7 +160,6 @@ export const SafetyDashboardTab = ({
   const [allEmployees, setAllEmployees] = useState<Employee[]>([]);
   const [transfers, setTransfers] = useState<EmployeeTransfer[]>([]);
 
-  const [monthKey, setMonthKey] = useState<string>(currentMonthKey());
   const [yearValue, setYearValue] = useState<number>(new Date().getFullYear());
   const [projectFilter, setProjectFilter] = useState<string>("all");
   const [laborGroupFilter, setLaborGroupFilter] = useState<string>("all");
@@ -232,7 +231,15 @@ export const SafetyDashboardTab = ({
     };
   }, [db, canSeeAllProjects, assignedProjects.join("|")]);
 
-  const monthDates = useMemo(() => daysInMonthKey(monthKey), [monthKey]);
+  // ช่วงวันที่ที่ใช้คำนวณ Workforce & Exposure Summary / Workforce Movement มาจาก header หลัก
+  // (วันนี้/เมื่อวาน/เดือนนี้/กำหนดเอง) ส่วน "สถิติประจำปี" ด้านล่างยังคงใช้ตัวเลือกปีของตัวเอง
+  const rangeStart = selectedDates[0];
+  const rangeEnd = selectedDates[selectedDates.length - 1];
+  const rangeLabel = useMemo(() => {
+    if (!rangeStart || !rangeEnd) return "";
+    if (rangeStart === rangeEnd) return formatThaiDateShort(rangeStart);
+    return `${formatThaiDateShort(rangeStart)} – ${formatThaiDateShort(rangeEnd)}`;
+  }, [rangeStart, rangeEnd]);
 
   const projectOptions = useMemo(() => {
     const names = new Set<string>();
@@ -289,7 +296,7 @@ export const SafetyDashboardTab = ({
     const manDaysByLaborGroup: Record<string, number> = {};
     const otHoursByEmployee: Record<string, number> = {};
 
-    monthDates.forEach((date) => {
+    selectedDates.forEach((date) => {
       const attRecords = attendanceByDate[date] || {};
       Object.entries(attRecords).forEach(([empId, entry]) => {
         if (!scopedEmployeeIds.has(empId)) return;
@@ -327,7 +334,7 @@ export const SafetyDashboardTab = ({
       manDaysByLaborGroup,
       otHoursByEmployee,
     };
-  }, [monthDates, attendanceByDate, overtimeByDate, scopedEmployeeIds, employeeById]);
+  }, [selectedDates, attendanceByDate, overtimeByDate, scopedEmployeeIds, employeeById]);
 
   const manHoursByProjectChart: RankedBarDatum[] = useMemo(() => {
     return Object.entries(exposureData.manHoursByProject)
@@ -367,13 +374,12 @@ export const SafetyDashboardTab = ({
 
   // ---------- Workforce Movement ----------
   const movementData = useMemo(() => {
-    const newHires = allEmployees.filter((e) => monthKeyFromDate(resolveEmployeeStartDate(e) || undefined) === monthKey);
-    const exits = hasResignationDates
-      ? allEmployees.filter((e) => monthKeyFromDate(e.resignation_date) === monthKey)
-      : [];
-    const transfersInMonth = transfers.filter((t) => monthKeyFromDate(t.effectiveDate) === monthKey);
-    return { newHires, exits, hasResignationDates, transfersInMonth };
-  }, [allEmployees, transfers, monthKey, hasResignationDates]);
+    const inRange = (d?: string | null): boolean => !!d && !!rangeStart && !!rangeEnd && d >= rangeStart && d <= rangeEnd;
+    const newHires = allEmployees.filter((e) => inRange(resolveEmployeeStartDate(e)));
+    const exits = hasResignationDates ? allEmployees.filter((e) => inRange(e.resignation_date)) : [];
+    const transfersInRange = transfers.filter((t) => inRange(t.effectiveDate));
+    return { newHires, exits, hasResignationDates, transfersInRange };
+  }, [allEmployees, transfers, rangeStart, rangeEnd, hasResignationDates]);
 
   // ---------- สถิติประจำปี (Annual Overview) ----------
   // ใช้ตัวกรองโครงการ/ประเภทแรงงานชุดเดียวกับด้านบน แต่คำนวณรายเดือนตลอดทั้งปีที่เลือก
@@ -505,22 +511,9 @@ export const SafetyDashboardTab = ({
     <div className="p-2 space-y-2 lg:p-4 lg:space-y-4">
       {/* Filters */}
       <div className="flex flex-wrap items-center gap-2 bg-white rounded-lg border border-slate-200 p-2">
-        <div className="inline-flex h-8 items-center gap-1 rounded-lg border border-slate-200 bg-white px-1">
-          <button
-            type="button"
-            onClick={() => setMonthKey((m) => shiftMonthKey(m, -1))}
-            className="px-2 text-xs font-bold text-slate-600 hover:bg-slate-50 rounded"
-          >
-            ◀
-          </button>
-          <span className="px-2 text-xs font-black text-slate-800 min-w-[90px] text-center">{monthLabelTh(monthKey)}</span>
-          <button
-            type="button"
-            onClick={() => setMonthKey((m) => shiftMonthKey(m, 1))}
-            className="px-2 text-xs font-bold text-slate-600 hover:bg-slate-50 rounded"
-          >
-            ▶
-          </button>
+        <div className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-2.5">
+          <Calendar size={13} className="text-slate-400" />
+          <span className="text-xs font-black text-slate-800">{rangeLabel || "เลือกช่วงวันที่ด้านบน"}</span>
         </div>
         <select
           value={projectFilter}
@@ -550,7 +543,7 @@ export const SafetyDashboardTab = ({
       {/* A. Workforce Exposure Summary */}
       <SectionCard
         title="Workforce & Exposure Summary"
-        subtitle={`สรุปชั่วโมงทำงาน/กำลังคน เดือน ${monthLabelTh(monthKey)}`}
+        subtitle={`สรุปชั่วโมงทำงาน/กำลังคน ช่วง ${rangeLabel}`}
         tooltip={
           <span>
             Man-hour (ประมาณการ) = จำนวนวันที่มาทำงาน (&quot;มา&quot;) × {STANDARD_WORK_HOURS_PER_DAY} ชม./วัน + ชั่วโมง OT จริง
@@ -619,7 +612,7 @@ export const SafetyDashboardTab = ({
       <SectionCard
         title="สัญญาณ OT สะสม / Fatigue Risk"
         subtitle="จำนวนพนักงานแยกตามระดับเพดาน OT สะสมต่อเดือน"
-        tooltip="Threshold กำหนดโดย HR ไว้แล้วที่หน้า ลง Overtime (settings/overtime_limits) ไม่ได้เป็นค่าที่ระบบกำหนดเอง"
+        tooltip="Threshold กำหนดโดย HR ไว้แล้วที่หน้า ลง Overtime (settings/overtime_limits) ไม่ได้เป็นค่าที่ระบบกำหนดเอง — เพดานนี้เป็นรายเดือน แนะนำให้เลือกช่วงวันที่ตรงกับ 1 เดือนปฏิทินด้านบน เพื่อให้เทียบค่าได้แม่นยำ"
       >
         <HorizontalBreakdown
           items={otTierBreakdown.map((row) => ({ label: row.tier.label, value: row.count }))}
@@ -645,19 +638,19 @@ export const SafetyDashboardTab = ({
       {/* D. Workforce Movement */}
       <SectionCard
         title="Workforce Movement"
-        subtitle={`การเข้า-ออก-ย้ายโครงการ เดือน ${monthLabelTh(monthKey)}`}
+        subtitle={`การเข้า-ออก-ย้ายโครงการ ช่วง ${rangeLabel}`}
         tooltip="พนักงานใหม่ใช้ start_date, ย้ายโครงการใช้ effectiveDate จาก employee_transfers (ตามวันที่งานจริง ไม่ใช่สังกัดปัจจุบัน)"
       >
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-          <MetricCard title="พนักงานใหม่" value={movementData.newHires.length} subvalue="เริ่มงานเดือนนี้" icon={UserPlus} accent="text-emerald-700" />
+          <MetricCard title="พนักงานใหม่" value={movementData.newHires.length} subvalue="เริ่มงานในช่วงนี้" icon={UserPlus} accent="text-emerald-700" />
           <MetricCard
             title="พนักงานออก"
             value={movementData.hasResignationDates ? movementData.exits.length : "-"}
-            subvalue={movementData.hasResignationDates ? "ออกเดือนนี้" : "ยังไม่มีข้อมูลวันที่ลาออก"}
+            subvalue={movementData.hasResignationDates ? "ออกในช่วงนี้" : "ยังไม่มีข้อมูลวันที่ลาออก"}
             icon={UserMinus}
             accent="text-rose-700"
           />
-          <MetricCard title="ย้ายโครงการ" value={movementData.transfersInMonth.length} subvalue="มีผลเดือนนี้ (employee_transfers)" icon={ArrowLeftRight} accent="text-sky-700" />
+          <MetricCard title="ย้ายโครงการ" value={movementData.transfersInRange.length} subvalue="มีผลในช่วงนี้ (employee_transfers)" icon={ArrowLeftRight} accent="text-sky-700" />
         </div>
       </SectionCard>
 
