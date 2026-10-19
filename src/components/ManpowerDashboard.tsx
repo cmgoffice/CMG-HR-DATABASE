@@ -23,6 +23,7 @@ import { InfoTooltip } from "./InfoTooltip";
 import { PageGuideButton, PageGuideModal } from "./PageGuideModal";
 import { DonutChart, RankedBarChart, CoverageCompareChart, CoverageGaugeDonut } from "./DashboardCharts";
 import { HRAnalyticsTab } from "./HRAnalyticsTab";
+import { SafetyDashboardTab } from "./SafetyDashboardTab";
 import { MetricCard, SectionCard, HorizontalBreakdown } from "./DashboardUI";
 import {
   EmployeeFollowUpCase,
@@ -146,7 +147,7 @@ interface ProjectExceptionRow {
 }
 
 type TimePreset = "today" | "yesterday" | "month" | "custom";
-type DashboardMode = "hr" | "project" | "analytics";
+type DashboardMode = "hr" | "project" | "analytics" | "safety";
 
 interface RiskRuleResult {
   key: RiskRuleKey;
@@ -1110,6 +1111,9 @@ export const ManpowerDashboard = ({
 
   const canSeeAllProjects = hasRole(["MasterAdmin", "MD", "GM", "PD", "HRM", "HR"]);
   const canSeeHrDashboard = hasRole(["MasterAdmin", "MD", "GM", "PD", "HRM", "HR"]);
+  // Safety Dashboard (Workforce & Exposure): เห็นได้โดย HR เดิม + role "Safety"/"Admin Site"
+  // ที่ต้องใช้ข้อมูลนี้โดยตรง ยังไม่ผูกกับ settings/role_permissions เพิ่ม (เหมือนโหมด analytics เดิม)
+  const canSeeSafetyDashboard = hasRole(["MasterAdmin", "MD", "GM", "PD", "HRM", "HR", "Safety", "Admin Site"]);
   const defaultTodayRange = getTodayPresetRange();
   const [dashboardMode, setDashboardMode] = useState<DashboardMode>(showOnlyRiskMonitoring ? "hr" : (canSeeHrDashboard ? "hr" : "project"));
   const [timePreset, setTimePreset] = useState<TimePreset>("today");
@@ -4166,29 +4170,42 @@ export const ManpowerDashboard = ({
           </div>
 
           <div className="flex flex-wrap items-center gap-2 border-t border-slate-100 pt-2">
-            {canSeeHrDashboard && !showOnlyRiskMonitoring && (
+            {(canSeeHrDashboard || canSeeSafetyDashboard) && !showOnlyRiskMonitoring && (
               <div className="inline-flex h-8 shrink-0 border border-slate-200 rounded-lg overflow-hidden bg-white">
-                <button
-                  type="button"
-                  onClick={() => setDashboardMode("hr")}
-                  className={`px-3 inline-flex items-center gap-1.5 text-xs font-bold ${dashboardMode === "hr" ? "bg-slate-900 text-white" : "text-slate-600 hover:bg-slate-50"}`}
-                >
-                  <Users size={14} /> HR Dashboard
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setDashboardMode("project")}
-                  className={`px-3 inline-flex items-center gap-1.5 text-xs font-bold border-l border-slate-200 ${dashboardMode === "project" ? "bg-sky-500 text-white" : "text-slate-600 hover:bg-sky-50"}`}
-                >
-                  <Briefcase size={14} /> Project Dashboard
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setDashboardMode("analytics")}
-                  className={`px-3 inline-flex items-center gap-1.5 text-xs font-bold border-l border-slate-200 ${dashboardMode === "analytics" ? "bg-fuchsia-600 text-white" : "text-slate-600 hover:bg-fuchsia-50"}`}
-                >
-                  <TrendingUp size={14} /> HR Analytics
-                </button>
+                {canSeeHrDashboard && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => setDashboardMode("hr")}
+                      className={`px-3 inline-flex items-center gap-1.5 text-xs font-bold ${dashboardMode === "hr" ? "bg-slate-900 text-white" : "text-slate-600 hover:bg-slate-50"}`}
+                    >
+                      <Users size={14} /> HR Dashboard
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setDashboardMode("project")}
+                      className={`px-3 inline-flex items-center gap-1.5 text-xs font-bold border-l border-slate-200 ${dashboardMode === "project" ? "bg-sky-500 text-white" : "text-slate-600 hover:bg-sky-50"}`}
+                    >
+                      <Briefcase size={14} /> Project Dashboard
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setDashboardMode("analytics")}
+                      className={`px-3 inline-flex items-center gap-1.5 text-xs font-bold border-l border-slate-200 ${dashboardMode === "analytics" ? "bg-fuchsia-600 text-white" : "text-slate-600 hover:bg-fuchsia-50"}`}
+                    >
+                      <TrendingUp size={14} /> HR Analytics
+                    </button>
+                  </>
+                )}
+                {canSeeSafetyDashboard && (
+                  <button
+                    type="button"
+                    onClick={() => setDashboardMode("safety")}
+                    className={`px-3 inline-flex items-center gap-1.5 text-xs font-bold border-l border-slate-200 ${dashboardMode === "safety" ? "bg-emerald-600 text-white" : "text-slate-600 hover:bg-emerald-50"}`}
+                  >
+                    <AlertCircle size={14} /> HR–Safety
+                  </button>
+                )}
               </div>
             )}
             <div className="inline-flex h-8 shrink-0 border border-slate-200 rounded-lg overflow-hidden bg-white">
@@ -4267,6 +4284,8 @@ export const ManpowerDashboard = ({
         <div className="p-8 text-center text-rose-600 font-medium">กรุณาเลือกช่วงวันที่ให้ถูกต้อง</div>
       ) : dashboardMode === "analytics" && canSeeHrDashboard ? (
         <HRAnalyticsTab activeEmployees={employees} canSeeAllProjects={canSeeAllProjects} assignedProjects={userProfile?.assignedProjects || []} />
+      ) : dashboardMode === "safety" && canSeeSafetyDashboard ? (
+        <SafetyDashboardTab activeEmployees={employees} canSeeAllProjects={canSeeAllProjects} assignedProjects={userProfile?.assignedProjects || []} />
       ) : dashboardMode === "hr" && canSeeHrDashboard ? (
         <div className="p-2 space-y-2 lg:p-4 lg:space-y-4">
           {!showOnlyRiskMonitoring && (
