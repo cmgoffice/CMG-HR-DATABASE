@@ -1,5 +1,11 @@
 {
   "projectId": "cmg-hr-database",
+  "functions": {
+    "source": "functions",
+    "predeploy": [
+      "node scripts/syncFunctionsEnv.js"
+    ]
+  },
   "firestore": {
     "rules": "firestore.rules"
   },
@@ -14,6 +20,20 @@
       "**/node_modules/**"
     ],
     "rewrites": [
+      {
+        "source": "/api/zkteco/attendance",
+        "function": {
+          "functionId": "zktecoAttendance",
+          "region": "asia-southeast1"
+        }
+      },
+      {
+        "source": "/api/zkteco/sync",
+        "function": {
+          "functionId": "zktecoSyncNow",
+          "region": "asia-southeast1"
+        }
+      },
       {
         "source": "**",
         "destination": "/index.html"

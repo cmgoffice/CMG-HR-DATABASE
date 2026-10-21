@@ -27,9 +27,15 @@ import {
   History,
   X,
   ClipboardList,
+  RefreshCw,
 } from "lucide-react";
 import { useAuth } from "../auth/AuthContext";
 import { InfoTooltip } from "./InfoTooltip";
+import {
+  fetchZktecoAttendance,
+  getPunchStateLabel,
+  ZktecoAttendanceResponse,
+} from "../services/zktecoAttendance";
 import { createNotifications } from "../utils/notifications";
 import {
   RETRO_LEAVE_COLLECTION,
@@ -163,6 +169,16 @@ export const AttendancePage = ({ projectOptions }: { projectOptions: string[] })
   const [columns, setColumns] = useState<ColumnConfig[]>(DEFAULT_COLUMNS);
   const [dayOffs, setDayOffs] = useState<Record<string, string>>({});
 
+  // ── ทดสอบดึงข้อมูลลงเวลาจาก ZKBioTime (read-only) ────────────────────────
+  const [zkEmpCode, setZkEmpCode] = useState("");
+  const [zkDate, setZkDate] = useState(() => {
+    const today = new Date();
+    return `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+  });
+  const [zkLoading, setZkLoading] = useState(false);
+  const [zkError, setZkError] = useState("");
+  const [zkResult, setZkResult] = useState<ZktecoAttendanceResponse | null>(null);
+
   // ── คำร้องขอลาย้อนหลัง ────────────────────────────────────────────────────
   const [retroRequests, setRetroRequests] = useState<RetroLeaveRequest[]>([]);
   const [retroModalTarget, setRetroModalTarget] = useState<{ employeeId: string; dateStr: string } | null>(null);
@@ -195,6 +211,28 @@ export const AttendancePage = ({ projectOptions }: { projectOptions: string[] })
       }
       return { key, direction: 'asc' };
     });
+  };
+
+  const handleFetchZktecoAttendance = async () => {
+    if (!firebaseUser) {
+      setZkError("กรุณาเข้าสู่ระบบก่อนดึงข้อมูล");
+      return;
+    }
+    setZkLoading(true);
+    setZkError("");
+    setZkResult(null);
+    try {
+      const result = await fetchZktecoAttendance({
+        user: firebaseUser,
+        empCode: zkEmpCode,
+        date: zkDate,
+      });
+      setZkResult(result);
+    } catch (error) {
+      setZkError(error instanceof Error ? error.message : "ไม่สามารถดึงข้อมูลจาก ZKBioTime ได้");
+    } finally {
+      setZkLoading(false);
+    }
   };
 
   // ── กรอง projectOptions ตาม assignedProjects ของ user
@@ -1354,6 +1392,81 @@ export const AttendancePage = ({ projectOptions }: { projectOptions: string[] })
               )}
             </div>
           </div>
+        </div>
+
+        <div className="mt-3 border-t border-gray-100 pt-3">
+          <div className="flex flex-col xl:flex-row xl:items-end gap-2">
+            <div className="min-w-[180px]">
+              <label className="block text-xs font-medium text-gray-600 mb-1">รหัสพนักงาน ZKTeco</label>
+              <input
+                value={zkEmpCode}
+                onChange={(e) => setZkEmpCode(e.target.value.replace(/\D/g, ""))}
+                placeholder="เช่น 660237"
+                inputMode="numeric"
+                className="w-full px-3 py-1.5 text-sm border rounded focus:ring-2 focus:ring-blue-500 outline-none"
+              />
+            </div>
+            <div className="min-w-[180px]">
+              <label className="block text-xs font-medium text-gray-600 mb-1">วันที่ลงเวลา</label>
+              <input
+                type="date"
+                value={zkDate}
+                onChange={(e) => setZkDate(e.target.value)}
+                className="w-full px-3 py-1.5 text-sm border rounded focus:ring-2 focus:ring-blue-500 outline-none"
+              />
+            </div>
+            <button
+              type="button"
+              onClick={handleFetchZktecoAttendance}
+              disabled={zkLoading || !zkEmpCode || !zkDate}
+              className="inline-flex items-center justify-center gap-1.5 px-3 py-1.5 text-sm font-semibold text-white bg-blue-600 rounded hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <RefreshCw size={15} className={zkLoading ? "animate-spin" : ""} />
+              {zkLoading ? "กำลังดึงข้อมูล..." : "ดึงเวลาจาก ZKTeco"}
+            </button>
+            <span className="text-[11px] text-gray-500 xl:pb-1">อ่านอย่างเดียว ยังไม่แก้ไขสถานะในตาราง</span>
+          </div>
+          {zkError && (
+            <div className="mt-2 rounded border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
+              {zkError}
+            </div>
+          )}
+          {zkResult && (
+            <div className="mt-3 rounded border border-emerald-200 bg-emerald-50/60 p-3">
+              <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-emerald-900">
+                <span className="font-semibold">ผลการดึงข้อมูล {zkResult.emp_code} · {zkResult.date}</span>
+                <span>พบ {zkResult.transactions.length} รายการ</span>
+              </div>
+              {zkResult.transactions.length > 0 ? (
+                <div className="mt-2 overflow-x-auto">
+                  <table className="w-full min-w-[620px] text-xs">
+                    <thead className="text-left text-emerald-800">
+                      <tr>
+                        <th className="px-2 py-1">เวลา</th>
+                        <th className="px-2 py-1">สถานะ</th>
+                        <th className="px-2 py-1">วิธียืนยัน</th>
+                        <th className="px-2 py-1">เครื่อง</th>
+                        <th className="px-2 py-1">เวลาส่งเข้า server</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {zkResult.transactions.map((transaction, index) => (
+                        <tr key={String(transaction.id ?? `${transaction.punch_time ?? "row"}-${index}`)} className="border-t border-emerald-100 text-gray-700">
+                          <td className="px-2 py-1 font-semibold">{transaction.punch_time || "-"}</td>
+                          <td className="px-2 py-1">{getPunchStateLabel(transaction.punch_state)}</td>
+                          <td className="px-2 py-1">{String(transaction.verify_type ?? "-")}</td>
+                          <td className="px-2 py-1">{transaction.terminal_alias || "-"}</td>
+                          <td className="px-2 py-1">{transaction.upload_time || "-"}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <div className="mt-2 text-xs text-gray-600">ไม่พบรายการลงเวลาในวันที่เลือก</div>
+              )}
+            </div>
+          )}
         </div>
       </div>
 

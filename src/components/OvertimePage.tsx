@@ -4,6 +4,7 @@ import {
   collection,
   doc,
   setDoc,
+  runTransaction,
   onSnapshot,
 } from "firebase/firestore";
 import html2canvas from "html2canvas";
@@ -41,6 +42,8 @@ import {
   OvertimeTier,
 } from "../config/overtimeLimits";
 import { isOvertimeDateAllowed } from "../utils/overtimeDateRules";
+import { OtScan, evaluateScan } from "../utils/otScan";
+import { OtScanControl } from "./OtScanControl";
 
 interface Employee {
   id: string;
@@ -57,6 +60,7 @@ interface Employee {
 }
 
 interface OvertimeEntry {
+  scan?: OtScan;
   hours: string;       // "1.5", "2.0", etc. or ""
   type?: string;       // "x1.5", "x2"
   recordedAt: number;  // Unix timestamp (ms)
@@ -275,8 +279,18 @@ const OvertimeCell: React.FC<OvertimeCellProps> = React.memo(({
 
   if (isToday) tooltipExtra = " 📅 วันนี้" + tooltipExtra;
 
+  const scan = entry?.scan;
+  const scanResult = scan ? evaluateScan(scan, entry?.hours || "") : null;
+  const showScan = !!scan && !isOtherProject && (filterOtType === "all" || filterOtType === localType);
+  const scanWarning = scanResult && ["short", "missing", "unplanned"].includes(scanResult.status);
+  if (showScan && scanResult?.status === "ok") bg = "bg-green-100";
+  const scanTitle = scanResult ? ({ ok: "เวลาออกครบ OT", short: "เวลาออกไม่ครบ OT", missing: "ไม่พบเวลาออก", unplanned: "ไม่ได้ลง OT แต่ออกเกินเวลาอย่างน้อย 1 ชั่วโมง", none: "เวลาออก" }[scanResult.status] || "") + " · " + (scan?.punchTime || "-") + " · ควรออก " + new Date(scanResult.expected).toLocaleString("th-TH", { timeZone: "Asia/Bangkok" }) : "";
+  const hasScanBadge = showScan && scanResult?.status !== "none";
+  const scanBadge = hasScanBadge ? <span title={scanTitle} className={`block whitespace-nowrap leading-[8px] ${scanWarning ? "text-red-600" : "text-green-800"}`} style={{ fontSize: 7 }}>
+    {scan?.punchTime ? scan.punchTime.slice(11, 16) : "ไม่พบ"}
+  </span> : null;
   const weeklyWarning = typeof weeklyHours === "number" && typeof weeklyCapHours === "number" ? (
-    <span className="absolute top-0 right-0 leading-none pointer-events-none" style={{ transform: "translate(15%, -25%)" }}>
+    <span className={`absolute top-0 ${showScan ? "left-0" : "right-0"} leading-none pointer-events-none`} style={{ transform: "translate(15%, -25%)" }}>
       <WeeklyOvertimeWarningIcon weeklyHours={weeklyHours} weeklyCapHours={weeklyCapHours} size={9} />
     </span>
   ) : null;
@@ -288,7 +302,16 @@ const OvertimeCell: React.FC<OvertimeCellProps> = React.memo(({
         style={{ minWidth: 40, maxWidth: 40, width: 40, padding: 0, fontSize: 10, height: 24 }}
         title={`${dateStr}${tooltipExtra}`}
       >
-        {isOtherProject ? getProjectShortCode(entry?.project || "") : localVal}
+        {hasScanBadge ? (
+          <div className="relative z-10 flex h-full flex-col items-center justify-center leading-none">
+            {scanBadge}
+            <span className="block leading-[11px]" style={{ fontSize: 10 }}>
+              {isOtherProject ? getProjectShortCode(entry?.project || "") : localVal}
+            </span>
+          </div>
+        ) : (
+          <span className="relative z-10">{isOtherProject ? getProjectShortCode(entry?.project || "") : localVal}</span>
+        )}
         {weeklyWarning}
       </td>
     );
@@ -301,20 +324,23 @@ const OvertimeCell: React.FC<OvertimeCellProps> = React.memo(({
       title={`${dateStr}${tooltipExtra}`}
     >
       {weeklyWarning}
-      <input
-        data-date={dateStr}
-        type="text"
-        inputMode="decimal"
-        value={localVal}
-        onChange={handleChange}
-        onFocus={(e) => {
-          setShowPopup(true);
-          e.currentTarget.select();
-        }}
-        onBlur={handleBlur}
-        onKeyDown={handleKeyDown}
-        className={`relative z-10 w-full h-full text-center bg-transparent outline-none ${textCls} text-[10px] m-0 p-0 select-all`}
-      />
+      <div className={hasScanBadge ? "relative z-10 flex h-full flex-col items-center justify-center leading-none" : "contents"}>
+        {scanBadge}
+        <input
+          data-date={dateStr}
+          type="text"
+          inputMode="decimal"
+          value={localVal}
+          onChange={handleChange}
+          onFocus={(e) => {
+            setShowPopup(true);
+            e.currentTarget.select();
+          }}
+          onBlur={handleBlur}
+          onKeyDown={handleKeyDown}
+          className={`relative w-full ${hasScanBadge ? "h-[11px]" : "h-full"} text-center bg-transparent outline-none ${textCls} text-[10px] leading-[11px] m-0 p-0 select-all`}
+        />
+      </div>
       {showPopup && (
         <div className="absolute top-full left-1/2 -translate-x-1/2 mt-1 z-50 bg-white shadow-xl border border-gray-200 rounded p-1 flex gap-1 items-center">
           {['x1.5', 'x2'].map((t) => (
@@ -436,8 +462,7 @@ export const OvertimePage = ({ projectOptions }: { projectOptions: string[] }) =
     const employeeCollectionRef = collection(db, "CMG-HR-Database", "root", "employee_data");
     const unsubscribe = onSnapshot(employeeCollectionRef, (snapshot) => {
       const list = snapshot.docs
-        .map((d) => ({ id: d.id, ...d.data() } as Employee))
-        .filter((e) => e["สถานะพนักงาน"] === "ทำงาน");
+        .map((d) => ({ id: d.id, ...d.data() } as Employee));
       setEmployees(list);
       setLoading(false);
     }, (error) => {
@@ -655,6 +680,9 @@ export const OvertimePage = ({ projectOptions }: { projectOptions: string[] }) =
         newEntry = { hours: newHours, type: newType, recordedAt: now };
         if (selectedProject !== "all") newEntry.project = selectedProject;
       }
+      if (currentEntry?.scan) {
+        newEntry = { ...(newEntry || { hours: "", recordedAt: now }), scan: { ...currentEntry.scan, ...evaluateScan(currentEntry.scan, newHours) } };
+      }
 
       const dayRecords = { ...(prevData[dateStr] || {}) };
       if (newEntry === null) delete dayRecords[employeeId];
@@ -666,12 +694,19 @@ export const OvertimePage = ({ projectOptions }: { projectOptions: string[] }) =
         setSaving(true);
         try {
           const overtimeRef = doc(db, "CMG-HR-Database", "root", "overtime", dateStr);
-          await setDoc(overtimeRef, {
-            date: dateStr,
-            records: dayRecords,
-            lastUpdatedBy: firebaseUser?.email || "unknown",
-            lastUpdatedAt: now,
-          }, { merge: false });
+          await runTransaction(db, async tx => {
+            const latest = (await tx.get(overtimeRef)).data() || {};
+            const records = { ...(latest.records || {}) };
+            const latestScan = records[employeeId]?.scan;
+            if (newEntry) records[employeeId] = { ...newEntry };
+            else delete records[employeeId];
+            if (latestScan) records[employeeId] = {
+              ...(records[employeeId] || { hours: "", recordedAt: now }),
+              scan: { ...latestScan, ...evaluateScan(latestScan, newHours) },
+            };
+            tx.set(overtimeRef, { ...latest, date: dateStr, records,
+              lastUpdatedBy: firebaseUser?.email || "unknown", lastUpdatedAt: now });
+          });
         } catch (err) {
           console.error("Save error:", err);
           setOvertimeData((prev) => {
@@ -941,6 +976,7 @@ export const OvertimePage = ({ projectOptions }: { projectOptions: string[] }) =
           </p>
         </div>
         <div className="shrink-0 flex items-center gap-1.5 flex-wrap justify-end">
+          <OtScanControl project={selectedProject} employees={filteredEmployees} schedule={projectSchedules[selectedProject]} canEdit={canEditOvertime} />
           <button
             onClick={handleExportImage}
             disabled={!!exportingType}
