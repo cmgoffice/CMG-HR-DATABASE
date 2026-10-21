@@ -89,15 +89,26 @@ interface MigrantEmployee {
 
 const EMPLOYEE_TYPE_OPTIONS = [
   { value: "Indirect", label: "Indirect (Staff Monthly)" },
-  { value: "Direct_TeamLeader", label: "Direct: Team Leader (DC Daily)" },
+  { value: "Direct_TeamLeader", label: "Direct: DC Daily" },
   { value: "Direct_SupplyDC", label: "Direct: Supply DC" },
   { value: "Direct_SubContractor", label: "Direct: Sub Contractor" },
 ];
 
 // ตัวเลือกให้ตรงกับฟิลด์ "สถานะพนักงาน" / "สถานะกลุ่มงาน" ของระบบพนักงานหลัก (DEFAULT_SCHEMAS ใน App.tsx)
 // เพื่อให้ข้อมูลที่กรอกจากหน้าแรงงานต่างด้าว สอดคล้อง/ใช้ filter ร่วมกับระบบเดิมได้
-const EMPLOYEE_STATUS_OPTIONS = ["ทำงาน", "พักงาน", "ลาคลอด", "ลาออก", "เลิกจ้าง"];
+// "รอดำเนินการ" เป็นสถานะเพิ่มเติมสำหรับคนที่เพิ่งเพิ่มเข้าระบบแต่ยังไม่เริ่มงานจริง
+const PENDING_STATUS = "รอดำเนินการ";
+const EMPLOYEE_STATUS_OPTIONS = [PENDING_STATUS, "ทำงาน", "พักงาน", "ลาคลอด", "ลาออก", "เลิกจ้าง"];
 const WORK_GROUP_OPTIONS = ["Staff", "Worker", "Subcontract", "Supply Contract"];
+
+// ตัวเลือกสัญชาติที่พบบ่อยในหน้าแรงงานต่างด้าว — เลือก "อื่นๆ" เพื่อระบุเองได้
+const NATIONALITY_OPTIONS = [
+  { value: "เมียนมา", label: "เมียนมา" },
+  { value: "กัมพูชา", label: "กัมพูชา" },
+  { value: "ลาว", label: "ลาว" },
+  { value: "เวียดนาม", label: "เวียดนาม" },
+  { value: "other", label: "อื่นๆ (ระบุ)" },
+];
 
 // รหัสประเภทพนักงาน ในหมวด "พนักงานบริษัท" เหลือเฉพาะ DC Daily (Team Leader) เท่านั้น
 // เพราะ Supply DC ถูกแยกออกไปเป็นหมวด "SP Supply" ต่างหากแล้ว (ดู CATEGORY_* ด้านล่าง)
@@ -499,6 +510,7 @@ export const MigrantWorkerPage = ({ projectOptions }: { projectOptions: string[]
           titleOptions={fieldOptions("คำนำหน้าชื่อ", ["นาย", "นาง", "นางสาว", "Mr.", "Mrs.", "Ms."])}
           employeeStatusOptions={fieldOptions("สถานะพนักงาน", EMPLOYEE_STATUS_OPTIONS)}
           workGroupOptions={fieldOptions("สถานะกลุ่มงาน", WORK_GROUP_OPTIONS)}
+          existingCodes={rawEmployees.map((e) => String(e.รหัสพนักงาน || "").trim().toLowerCase()).filter(Boolean)}
           db={db}
           actorEmail={firebaseUser?.email || userProfile?.email || "unknown"}
           onClose={() => setSelectedId(null)}
@@ -828,6 +840,7 @@ const WorkerProfileDrawer = ({
   titleOptions,
   employeeStatusOptions,
   workGroupOptions,
+  existingCodes,
   onClose,
 }: {
   data: { employee: MigrantEmployee; summaries: WorkerDocumentSummary[]; compliance: WorkerComplianceSummary };
@@ -838,6 +851,7 @@ const WorkerProfileDrawer = ({
   titleOptions: string[];
   employeeStatusOptions: string[];
   workGroupOptions: string[];
+  existingCodes: string[];
   onClose: () => void;
 }) => {
   const { employee, summaries, compliance } = data;
@@ -851,8 +865,10 @@ const WorkerProfileDrawer = ({
   // ให้ตรงกับฟิลด์เดียวกันในระบบพนักงานหลัก (employee_data) ---------------------------------
   const [isEditingBasic, setIsEditingBasic] = useState(false);
   const [savingBasic, setSavingBasic] = useState(false);
+  const [basicError, setBasicError] = useState<string | null>(null);
   const toProjectArray = (v: string | string[] | undefined): string[] => (Array.isArray(v) ? v : v ? [v] : []);
   const [basicDraft, setBasicDraft] = useState(() => ({
+    รหัสพนักงาน: employee.รหัสพนักงาน || "",
     คำนำหน้าชื่อ: employee.คำนำหน้าชื่อ || employee.ชื่อต้น || "นาย",
     ชื่อตัว: employee.ชื่อตัว || "",
     ชื่อสกุล: employee.ชื่อสกุล || "",
@@ -1015,12 +1031,20 @@ const WorkerProfileDrawer = ({
   };
 
   const saveBasicInfo = async () => {
+    setBasicError(null);
     const firstName = basicDraft.ชื่อตัว.trim();
     const lastName = basicDraft.ชื่อสกุล.trim();
     if (!firstName || !lastName) return;
+    const code = basicDraft.รหัสพนักงาน.trim();
+    const currentCode = String(employee.รหัสพนักงาน || "").trim().toLowerCase();
+    if (code && code.toLowerCase() !== currentCode && existingCodes.includes(code.toLowerCase())) {
+      setBasicError(`รหัสพนักงาน "${code}" มีอยู่ในระบบแล้ว`);
+      return;
+    }
     setSavingBasic(true);
     try {
       await updateDoc(doc(db, "CMG-HR-Database", "root", "employee_data", employee.id), {
+        รหัสพนักงาน: code,
         คำนำหน้าชื่อ: basicDraft.คำนำหน้าชื่อ,
         ชื่อตัว: firstName,
         ชื่อสกุล: lastName,
@@ -1040,6 +1064,8 @@ const WorkerProfileDrawer = ({
         }`
       );
       setIsEditingBasic(false);
+    } catch (e) {
+      setBasicError((e as Error).message);
     } finally {
       setSavingBasic(false);
     }
@@ -1090,7 +1116,18 @@ const WorkerProfileDrawer = ({
               </div>
             ) : (
               <div className="bg-slate-50 rounded-lg p-3 border border-slate-100 space-y-3">
+                {basicError && (
+                  <div className="text-xs text-red-600 bg-red-50 border border-red-100 rounded-md px-2.5 py-1.5">{basicError}</div>
+                )}
                 <div className="grid grid-cols-2 gap-3">
+                  <Field label="รหัสพนักงาน (ไม่บังคับ)">
+                    <input
+                      value={basicDraft.รหัสพนักงาน}
+                      onChange={(e) => setBasicDraft((p) => ({ ...p, รหัสพนักงาน: e.target.value }))}
+                      placeholder="เว้นว่างไว้ได้"
+                      className="w-full px-2.5 py-1.5 text-sm border border-slate-200 rounded-md"
+                    />
+                  </Field>
                   <Field label="คำนำหน้า">
                     <select
                       value={basicDraft.คำนำหน้าชื่อ}
@@ -1375,10 +1412,14 @@ const AddMigrantWorkerModal = ({
     โครงการ: "",
     ตำแหน่ง: "",
     start_date: new Date().toISOString().slice(0, 10),
-    สถานะพนักงาน: "ทำงาน",
+    สถานะพนักงาน: PENDING_STATUS,
     สถานะกลุ่มงาน: "",
     สถานะโครงการ: [] as string[],
   });
+  // สัญชาติ: เก็บตัวเลือกที่เลือกแยกจาก form.สัญชาติ เพื่อรู้ว่าตอนนี้อยู่โหมด "อื่นๆ (ระบุ)" หรือไม่
+  const [nationalityChoice, setNationalityChoice] = useState("");
+  // วันที่เริ่มงาน: ติ๊กเพื่อบอกว่ายังไม่ระบุวันที่ (จะไม่บังคับกรอกวันที่)
+  const [startDateUnknown, setStartDateUnknown] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -1391,8 +1432,8 @@ const AddMigrantWorkerModal = ({
     const lastName = form.ชื่อสกุล.trim();
     const nationality = form.สัญชาติ.trim();
 
-    if (!code || !firstName || !lastName) {
-      setError("กรุณากรอก รหัสพนักงาน, ชื่อตัว และ ชื่อสกุล ให้ครบ");
+    if (!firstName || !lastName) {
+      setError("กรุณากรอก ชื่อตัว และ ชื่อสกุล ให้ครบ");
       return;
     }
     if (!nationality) {
@@ -1407,21 +1448,29 @@ const AddMigrantWorkerModal = ({
       setError("กรุณาเลือกประเภทพนักงาน");
       return;
     }
-    if (existingCodes.includes(code.toLowerCase())) {
+    if (code && existingCodes.includes(code.toLowerCase())) {
       setError(`รหัสพนักงาน "${code}" มีอยู่ในระบบแล้ว`);
       return;
     }
 
     setSaving(true);
     try {
-      const docId = code.replace(/[/.#${}\s]/g, "_");
-      const docRef = doc(db, "CMG-HR-Database", "root", "employee_data", docId);
-      const existingSnap = await getDoc(docRef);
-      if (existingSnap.exists()) {
-        setError(`รหัสพนักงาน "${code}" มีอยู่ในระบบแล้ว`);
-        setSaving(false);
-        return;
+      // ถ้าระบุรหัสพนักงาน ใช้รหัสนั้นเป็น document id ตามเดิม (ตรวจซ้ำกับของเดิม)
+      // ถ้ายังไม่ระบุรหัส ให้ระบบสร้าง document id อัตโนมัติแทน — ไปกรอกรหัสพนักงานทีหลังได้
+      let docRef;
+      if (code) {
+        const docId = code.replace(/[/.#${}\s]/g, "_");
+        docRef = doc(db, "CMG-HR-Database", "root", "employee_data", docId);
+        const existingSnap = await getDoc(docRef);
+        if (existingSnap.exists()) {
+          setError(`รหัสพนักงาน "${code}" มีอยู่ในระบบแล้ว`);
+          setSaving(false);
+          return;
+        }
+      } else {
+        docRef = doc(collection(db, "CMG-HR-Database", "root", "employee_data"));
       }
+      const docId = docRef.id;
 
       await setDoc(docRef, {
         รหัสพนักงาน: code,
@@ -1433,8 +1482,8 @@ const AddMigrantWorkerModal = ({
         โครงการ: form.โครงการ || "",
         โครงการปัจจุบัน: form.โครงการ || "",
         ตำแหน่ง: form.ตำแหน่ง || "",
-        start_date: form.start_date || "",
-        สถานะพนักงาน: form.สถานะพนักงาน || "ทำงาน",
+        start_date: startDateUnknown ? "" : form.start_date || "",
+        สถานะพนักงาน: form.สถานะพนักงาน || PENDING_STATUS,
         สถานะกลุ่มงาน: form.สถานะกลุ่มงาน || "",
         สถานะโครงการ: form.สถานะโครงการ || [],
       });
@@ -1473,10 +1522,11 @@ const AddMigrantWorkerModal = ({
           </p>
 
           <div className="grid grid-cols-2 gap-3">
-            <Field label="รหัสพนักงาน *">
+            <Field label="รหัสพนักงาน (ไม่บังคับ — เว้นว่างไว้กรอกทีหลังได้)">
               <input
                 value={form.รหัสพนักงาน}
                 onChange={(e) => set({ รหัสพนักงาน: e.target.value })}
+                placeholder="เว้นว่างไว้ได้"
                 className="w-full px-2.5 py-1.5 text-sm border border-slate-200 rounded-md"
               />
             </Field>
@@ -1508,12 +1558,30 @@ const AddMigrantWorkerModal = ({
               />
             </Field>
             <Field label="สัญชาติ *">
-              <input
-                value={form.สัญชาติ}
-                onChange={(e) => set({ สัญชาติ: e.target.value })}
-                placeholder="เช่น เมียนมา, กัมพูชา, ลาว"
+              <select
+                value={nationalityChoice}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  setNationalityChoice(v);
+                  set({ สัญชาติ: v === "other" ? "" : v });
+                }}
                 className="w-full px-2.5 py-1.5 text-sm border border-slate-200 rounded-md"
-              />
+              >
+                <option value="">— เลือกสัญชาติ —</option>
+                {NATIONALITY_OPTIONS.map((o) => (
+                  <option key={o.value} value={o.value}>
+                    {o.label}
+                  </option>
+                ))}
+              </select>
+              {nationalityChoice === "other" && (
+                <input
+                  value={form.สัญชาติ}
+                  onChange={(e) => set({ สัญชาติ: e.target.value })}
+                  placeholder="ระบุสัญชาติ"
+                  className="w-full mt-1.5 px-2.5 py-1.5 text-sm border border-slate-200 rounded-md"
+                />
+              )}
             </Field>
             <Field label="ประเภทพนักงาน *">
               <select
@@ -1554,9 +1622,18 @@ const AddMigrantWorkerModal = ({
               <input
                 type="date"
                 value={form.start_date}
+                disabled={startDateUnknown}
                 onChange={(e) => set({ start_date: e.target.value })}
-                className="w-full px-2.5 py-1.5 text-sm border border-slate-200 rounded-md"
+                className="w-full px-2.5 py-1.5 text-sm border border-slate-200 rounded-md disabled:bg-slate-100 disabled:text-slate-400"
               />
+              <label className="mt-1.5 flex items-center gap-1.5 text-xs text-slate-500">
+                <input
+                  type="checkbox"
+                  checked={startDateUnknown}
+                  onChange={(e) => setStartDateUnknown(e.target.checked)}
+                />
+                ยังไม่ระบุ
+              </label>
             </Field>
             <Field label="สถานะพนักงาน">
               <select
