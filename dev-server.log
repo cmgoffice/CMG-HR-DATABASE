@@ -1,0 +1,1121 @@
+npm warn Unknown env config "devdir". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.
+
+> react-typescript@1.0.0 start
+> react-scripts start
+
+(node:34968) [DEP0176] DeprecationWarning: fs.F_OK is deprecated, use fs.constants.F_OK instead
+(Use `node --trace-deprecation ...` to show where the warning was created)
+Browserslist: browsers data (caniuse-lite) is 8 months old. Please run:
+  npx update-browserslist-db@latest
+  Why you should do it regularly: https://github.com/browserslist/update-db#readme
+(node:34968) [DEP_WEBPACK_DEV_SERVER_ON_AFTER_SETUP_MIDDLEWARE] DeprecationWarning: 'onAfterSetupMiddleware' option is deprecated. Please use the 'setupMiddlewares' option.
+(node:34968) [DEP_WEBPACK_DEV_SERVER_ON_BEFORE_SETUP_MIDDLEWARE] DeprecationWarning: 'onBeforeSetupMiddleware' option is deprecated. Please use the 'setupMiddlewares' option.
+Starting the development server...
+
+Compiled successfully!
+
+You can now view react-typescript in the browser.
+
+  Local:            http://localhost:3000
+  On Your Network:  http://192.168.1.140:3000
+
+Note that the development build is not optimized.
+To create a production build, use npm run build.
+
+webpack compiled successfully
+Files successfully emitted, waiting for typecheck results...
+Issues checking in progress...
+No issues found.
+Compiling...
+Compiled successfully!
+webpack compiled successfully
+Files successfully emitted, waiting for typecheck results...
+Issues checking in progress...
+No issues found.
+Compiling...
+Compiled successfully!
+webpack compiled successfully
+Files successfully emitted, waiting for typecheck results...
+Issues checking in progress...
+No issues found.
+Compiling...
+Compiled successfully!
+webpack compiled successfully
+Files successfully emitted, waiting for typecheck results...
+Issues checking in progress...
+No issues found.
+Compiling...
+Compiled successfully!
+webpack compiled successfully
+Files successfully emitted, waiting for typecheck results...
+Issues checking in progress...
+No issues found.
+Compiling...
+Compiled successfully!
+webpack compiled successfully
+No issues found.
+Compiling...
+Compiled successfully!
+webpack compiled successfully
+Files successfully emitted, waiting for typecheck results...
+Issues checking in progress...
+No issues found.
+Compiling...
+Compiled successfully!
+webpack compiled successfully
+No issues found.
+Compiling...
+Compiled successfully!
+webpack compiled successfully
+Files successfully emitted, waiting for typecheck results...
+Issues checking in progress...
+No issues found.
+Compiling...
+Compiled successfully!
+webpack compiled successfully
+Files successfully emitted, waiting for typecheck results...
+Issues checking in progress...
+No issues found.
+Compiling...
+Compiled successfully!
+webpack compiled successfully
+ERROR in src/components/OvertimePage.tsx:1061:16
+TS2304: Cannot find name 'Clock'.
+    1059 |           {projectSchedules[selectedProject]?.workStartTime && (
+    1060 |             <span className="flex items-center gap-1.5 text-sm font-bold text-amber-900">
+  > 1061 |               <Clock size={15} className="text-amber-600" />
+         |                ^^^^^
+    1062 |               เริ่มงาน {projectSchedules[selectedProject]?.workStartTime} น.
+    1063 |             </span>
+    1064 |           )}
+
+ERROR in src/components/OvertimePage.tsx:1067:16
+TS2304: Cannot find name 'Clock'.
+    1065 |           {projectSchedules[selectedProject]?.otStartTime && (
+    1066 |             <span className="flex items-center gap-1.5 text-sm font-bold text-amber-900">
+  > 1067 |               <Clock size={15} className="text-amber-600" />
+         |                ^^^^^
+    1068 |               เริ่ม OT {projectSchedules[selectedProject]?.otStartTime} น.
+    1069 |             </span>
+    1070 |           )}
+
+Compiling...
+Compiled successfully!
+webpack compiled successfully
+Files successfully emitted, waiting for typecheck results...
+Issues checking in progress...
+No issues found.
+Compiling...
+Failed to compile.
+
+[eslint] 
+src\components\OvertimePage.tsx
+Syntax error: Unexpected token (1330:0) (1330:undefined)
+ERROR in ./src/components/OvertimePage.tsx
+Module build failed (from ./node_modules/babel-loader/lib/index.js):
+SyntaxError: C:\Users\sorra\CMG-HR-DATABASE\src\components\OvertimePage.tsx: Unexpected token (1330:0)
+
+  1328 |   onSave,
+  1329 |   onClose,
+> 1330 | }: {
+       | ^
+  1331 |   limits: OvertimeLimitConfig;
+  1332 |   canEdit: boolean;
+  1333 |   saving: boolean;
+    at constructor (C:\Users\sorra\CMG-HR-DATABASE\node_modules\@babel\parser\lib\index.js:365:19)
+    at TypeScriptParserMixin.raise (C:\Users\sorra\CMG-HR-DATABASE\node_modules\@babel\parser\lib\index.js:6599:19)
+    at TypeScriptParserMixin.unexpected (C:\Users\sorra\CMG-HR-DATABASE\node_modules\@babel\parser\lib\index.js:6619:16)
+    at TypeScriptParserMixin.parseExprAtom (C:\Users\sorra\CMG-HR-DATABASE\node_modules\@babel\parser\lib\index.js:11442:22)
+    at TypeScriptParserMixin.parseExprAtom (C:\Users\sorra\CMG-HR-DATABASE\node_modules\@babel\parser\lib\index.js:4764:20)
+    at TypeScriptParserMixin.parseExprSubscripts (C:\Users\sorra\CMG-HR-DATABASE\node_modules\@babel\parser\lib\index.js:11081:23)
+    at TypeScriptParserMixin.parseUpdate (C:\Users\sorra\CMG-HR-DATABASE\node_modules\@babel\parser\lib\index.js:11066:21)
+    at TypeScriptParserMixin.parseMaybeUnary (C:\Users\sorra\CMG-HR-DATABASE\node_modules\@babel\parser\lib\index.js:11046:23)
+    at TypeScriptParserMixin.parseMaybeUnary (C:\Users\sorra\CMG-HR-DATABASE\node_modules\@babel\parser\lib\index.js:9837:18)
+    at TypeScriptParserMixin.parseMaybeUnaryOrPrivate (C:\Users\sorra\CMG-HR-DATABASE\node_modules\@babel\parser\lib\index.js:10899:61)
+    at TypeScriptParserMixin.parseExprOps (C:\Users\sorra\CMG-HR-DATABASE\node_modules\@babel\parser\lib\index.js:10904:23)
+    at TypeScriptParserMixin.parseMaybeConditional (C:\Users\sorra\CMG-HR-DATABASE\node_modules\@babel\parser\lib\index.js:10881:23)
+    at TypeScriptParserMixin.parseMaybeAssign (C:\Users\sorra\CMG-HR-DATABASE\node_modules\@babel\parser\lib\index.js:10831:21)
+    at TypeScriptParserMixin.parseMaybeAssign (C:\Users\sorra\CMG-HR-DATABASE\node_modules\@babel\parser\lib\index.js:9786:20)
+    at TypeScriptParserMixin.parseExpressionBase (C:\Users\sorra\CMG-HR-DATABASE\node_modules\@babel\parser\lib\index.js:10789:36)
+    at C:\Users\sorra\CMG-HR-DATABASE\node_modules\@babel\parser\lib\index.js:10780:39
+    at TypeScriptParserMixin.allowInAnd (C:\Users\sorra\CMG-HR-DATABASE\node_modules\@babel\parser\lib\index.js:12426:12)
+    at TypeScriptParserMixin.parseExpression (C:\Users\sorra\CMG-HR-DATABASE\node_modules\@babel\parser\lib\index.js:10780:17)
+    at TypeScriptParserMixin.jsxParseExpressionContainer (C:\Users\sorra\CMG-HR-DATABASE\node_modules\@babel\parser\lib\index.js:4632:31)
+    at TypeScriptParserMixin.jsxParseElementAt (C:\Users\sorra\CMG-HR-DATABASE\node_modules\@babel\parser\lib\index.js:4711:36)
+    at TypeScriptParserMixin.jsxParseElement (C:\Users\sorra\CMG-HR-DATABASE\node_modules\@babel\parser\lib\index.js:4749:17)
+    at TypeScriptParserMixin.parseExprAtom (C:\Users\sorra\CMG-HR-DATABASE\node_modules\@babel\parser\lib\index.js:4759:19)
+    at TypeScriptParserMixin.parseExprSubscripts (C:\Users\sorra\CMG-HR-DATABASE\node_modules\@babel\parser\lib\index.js:11081:23)
+    at TypeScriptParserMixin.parseUpdate (C:\Users\sorra\CMG-HR-DATABASE\node_modules\@babel\parser\lib\index.js:11066:21)
+    at TypeScriptParserMixin.parseMaybeUnary (C:\Users\sorra\CMG-HR-DATABASE\node_modules\@babel\parser\lib\index.js:11046:23)
+    at TypeScriptParserMixin.parseMaybeUnary (C:\Users\sorra\CMG-HR-DATABASE\node_modules\@babel\parser\lib\index.js:9837:18)
+    at TypeScriptParserMixin.parseMaybeUnaryOrPrivate (C:\Users\sorra\CMG-HR-DATABASE\node_modules\@babel\parser\lib\index.js:10899:61)
+    at TypeScriptParserMixin.parseExprOps (C:\Users\sorra\CMG-HR-DATABASE\node_modules\@babel\parser\lib\index.js:10904:23)
+    at TypeScriptParserMixin.parseMaybeConditional (C:\Users\sorra\CMG-HR-DATABASE\node_modules\@babel\parser\lib\index.js:10881:23)
+    at TypeScriptParserMixin.parseMaybeAssign (C:\Users\sorra\CMG-HR-DATABASE\node_modules\@babel\parser\lib\index.js:10831:21)
+    at C:\Users\sorra\CMG-HR-DATABASE\node_modules\@babel\parser\lib\index.js:9775:39
+    at TypeScriptParserMixin.tryParse (C:\Users\sorra\CMG-HR-DATABASE\node_modules\@babel\parser\lib\index.js:6907:20)
+    at TypeScriptParserMixin.parseMaybeAssign (C:\Users\sorra\CMG-HR-DATABASE\node_modules\@babel\parser\lib\index.js:9775:18)
+    at C:\Users\sorra\CMG-HR-DATABASE\node_modules\@babel\parser\lib\index.js:10800:39
+    at TypeScriptParserMixin.allowInAnd (C:\Users\sorra\CMG-HR-DATABASE\node_modules\@babel\parser\lib\index.js:12426:12)
+    at TypeScriptParserMixin.parseMaybeAssignAllowIn (C:\Users\sorra\CMG-HR-DATABASE\node_modules\@babel\parser\lib\index.js:10800:17)
+    at TypeScriptParserMixin.parseMaybeAssignAllowInOrVoidPattern (C:\Users\sorra\CMG-HR-DATABASE\node_modules\@babel\parser\lib\index.js:12493:17)
+    at TypeScriptParserMixin.parseParenAndDistinguishExpression (C:\Users\sorra\CMG-HR-DATABASE\node_modules\@babel\parser\lib\index.js:11675:28)
+    at TypeScriptParserMixin.parseExprAtom (C:\Users\sorra\CMG-HR-DATABASE\node_modules\@babel\parser\lib\index.js:11331:23)
+    at TypeScriptParserMixin.parseExprAtom (C:\Users\sorra\CMG-HR-DATABASE\node_modules\@babel\parser\lib\index.js:4764:20)
+    at TypeScriptParserMixin.parseExprSubscripts (C:\Users\sorra\CMG-HR-DATABASE\node_modules\@babel\parser\lib\index.js:11081:23)
+    at TypeScriptParserMixin.parseUpdate (C:\Users\sorra\CMG-HR-DATABASE\node_modules\@babel\parser\lib\index.js:11066:21)
+    at TypeScriptParserMixin.parseMaybeUnary (C:\Users\sorra\CMG-HR-DATABASE\node_modules\@babel\parser\lib\index.js:11046:23)
+    at TypeScriptParserMixin.parseMaybeUnary (C:\Users\sorra\CMG-HR-DATABASE\node_modules\@babel\parser\lib\index.js:9837:18)
+    at TypeScriptParserMixin.parseMaybeUnaryOrPrivate (C:\Users\sorra\CMG-HR-DATABASE\node_modules\@babel\parser\lib\index.js:10899:61)
+    at TypeScriptParserMixin.parseExprOps (C:\Users\sorra\CMG-HR-DATABASE\node_modules\@babel\parser\lib\index.js:10904:23)
+    at TypeScriptParserMixin.parseMaybeConditional (C:\Users\sorra\CMG-HR-DATABASE\node_modules\@babel\parser\lib\index.js:10881:23)
+    at TypeScriptParserMixin.parseMaybeAssign (C:\Users\sorra\CMG-HR-DATABASE\node_modules\@babel\parser\lib\index.js:10831:21)
+    at TypeScriptParserMixin.parseMaybeAssign (C:\Users\sorra\CMG-HR-DATABASE\node_modules\@babel\parser\lib\index.js:9786:20)
+    at TypeScriptParserMixin.parseExpressionBase (C:\Users\sorra\CMG-HR-DATABASE\node_modules\@babel\parser\lib\index.js:10784:23)
+
+ERROR in [eslint] 
+src\components\OvertimePage.tsx
+  Line 1330:  Parsing error: Unexpected token (1330:0)
+
+webpack compiled with 2 errors
+Files successfully emitted, waiting for typecheck results...
+Issues checking in progress...
+ERROR in src/components/OvertimePage.tsx
+TS1005: '</' expected.
+
+ERROR in src/components/OvertimePage.tsx:930:6
+TS17008: JSX element 'div' has no corresponding closing tag.
+    928 |
+    929 |   return (
+  > 930 |     <div className="space-y-3">
+        |      ^^^
+    931 |       <div className="bg-white rounded-lg shadow-sm border border-gray-200 px-4 py-3 flex flex-wrap items-start justify-between gap-3">
+    932 |         <div>
+    933 |           <h2 className="text-xl font-bold text-gray-800 flex items-center gap-2">
+
+ERROR in src/components/OvertimePage.tsx:1309:10
+TS2304: Cannot find name 'OvertimeLimitsModal'.
+    1307 |
+    1308 |       {isLimitsModalOpen && (
+  > 1309 |         <OvertimeLimitsModal
+         |          ^^^^^^^^^^^^^^^^^^^
+    1310 |           limits={otLimits}
+    1311 |           canEdit={canEditLimits}
+    1312 |           saving={savingLimits}
+
+ERROR in src/components/OvertimePage.tsx:1319:1
+TS1381: Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+    1317 |     </div>
+    1318 |   );
+  > 1319 | };
+         | ^
+    1320 |
+    1321 | // ── Modal ตั้งค่าเพดาน OT ─────────────────────────────────────────────────
+    1322 | const OT_COLOR_OPTIONS: OvertimeColorKey[] = ["green", "yellow", "orange", "red", "darkred"];
+
+ERROR in src/components/OvertimePage.tsx:1325:3
+TS2552: Cannot find name 'limits'. Did you mean 'otLimits'?
+    1323 |
+    1324 | const OvertimeLimitsModal = ({
+  > 1325 |   limits,
+         |   ^^^^^^
+    1326 |   canEdit,
+    1327 |   saving,
+    1328 |   onSave,
+
+ERROR in src/components/OvertimePage.tsx:1325:3
+TS2695: Left side of comma operator is unused and has no side effects.
+    1323 |
+    1324 | const OvertimeLimitsModal = ({
+  > 1325 |   limits,
+         |   ^^^^^^
+    1326 |   canEdit,
+    1327 |   saving,
+    1328 |   onSave,
+
+ERROR in src/components/OvertimePage.tsx:1325:3
+TS2695: Left side of comma operator is unused and has no side effects.
+    1323 |
+    1324 | const OvertimeLimitsModal = ({
+  > 1325 |   limits,
+         |   ^^^^^^^
+  > 1326 |   canEdit,
+         | ^^^^^^^^^^
+    1327 |   saving,
+    1328 |   onSave,
+    1329 |   onClose,
+
+ERROR in src/components/OvertimePage.tsx:1325:3
+TS2695: Left side of comma operator is unused and has no side effects.
+    1323 |
+    1324 | const OvertimeLimitsModal = ({
+  > 1325 |   limits,
+         |   ^^^^^^^
+  > 1326 |   canEdit,
+         | ^^^^^^^^^^
+  > 1327 |   saving,
+         | ^^^^^^^^^
+    1328 |   onSave,
+    1329 |   onClose,
+    1330 | }: {
+
+ERROR in src/components/OvertimePage.tsx:1325:3
+TS2695: Left side of comma operator is unused and has no side effects.
+    1323 |
+    1324 | const OvertimeLimitsModal = ({
+  > 1325 |   limits,
+         |   ^^^^^^^
+  > 1326 |   canEdit,
+         | ^^^^^^^^^^
+  > 1327 |   saving,
+         | ^^^^^^^^^^
+  > 1328 |   onSave,
+         | ^^^^^^^^^
+    1329 |   onClose,
+    1330 | }: {
+    1331 |   limits: OvertimeLimitConfig;
+
+ERROR in src/components/OvertimePage.tsx:1325:3
+TS2695: Left side of comma operator is unused and has no side effects.
+    1323 |
+    1324 | const OvertimeLimitsModal = ({
+  > 1325 |   limits,
+         |   ^^^^^^^
+  > 1326 |   canEdit,
+         | ^^^^^^^^^^
+  > 1327 |   saving,
+         | ^^^^^^^^^^
+  > 1328 |   onSave,
+         | ^^^^^^^^^^
+  > 1329 |   onClose,
+         | ^^^^^^^^^^
+    1330 | }: {
+    1331 |   limits: OvertimeLimitConfig;
+    1332 |   canEdit: boolean;
+
+ERROR in src/components/OvertimePage.tsx:1326:3
+TS2304: Cannot find name 'canEdit'.
+    1324 | const OvertimeLimitsModal = ({
+    1325 |   limits,
+  > 1326 |   canEdit,
+         |   ^^^^^^^
+    1327 |   saving,
+    1328 |   onSave,
+    1329 |   onClose,
+
+ERROR in src/components/OvertimePage.tsx:1328:3
+TS2304: Cannot find name 'onSave'.
+    1326 |   canEdit,
+    1327 |   saving,
+  > 1328 |   onSave,
+         |   ^^^^^^
+    1329 |   onClose,
+    1330 | }: {
+    1331 |   limits: OvertimeLimitConfig;
+
+ERROR in src/components/OvertimePage.tsx:1329:3
+TS2552: Cannot find name 'onClose'. Did you mean 'onclose'?
+    1327 |   saving,
+    1328 |   onSave,
+  > 1329 |   onClose,
+         |   ^^^^^^^
+    1330 | }: {
+    1331 |   limits: OvertimeLimitConfig;
+    1332 |   canEdit: boolean;
+
+ERROR in src/components/OvertimePage.tsx:1330:1
+TS1109: Expression expected.
+    1328 |   onSave,
+    1329 |   onClose,
+  > 1330 | }: {
+         | ^
+    1331 |   limits: OvertimeLimitConfig;
+    1332 |   canEdit: boolean;
+    1333 |   saving: boolean;
+
+ERROR in src/components/OvertimePage.tsx:1331:3
+TS2552: Cannot find name 'limits'. Did you mean 'otLimits'?
+    1329 |   onClose,
+    1330 | }: {
+  > 1331 |   limits: OvertimeLimitConfig;
+         |   ^^^^^^
+    1332 |   canEdit: boolean;
+    1333 |   saving: boolean;
+    1334 |   onSave: (next: OvertimeLimitConfig) => Promise<void>;
+
+ERROR in src/components/OvertimePage.tsx:1331:9
+TS1005: '}' expected.
+    1329 |   onClose,
+    1330 | }: {
+  > 1331 |   limits: OvertimeLimitConfig;
+         |         ^
+    1332 |   canEdit: boolean;
+    1333 |   saving: boolean;
+    1334 |   onSave: (next: OvertimeLimitConfig) => Promise<void>;
+
+ERROR in src/components/OvertimePage.tsx:1334:40
+TS1382: Unexpected token. Did you mean `{'>'}` or `&gt;`?
+    1332 |   canEdit: boolean;
+    1333 |   saving: boolean;
+  > 1334 |   onSave: (next: OvertimeLimitConfig) => Promise<void>;
+         |                                        ^
+    1335 |   onClose: () => void;
+    1336 | }) => {
+    1337 |   const [draft, setDraft] = useState<OvertimeLimitConfig>(() => ({
+
+ERROR in src/components/OvertimePage.tsx:1334:49
+TS2339: Property 'void' does not exist on type 'JSX.IntrinsicElements'.
+    1332 |   canEdit: boolean;
+    1333 |   saving: boolean;
+  > 1334 |   onSave: (next: OvertimeLimitConfig) => Promise<void>;
+         |                                                 ^^^^^^
+    1335 |   onClose: () => void;
+    1336 | }) => {
+    1337 |   const [draft, setDraft] = useState<OvertimeLimitConfig>(() => ({
+
+ERROR in src/components/OvertimePage.tsx:1334:50
+TS17008: JSX element 'void' has no corresponding closing tag.
+    1332 |   canEdit: boolean;
+    1333 |   saving: boolean;
+  > 1334 |   onSave: (next: OvertimeLimitConfig) => Promise<void>;
+         |                                                  ^^^^
+    1335 |   onClose: () => void;
+    1336 | }) => {
+    1337 |   const [draft, setDraft] = useState<OvertimeLimitConfig>(() => ({
+
+ERROR in src/components/OvertimePage.tsx:1335:16
+TS1382: Unexpected token. Did you mean `{'>'}` or `&gt;`?
+    1333 |   saving: boolean;
+    1334 |   onSave: (next: OvertimeLimitConfig) => Promise<void>;
+  > 1335 |   onClose: () => void;
+         |                ^
+    1336 | }) => {
+    1337 |   const [draft, setDraft] = useState<OvertimeLimitConfig>(() => ({
+    1338 |     weeklyCapHours: limits.weeklyCapHours,
+
+ERROR in src/components/OvertimePage.tsx:1336:1
+TS1381: Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+    1334 |   onSave: (next: OvertimeLimitConfig) => Promise<void>;
+    1335 |   onClose: () => void;
+  > 1336 | }) => {
+         | ^
+    1337 |   const [draft, setDraft] = useState<OvertimeLimitConfig>(() => ({
+    1338 |     weeklyCapHours: limits.weeklyCapHours,
+    1339 |     monthlyTiers: limits.monthlyTiers.map((t) => ({ ...t })),
+
+ERROR in src/components/OvertimePage.tsx:1336:5
+TS1382: Unexpected token. Did you mean `{'>'}` or `&gt;`?
+    1334 |   onSave: (next: OvertimeLimitConfig) => Promise<void>;
+    1335 |   onClose: () => void;
+  > 1336 | }) => {
+         |     ^
+    1337 |   const [draft, setDraft] = useState<OvertimeLimitConfig>(() => ({
+    1338 |     weeklyCapHours: limits.weeklyCapHours,
+    1339 |     monthlyTiers: limits.monthlyTiers.map((t) => ({ ...t })),
+
+ERROR in src/components/OvertimePage.tsx:1337:3
+TS1109: Expression expected.
+    1335 |   onClose: () => void;
+    1336 | }) => {
+  > 1337 |   const [draft, setDraft] = useState<OvertimeLimitConfig>(() => ({
+         |   ^^^^^
+    1338 |     weeklyCapHours: limits.weeklyCapHours,
+    1339 |     monthlyTiers: limits.monthlyTiers.map((t) => ({ ...t })),
+    1340 |   }));
+
+ERROR in src/components/OvertimePage.tsx:1337:38
+TS17008: JSX element 'OvertimeLimitConfig' has no corresponding closing tag.
+    1335 |   onClose: () => void;
+    1336 | }) => {
+  > 1337 |   const [draft, setDraft] = useState<OvertimeLimitConfig>(() => ({
+         |                                      ^^^^^^^^^^^^^^^^^^^
+    1338 |     weeklyCapHours: limits.weeklyCapHours,
+    1339 |     monthlyTiers: limits.monthlyTiers.map((t) => ({ ...t })),
+    1340 |   }));
+
+ERROR in src/components/OvertimePage.tsx:1337:38
+TS2693: 'OvertimeLimitConfig' only refers to a type, but is being used as a value here.
+    1335 |   onClose: () => void;
+    1336 | }) => {
+  > 1337 |   const [draft, setDraft] = useState<OvertimeLimitConfig>(() => ({
+         |                                      ^^^^^^^^^^^^^^^^^^^
+    1338 |     weeklyCapHours: limits.weeklyCapHours,
+    1339 |     monthlyTiers: limits.monthlyTiers.map((t) => ({ ...t })),
+    1340 |   }));
+
+ERROR in src/components/OvertimePage.tsx:1337:63
+TS1382: Unexpected token. Did you mean `{'>'}` or `&gt;`?
+    1335 |   onClose: () => void;
+    1336 | }) => {
+  > 1337 |   const [draft, setDraft] = useState<OvertimeLimitConfig>(() => ({
+         |                                                               ^
+    1338 |     weeklyCapHours: limits.weeklyCapHours,
+    1339 |     monthlyTiers: limits.monthlyTiers.map((t) => ({ ...t })),
+    1340 |   }));
+
+ERROR in src/components/OvertimePage.tsx:1338:5
+TS2304: Cannot find name 'weeklyCapHours'.
+    1336 | }) => {
+    1337 |   const [draft, setDraft] = useState<OvertimeLimitConfig>(() => ({
+  > 1338 |     weeklyCapHours: limits.weeklyCapHours,
+         |     ^^^^^^^^^^^^^^
+    1339 |     monthlyTiers: limits.monthlyTiers.map((t) => ({ ...t })),
+    1340 |   }));
+    1341 |
+
+ERROR in src/components/OvertimePage.tsx:1338:19
+TS1005: '}' expected.
+    1336 | }) => {
+    1337 |   const [draft, setDraft] = useState<OvertimeLimitConfig>(() => ({
+  > 1338 |     weeklyCapHours: limits.weeklyCapHours,
+         |                   ^
+    1339 |     monthlyTiers: limits.monthlyTiers.map((t) => ({ ...t })),
+    1340 |   }));
+    1341 |
+
+ERROR in src/components/OvertimePage.tsx:1339:48
+TS1382: Unexpected token. Did you mean `{'>'}` or `&gt;`?
+    1337 |   const [draft, setDraft] = useState<OvertimeLimitConfig>(() => ({
+    1338 |     weeklyCapHours: limits.weeklyCapHours,
+  > 1339 |     monthlyTiers: limits.monthlyTiers.map((t) => ({ ...t })),
+         |                                                ^
+    1340 |   }));
+    1341 |
+    1342 |   const updateTier = (idx: number, patch: Partial<OvertimeTier>) => {
+
+ERROR in src/components/OvertimePage.tsx:1339:51
+TS2609: JSX spread child must be an array type.
+    1337 |   const [draft, setDraft] = useState<OvertimeLimitConfig>(() => ({
+    1338 |     weeklyCapHours: limits.weeklyCapHours,
+  > 1339 |     monthlyTiers: limits.monthlyTiers.map((t) => ({ ...t })),
+         |                                                   ^^^^^^^^
+    1340 |   }));
+    1341 |
+    1342 |   const updateTier = (idx: number, patch: Partial<OvertimeTier>) => {
+
+ERROR in src/components/OvertimePage.tsx:1339:56
+TS2304: Cannot find name 't'.
+    1337 |   const [draft, setDraft] = useState<OvertimeLimitConfig>(() => ({
+    1338 |     weeklyCapHours: limits.weeklyCapHours,
+  > 1339 |     monthlyTiers: limits.monthlyTiers.map((t) => ({ ...t })),
+         |                                                        ^
+    1340 |   }));
+    1341 |
+    1342 |   const updateTier = (idx: number, patch: Partial<OvertimeTier>) => {
+
+ERROR in src/components/OvertimePage.tsx:1340:3
+TS1381: Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+    1338 |     weeklyCapHours: limits.weeklyCapHours,
+    1339 |     monthlyTiers: limits.monthlyTiers.map((t) => ({ ...t })),
+  > 1340 |   }));
+         |   ^
+    1341 |
+    1342 |   const updateTier = (idx: number, patch: Partial<OvertimeTier>) => {
+    1343 |     setDraft((prev) => ({
+
+ERROR in src/components/OvertimePage.tsx:1342:51
+TS17008: JSX element 'OvertimeTier' has no corresponding closing tag.
+    1340 |   }));
+    1341 |
+  > 1342 |   const updateTier = (idx: number, patch: Partial<OvertimeTier>) => {
+         |                                                   ^^^^^^^^^^^^
+    1343 |     setDraft((prev) => ({
+    1344 |       ...prev,
+    1345 |       monthlyTiers: prev.monthlyTiers.map((t, i) => (i === idx ? { ...t, ...patch } : t)),
+
+ERROR in src/components/OvertimePage.tsx:1342:51
+TS2693: 'OvertimeTier' only refers to a type, but is being used as a value here.
+    1340 |   }));
+    1341 |
+  > 1342 |   const updateTier = (idx: number, patch: Partial<OvertimeTier>) => {
+         |                                                   ^^^^^^^^^^^^
+    1343 |     setDraft((prev) => ({
+    1344 |       ...prev,
+    1345 |       monthlyTiers: prev.monthlyTiers.map((t, i) => (i === idx ? { ...t, ...patch } : t)),
+
+ERROR in src/components/OvertimePage.tsx:1342:67
+TS1382: Unexpected token. Did you mean `{'>'}` or `&gt;`?
+    1340 |   }));
+    1341 |
+  > 1342 |   const updateTier = (idx: number, patch: Partial<OvertimeTier>) => {
+         |                                                                   ^
+    1343 |     setDraft((prev) => ({
+    1344 |       ...prev,
+    1345 |       monthlyTiers: prev.monthlyTiers.map((t, i) => (i === idx ? { ...t, ...patch } : t)),
+
+ERROR in src/components/OvertimePage.tsx:1343:5
+TS2304: Cannot find name 'setDraft'.
+    1341 |
+    1342 |   const updateTier = (idx: number, patch: Partial<OvertimeTier>) => {
+  > 1343 |     setDraft((prev) => ({
+         |     ^^^^^^^^
+    1344 |       ...prev,
+    1345 |       monthlyTiers: prev.monthlyTiers.map((t, i) => (i === idx ? { ...t, ...patch } : t)),
+    1346 |     }));
+
+ERROR in src/components/OvertimePage.tsx:1343:15
+TS7006: Parameter 'prev' implicitly has an 'any' type.
+    1341 |
+    1342 |   const updateTier = (idx: number, patch: Partial<OvertimeTier>) => {
+  > 1343 |     setDraft((prev) => ({
+         |               ^^^^
+    1344 |       ...prev,
+    1345 |       monthlyTiers: prev.monthlyTiers.map((t, i) => (i === idx ? { ...t, ...patch } : t)),
+    1346 |     }));
+
+ERROR in src/components/OvertimePage.tsx:1345:44
+TS7006: Parameter 't' implicitly has an 'any' type.
+    1343 |     setDraft((prev) => ({
+    1344 |       ...prev,
+  > 1345 |       monthlyTiers: prev.monthlyTiers.map((t, i) => (i === idx ? { ...t, ...patch } : t)),
+         |                                            ^
+    1346 |     }));
+    1347 |   };
+    1348 |
+
+ERROR in src/components/OvertimePage.tsx:1345:47
+TS7006: Parameter 'i' implicitly has an 'any' type.
+    1343 |     setDraft((prev) => ({
+    1344 |       ...prev,
+  > 1345 |       monthlyTiers: prev.monthlyTiers.map((t, i) => (i === idx ? { ...t, ...patch } : t)),
+         |                                               ^
+    1346 |     }));
+    1347 |   };
+    1348 |
+
+ERROR in src/components/OvertimePage.tsx:1345:60
+TS2304: Cannot find name 'idx'.
+    1343 |     setDraft((prev) => ({
+    1344 |       ...prev,
+  > 1345 |       monthlyTiers: prev.monthlyTiers.map((t, i) => (i === idx ? { ...t, ...patch } : t)),
+         |                                                            ^^^
+    1346 |     }));
+    1347 |   };
+    1348 |
+
+ERROR in src/components/OvertimePage.tsx:1345:77
+TS2304: Cannot find name 'patch'.
+    1343 |     setDraft((prev) => ({
+    1344 |       ...prev,
+  > 1345 |       monthlyTiers: prev.monthlyTiers.map((t, i) => (i === idx ? { ...t, ...patch } : t)),
+         |                                                                             ^^^^^
+    1346 |     }));
+    1347 |   };
+    1348 |
+
+ERROR in src/components/OvertimePage.tsx:1346:8
+TS1005: '}' expected.
+    1344 |       ...prev,
+    1345 |       monthlyTiers: prev.monthlyTiers.map((t, i) => (i === idx ? { ...t, ...patch } : t)),
+  > 1346 |     }));
+         |        ^
+    1347 |   };
+    1348 |
+    1349 |   const addTier = () => {
+
+ERROR in src/components/OvertimePage.tsx:1347:3
+TS1381: Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+    1345 |       monthlyTiers: prev.monthlyTiers.map((t, i) => (i === idx ? { ...t, ...patch } : t)),
+    1346 |     }));
+  > 1347 |   };
+         |   ^
+    1348 |
+    1349 |   const addTier = () => {
+    1350 |     setDraft((prev) => {
+
+ERROR in src/components/OvertimePage.tsx:1349:23
+TS1382: Unexpected token. Did you mean `{'>'}` or `&gt;`?
+    1347 |   };
+    1348 |
+  > 1349 |   const addTier = () => {
+         |                       ^
+    1350 |     setDraft((prev) => {
+    1351 |       const last = prev.monthlyTiers[prev.monthlyTiers.length - 1];
+    1352 |       const nextMin = last ? (last.maxHours !== null ? last.maxHours + 1 : last.minHours + 1) : 0;
+
+ERROR in src/components/OvertimePage.tsx:1350:5
+TS2304: Cannot find name 'setDraft'.
+    1348 |
+    1349 |   const addTier = () => {
+  > 1350 |     setDraft((prev) => {
+         |     ^^^^^^^^
+    1351 |       const last = prev.monthlyTiers[prev.monthlyTiers.length - 1];
+    1352 |       const nextMin = last ? (last.maxHours !== null ? last.maxHours + 1 : last.minHours + 1) : 0;
+    1353 |       return {
+
+ERROR in src/components/OvertimePage.tsx:1350:15
+TS7006: Parameter 'prev' implicitly has an 'any' type.
+    1348 |
+    1349 |   const addTier = () => {
+  > 1350 |     setDraft((prev) => {
+         |               ^^^^
+    1351 |       const last = prev.monthlyTiers[prev.monthlyTiers.length - 1];
+    1352 |       const nextMin = last ? (last.maxHours !== null ? last.maxHours + 1 : last.minHours + 1) : 0;
+    1353 |       return {
+
+ERROR in src/components/OvertimePage.tsx:1360:7
+TS1005: '}' expected.
+    1358 |         ],
+    1359 |       };
+  > 1360 |     });
+         |       ^
+    1361 |   };
+    1362 |
+    1363 |   const removeTier = (idx: number) => {
+
+ERROR in src/components/OvertimePage.tsx:1361:3
+TS1381: Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+    1359 |       };
+    1360 |     });
+  > 1361 |   };
+         |   ^
+    1362 |
+    1363 |   const removeTier = (idx: number) => {
+    1364 |     setDraft((prev) => ({ ...prev, monthlyTiers: prev.monthlyTiers.filter((_, i) => i !== idx) }));
+
+ERROR in src/components/OvertimePage.tsx:1363:37
+TS1382: Unexpected token. Did you mean `{'>'}` or `&gt;`?
+    1361 |   };
+    1362 |
+  > 1363 |   const removeTier = (idx: number) => {
+         |                                     ^
+    1364 |     setDraft((prev) => ({ ...prev, monthlyTiers: prev.monthlyTiers.filter((_, i) => i !== idx) }));
+    1365 |   };
+    1366 |
+
+ERROR in src/components/OvertimePage.tsx:1364:5
+TS2304: Cannot find name 'setDraft'.
+    1362 |
+    1363 |   const removeTier = (idx: number) => {
+  > 1364 |     setDraft((prev) => ({ ...prev, monthlyTiers: prev.monthlyTiers.filter((_, i) => i !== idx) }));
+         |     ^^^^^^^^
+    1365 |   };
+    1366 |
+    1367 |   const handleSave = async () => {
+
+ERROR in src/components/OvertimePage.tsx:1364:15
+TS7006: Parameter 'prev' implicitly has an 'any' type.
+    1362 |
+    1363 |   const removeTier = (idx: number) => {
+  > 1364 |     setDraft((prev) => ({ ...prev, monthlyTiers: prev.monthlyTiers.filter((_, i) => i !== idx) }));
+         |               ^^^^
+    1365 |   };
+    1366 |
+    1367 |   const handleSave = async () => {
+
+ERROR in src/components/OvertimePage.tsx:1364:76
+TS7006: Parameter '_' implicitly has an 'any' type.
+    1362 |
+    1363 |   const removeTier = (idx: number) => {
+  > 1364 |     setDraft((prev) => ({ ...prev, monthlyTiers: prev.monthlyTiers.filter((_, i) => i !== idx) }));
+         |                                                                            ^
+    1365 |   };
+    1366 |
+    1367 |   const handleSave = async () => {
+
+ERROR in src/components/OvertimePage.tsx:1364:79
+TS7006: Parameter 'i' implicitly has an 'any' type.
+    1362 |
+    1363 |   const removeTier = (idx: number) => {
+  > 1364 |     setDraft((prev) => ({ ...prev, monthlyTiers: prev.monthlyTiers.filter((_, i) => i !== idx) }));
+         |                                                                               ^
+    1365 |   };
+    1366 |
+    1367 |   const handleSave = async () => {
+
+ERROR in src/components/OvertimePage.tsx:1364:91
+TS2304: Cannot find name 'idx'.
+    1362 |
+    1363 |   const removeTier = (idx: number) => {
+  > 1364 |     setDraft((prev) => ({ ...prev, monthlyTiers: prev.monthlyTiers.filter((_, i) => i !== idx) }));
+         |                                                                                           ^^^
+    1365 |   };
+    1366 |
+    1367 |   const handleSave = async () => {
+
+ERROR in src/components/OvertimePage.tsx:1364:99
+TS1005: '}' expected.
+    1362 |
+    1363 |   const removeTier = (idx: number) => {
+  > 1364 |     setDraft((prev) => ({ ...prev, monthlyTiers: prev.monthlyTiers.filter((_, i) => i !== idx) }));
+         |                                                                                                   ^
+    1365 |   };
+    1366 |
+    1367 |   const handleSave = async () => {
+
+ERROR in src/components/OvertimePage.tsx:1365:3
+TS1381: Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+    1363 |   const removeTier = (idx: number) => {
+    1364 |     setDraft((prev) => ({ ...prev, monthlyTiers: prev.monthlyTiers.filter((_, i) => i !== idx) }));
+  > 1365 |   };
+         |   ^
+    1366 |
+    1367 |   const handleSave = async () => {
+    1368 |     if (!canEdit) return;
+
+ERROR in src/components/OvertimePage.tsx:1367:32
+TS1382: Unexpected token. Did you mean `{'>'}` or `&gt;`?
+    1365 |   };
+    1366 |
+  > 1367 |   const handleSave = async () => {
+         |                                ^
+    1368 |     if (!canEdit) return;
+    1369 |     await onSave(draft);
+    1370 |     onClose();
+
+ERROR in src/components/OvertimePage.tsx:1368:5
+TS1109: Expression expected.
+    1366 |
+    1367 |   const handleSave = async () => {
+  > 1368 |     if (!canEdit) return;
+         |     ^^
+    1369 |     await onSave(draft);
+    1370 |     onClose();
+    1371 |   };
+
+ERROR in src/components/OvertimePage.tsx:1371:3
+TS1381: Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+    1369 |     await onSave(draft);
+    1370 |     onClose();
+  > 1371 |   };
+         |   ^
+    1372 |
+    1373 |   return (
+    1374 |     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-3" onClick={onClose}>
+
+ERROR in src/components/OvertimePage.tsx:1374:102
+TS2304: Cannot find name 'onClose'.
+    1372 |
+    1373 |   return (
+  > 1374 |     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-3" onClick={onClose}>
+         |                                                                                                      ^^^^^^^
+    1375 |       <div
+    1376 |         className="flex max-h-[90vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl"
+    1377 |         onClick={(e) => e.stopPropagation()}
+
+ERROR in src/components/OvertimePage.tsx:1385:16
+TS2304: Cannot find name 'canEdit'.
+    1383 |             </h4>
+    1384 |             <p className="mt-0.5 text-xs text-slate-500">
+  > 1385 |               {canEdit ? "แก้ไขได้เฉพาะ MasterAdmin / MD / GM / HR" : "คุณไม่มีสิทธิ์แก้ไข — แสดงเป็นโหมดดูอย่างเดียว"}
+         |                ^^^^^^^
+    1386 |             </p>
+    1387 |           </div>
+    1388 |           <button onClick={onClose} className="rounded-lg p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600">
+
+ERROR in src/components/OvertimePage.tsx:1388:28
+TS2304: Cannot find name 'onClose'.
+    1386 |             </p>
+    1387 |           </div>
+  > 1388 |           <button onClick={onClose} className="rounded-lg p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600">
+         |                            ^^^^^^^
+    1389 |             <X size={18} />
+    1390 |           </button>
+    1391 |         </div>
+
+ERROR in src/components/OvertimePage.tsx:1400:26
+TS2304: Cannot find name 'canEdit'.
+    1398 |               min={0}
+    1399 |               step="0.5"
+  > 1400 |               disabled={!canEdit}
+         |                          ^^^^^^^
+    1401 |               value={draft.weeklyCapHours}
+    1402 |               onChange={(e) => setDraft((prev) => ({ ...prev, weeklyCapHours: parseFloat(e.target.value) || 0 }))}
+    1403 |               className="w-32 px-3 py-1.5 text-sm border rounded focus:ring-2 focus:ring-purple-500 outline-none disabled:bg-gray-100"
+
+ERROR in src/components/OvertimePage.tsx:1401:22
+TS2304: Cannot find name 'draft'.
+    1399 |               step="0.5"
+    1400 |               disabled={!canEdit}
+  > 1401 |               value={draft.weeklyCapHours}
+         |                      ^^^^^
+    1402 |               onChange={(e) => setDraft((prev) => ({ ...prev, weeklyCapHours: parseFloat(e.target.value) || 0 }))}
+    1403 |               className="w-32 px-3 py-1.5 text-sm border rounded focus:ring-2 focus:ring-purple-500 outline-none disabled:bg-gray-100"
+    1404 |             />
+
+ERROR in src/components/OvertimePage.tsx:1402:32
+TS2304: Cannot find name 'setDraft'.
+    1400 |               disabled={!canEdit}
+    1401 |               value={draft.weeklyCapHours}
+  > 1402 |               onChange={(e) => setDraft((prev) => ({ ...prev, weeklyCapHours: parseFloat(e.target.value) || 0 }))}
+         |                                ^^^^^^^^
+    1403 |               className="w-32 px-3 py-1.5 text-sm border rounded focus:ring-2 focus:ring-purple-500 outline-none disabled:bg-gray-100"
+    1404 |             />
+    1405 |           </div>
+
+ERROR in src/components/OvertimePage.tsx:1402:42
+TS7006: Parameter 'prev' implicitly has an 'any' type.
+    1400 |               disabled={!canEdit}
+    1401 |               value={draft.weeklyCapHours}
+  > 1402 |               onChange={(e) => setDraft((prev) => ({ ...prev, weeklyCapHours: parseFloat(e.target.value) || 0 }))}
+         |                                          ^^^^
+    1403 |               className="w-32 px-3 py-1.5 text-sm border rounded focus:ring-2 focus:ring-purple-500 outline-none disabled:bg-gray-100"
+    1404 |             />
+    1405 |           </div>
+
+ERROR in src/components/OvertimePage.tsx:1410:16
+TS2304: Cannot find name 'canEdit'.
+    1408 |             <div className="flex items-center justify-between mb-2">
+    1409 |               <label className="block text-xs font-semibold text-slate-600">ระดับเพดาน OT สะสม/เดือน</label>
+  > 1410 |               {canEdit && (
+         |                ^^^^^^^
+    1411 |                 <button
+    1412 |                   onClick={addTier}
+    1413 |                   className="flex items-center gap-1 text-xs text-purple-600 hover:text-purple-800"
+
+ERROR in src/components/OvertimePage.tsx:1412:28
+TS2304: Cannot find name 'addTier'.
+    1410 |               {canEdit && (
+    1411 |                 <button
+  > 1412 |                   onClick={addTier}
+         |                            ^^^^^^^
+    1413 |                   className="flex items-center gap-1 text-xs text-purple-600 hover:text-purple-800"
+    1414 |                 >
+    1415 |                   <Plus size={12} /> เพิ่มระดับ
+
+ERROR in src/components/OvertimePage.tsx:1420:16
+TS2304: Cannot find name 'draft'.
+    1418 |             </div>
+    1419 |             <div className="space-y-2">
+  > 1420 |               {draft.monthlyTiers.map((tier, idx) => (
+         |                ^^^^^
+    1421 |                 <div key={tier.id} className="border border-slate-200 rounded-lg p-2 space-y-1.5">
+    1422 |                   <div className="flex items-center gap-1.5 flex-wrap">
+    1423 |                     <input
+
+ERROR in src/components/OvertimePage.tsx:1420:40
+TS7006: Parameter 'tier' implicitly has an 'any' type.
+    1418 |             </div>
+    1419 |             <div className="space-y-2">
+  > 1420 |               {draft.monthlyTiers.map((tier, idx) => (
+         |                                        ^^^^
+    1421 |                 <div key={tier.id} className="border border-slate-200 rounded-lg p-2 space-y-1.5">
+    1422 |                   <div className="flex items-center gap-1.5 flex-wrap">
+    1423 |                     <input
+
+ERROR in src/components/OvertimePage.tsx:1420:46
+TS7006: Parameter 'idx' implicitly has an 'any' type.
+    1418 |             </div>
+    1419 |             <div className="space-y-2">
+  > 1420 |               {draft.monthlyTiers.map((tier, idx) => (
+         |                                              ^^^
+    1421 |                 <div key={tier.id} className="border border-slate-200 rounded-lg p-2 space-y-1.5">
+    1422 |                   <div className="flex items-center gap-1.5 flex-wrap">
+    1423 |                     <input
+
+ERROR in src/components/OvertimePage.tsx:1425:34
+TS2304: Cannot find name 'canEdit'.
+    1423 |                     <input
+    1424 |                       type="text"
+  > 1425 |                       disabled={!canEdit}
+         |                                  ^^^^^^^
+    1426 |                       value={tier.label}
+    1427 |                       onChange={(e) => updateTier(idx, { label: e.target.value })}
+    1428 |                       placeholder="ชื่อระดับ"
+
+ERROR in src/components/OvertimePage.tsx:1427:40
+TS2304: Cannot find name 'updateTier'.
+    1425 |                       disabled={!canEdit}
+    1426 |                       value={tier.label}
+  > 1427 |                       onChange={(e) => updateTier(idx, { label: e.target.value })}
+         |                                        ^^^^^^^^^^
+    1428 |                       placeholder="ชื่อระดับ"
+    1429 |                       className="flex-1 min-w-[100px] px-2 py-1 text-xs border rounded outline-none disabled:bg-gray-100"
+    1430 |                     />
+
+ERROR in src/components/OvertimePage.tsx:1434:34
+TS2304: Cannot find name 'canEdit'.
+    1432 |                       type="number"
+    1433 |                       min={0}
+  > 1434 |                       disabled={!canEdit}
+         |                                  ^^^^^^^
+    1435 |                       value={tier.minHours}
+    1436 |                       onChange={(e) => updateTier(idx, { minHours: parseFloat(e.target.value) || 0 })}
+    1437 |                       className="w-16 px-2 py-1 text-xs border rounded outline-none disabled:bg-gray-100"
+
+ERROR in src/components/OvertimePage.tsx:1436:40
+TS2304: Cannot find name 'updateTier'.
+    1434 |                       disabled={!canEdit}
+    1435 |                       value={tier.minHours}
+  > 1436 |                       onChange={(e) => updateTier(idx, { minHours: parseFloat(e.target.value) || 0 })}
+         |                                        ^^^^^^^^^^
+    1437 |                       className="w-16 px-2 py-1 text-xs border rounded outline-none disabled:bg-gray-100"
+    1438 |                       title="ชั่วโมงเริ่มต้น"
+    1439 |                     />
+
+ERROR in src/components/OvertimePage.tsx:1444:34
+TS2304: Cannot find name 'canEdit'.
+    1442 |                       type="number"
+    1443 |                       min={0}
+  > 1444 |                       disabled={!canEdit}
+         |                                  ^^^^^^^
+    1445 |                       value={tier.maxHours ?? ""}
+    1446 |                       placeholder="ไม่จำกัด"
+    1447 |                       onChange={(e) => updateTier(idx, { maxHours: e.target.value === "" ? null : parseFloat(e.target.value) || 0 })}
+
+ERROR in src/components/OvertimePage.tsx:1447:40
+TS2304: Cannot find name 'updateTier'.
+    1445 |                       value={tier.maxHours ?? ""}
+    1446 |                       placeholder="ไม่จำกัด"
+  > 1447 |                       onChange={(e) => updateTier(idx, { maxHours: e.target.value === "" ? null : parseFloat(e.target.value) || 0 })}
+         |                                        ^^^^^^^^^^
+    1448 |                       className="w-20 px-2 py-1 text-xs border rounded outline-none disabled:bg-gray-100"
+    1449 |                       title="ชั่วโมงสูงสุด (เว้นว่าง = ไม่จำกัด)"
+    1450 |                     />
+
+ERROR in src/components/OvertimePage.tsx:1453:34
+TS2304: Cannot find name 'canEdit'.
+    1451 |                     <span className="text-xs text-gray-400">ชม.</span>
+    1452 |                     <select
+  > 1453 |                       disabled={!canEdit}
+         |                                  ^^^^^^^
+    1454 |                       value={tier.colorKey}
+    1455 |                       onChange={(e) => updateTier(idx, { colorKey: e.target.value as OvertimeColorKey })}
+    1456 |                       className="px-2 py-1 text-xs border rounded outline-none disabled:bg-gray-100"
+
+ERROR in src/components/OvertimePage.tsx:1455:40
+TS2304: Cannot find name 'updateTier'.
+    1453 |                       disabled={!canEdit}
+    1454 |                       value={tier.colorKey}
+  > 1455 |                       onChange={(e) => updateTier(idx, { colorKey: e.target.value as OvertimeColorKey })}
+         |                                        ^^^^^^^^^^
+    1456 |                       className="px-2 py-1 text-xs border rounded outline-none disabled:bg-gray-100"
+    1457 |                     >
+    1458 |                       {OT_COLOR_OPTIONS.map((c) => (
+
+ERROR in src/components/OvertimePage.tsx:1458:24
+TS2304: Cannot find name 'OT_COLOR_OPTIONS'.
+    1456 |                       className="px-2 py-1 text-xs border rounded outline-none disabled:bg-gray-100"
+    1457 |                     >
+  > 1458 |                       {OT_COLOR_OPTIONS.map((c) => (
+         |                        ^^^^^^^^^^^^^^^^
+    1459 |                         <option key={c} value={c}>{c}</option>
+    1460 |                       ))}
+    1461 |                     </select>
+
+ERROR in src/components/OvertimePage.tsx:1458:46
+TS7006: Parameter 'c' implicitly has an 'any' type.
+    1456 |                       className="px-2 py-1 text-xs border rounded outline-none disabled:bg-gray-100"
+    1457 |                     >
+  > 1458 |                       {OT_COLOR_OPTIONS.map((c) => (
+         |                                              ^
+    1459 |                         <option key={c} value={c}>{c}</option>
+    1460 |                       ))}
+    1461 |                     </select>
+
+ERROR in src/components/OvertimePage.tsx:1463:65
+TS7053: Element implicitly has an 'any' type because expression of type 'any' can't be used to index type 'Record<OvertimeColorKey, { bg: string; border: string; text: string; dot: string; }>'.
+    1461 |                     </select>
+    1462 |                     <span
+  > 1463 |                       className={`w-4 h-4 rounded-full border ${OT_COLOR_CLASSES[tier.colorKey].bg} ${OT_COLOR_CLASSES[tier.colorKey].border}`}
+         |                                                                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    1464 |                     />
+    1465 |                     {canEdit && draft.monthlyTiers.length > 1 && (
+    1466 |                       <button onClick={() => removeTier(idx)} className="text-red-400 hover:text-red-600 p-1">
+
+ERROR in src/components/OvertimePage.tsx:1463:103
+TS7053: Element implicitly has an 'any' type because expression of type 'any' can't be used to index type 'Record<OvertimeColorKey, { bg: string; border: string; text: string; dot: string; }>'.
+    1461 |                     </select>
+    1462 |                     <span
+  > 1463 |                       className={`w-4 h-4 rounded-full border ${OT_COLOR_CLASSES[tier.colorKey].bg} ${OT_COLOR_CLASSES[tier.colorKey].border}`}
+         |                                                                                                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    1464 |                     />
+    1465 |                     {canEdit && draft.monthlyTiers.length > 1 && (
+    1466 |                       <button onClick={() => removeTier(idx)} className="text-red-400 hover:text-red-600 p-1">
+
+ERROR in src/components/OvertimePage.tsx:1465:22
+TS2304: Cannot find name 'canEdit'.
+    1463 |                       className={`w-4 h-4 rounded-full border ${OT_COLOR_CLASSES[tier.colorKey].bg} ${OT_COLOR_CLASSES[tier.colorKey].border}`}
+    1464 |                     />
+  > 1465 |                     {canEdit && draft.monthlyTiers.length > 1 && (
+         |                      ^^^^^^^
+    1466 |                       <button onClick={() => removeTier(idx)} className="text-red-400 hover:text-red-600 p-1">
+    1467 |                         <Trash2 size={13} />
+    1468 |                       </button>
+
+ERROR in src/components/OvertimePage.tsx:1465:33
+TS2304: Cannot find name 'draft'.
+    1463 |                       className={`w-4 h-4 rounded-full border ${OT_COLOR_CLASSES[tier.colorKey].bg} ${OT_COLOR_CLASSES[tier.colorKey].border}`}
+    1464 |                     />
+  > 1465 |                     {canEdit && draft.monthlyTiers.length > 1 && (
+         |                                 ^^^^^
+    1466 |                       <button onClick={() => removeTier(idx)} className="text-red-400 hover:text-red-600 p-1">
+    1467 |                         <Trash2 size={13} />
+    1468 |                       </button>
+
+ERROR in src/components/OvertimePage.tsx:1466:46
+TS2304: Cannot find name 'removeTier'.
+    1464 |                     />
+    1465 |                     {canEdit && draft.monthlyTiers.length > 1 && (
+  > 1466 |                       <button onClick={() => removeTier(idx)} className="text-red-400 hover:text-red-600 p-1">
+         |                                              ^^^^^^^^^^
+    1467 |                         <Trash2 size={13} />
+    1468 |                       </button>
+    1469 |                     )}
+
+ERROR in src/components/OvertimePage.tsx:1473:32
+TS2304: Cannot find name 'canEdit'.
+    1471 |                   <input
+    1472 |                     type="text"
+  > 1473 |                     disabled={!canEdit}
+         |                                ^^^^^^^
+    1474 |                     value={tier.action}
+    1475 |                     onChange={(e) => updateTier(idx, { action: e.target.value })}
+    1476 |                     placeholder="คำอธิบายการจัดการ เช่น ต้องขออนุมัติระดับสูงขึ้น"
+
+ERROR in src/components/OvertimePage.tsx:1475:38
+TS2304: Cannot find name 'updateTier'.
+    1473 |                     disabled={!canEdit}
+    1474 |                     value={tier.action}
+  > 1475 |                     onChange={(e) => updateTier(idx, { action: e.target.value })}
+         |                                      ^^^^^^^^^^
+    1476 |                     placeholder="คำอธิบายการจัดการ เช่น ต้องขออนุมัติระดับสูงขึ้น"
+    1477 |                     className="w-full px-2 py-1 text-xs border rounded outline-none disabled:bg-gray-100"
+    1478 |                   />
+
+ERROR in src/components/OvertimePage.tsx:1486:28
+TS2304: Cannot find name 'onClose'.
+    1484 |
+    1485 |         <div className="flex items-center justify-end gap-2 border-t border-slate-200 px-4 py-3">
+  > 1486 |           <button onClick={onClose} className="px-3 py-1.5 text-sm border rounded hover:bg-gray-50">
+         |                            ^^^^^^^
+    1487 |             ปิด
+    1488 |           </button>
+    1489 |           {canEdit && (
+
+ERROR in src/components/OvertimePage.tsx:1489:12
+TS2304: Cannot find name 'canEdit'.
+    1487 |             ปิด
+    1488 |           </button>
+  > 1489 |           {canEdit && (
+         |            ^^^^^^^
+    1490 |             <button
+    1491 |               onClick={handleSave}
+    1492 |               disabled={saving}
+
+ERROR in src/components/OvertimePage.tsx:1491:24
+TS2304: Cannot find name 'handleSave'.
+    1489 |           {canEdit && (
+    1490 |             <button
+  > 1491 |               onClick={handleSave}
+         |                        ^^^^^^^^^^
+    1492 |               disabled={saving}
+    1493 |               className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-purple-600 text-white rounded hover:bg-purple-700 disabled:opacity-60"
+    1494 |             >
+
+ERROR in src/components/OvertimePage.tsx:1503:1
+TS1381: Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+    1501 |     </div>
+    1502 |   );
+  > 1503 | };
+         | ^
+    1504 |
+
+Compiling...
+Compiled successfully!
+webpack compiled successfully
+No issues found.
+Compiling...
+Compiled successfully!
+webpack compiled successfully
+No issues found.

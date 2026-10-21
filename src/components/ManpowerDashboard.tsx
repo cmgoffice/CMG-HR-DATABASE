@@ -23,6 +23,7 @@ import { InfoTooltip } from "./InfoTooltip";
 import { PageGuideButton, PageGuideModal } from "./PageGuideModal";
 import { DonutChart, RankedBarChart, CoverageCompareChart, CoverageGaugeDonut } from "./DashboardCharts";
 import { HRAnalyticsTab } from "./HRAnalyticsTab";
+import { SafetyDashboardTab } from "./SafetyDashboardTab";
 import { MetricCard, SectionCard, HorizontalBreakdown } from "./DashboardUI";
 import {
   EmployeeFollowUpCase,
@@ -146,7 +147,7 @@ interface ProjectExceptionRow {
 }
 
 type TimePreset = "today" | "yesterday" | "month" | "custom";
-type DashboardMode = "hr" | "project" | "analytics";
+type DashboardMode = "hr" | "project" | "analytics" | "safety";
 
 interface RiskRuleResult {
   key: RiskRuleKey;
@@ -1110,6 +1111,13 @@ export const ManpowerDashboard = ({
 
   const canSeeAllProjects = hasRole(["MasterAdmin", "MD", "GM", "PD", "HRM", "HR"]);
   const canSeeHrDashboard = hasRole(["MasterAdmin", "MD", "GM", "PD", "HRM", "HR"]);
+  // Safety Dashboard (Workforce & Exposure): เห็นได้โดย HR เดิม + role "Safety"/"Admin Site"
+  // ที่ต้องใช้ข้อมูลนี้โดยตรง ยังไม่ผูกกับ settings/role_permissions เพิ่ม (เหมือนโหมด analytics เดิม)
+  const canSeeSafetyDashboard = hasRole(["MasterAdmin", "MD", "GM", "PD", "HRM", "HR", "Safety", "Admin Site"]);
+  // Role "Safety" ทำหน้าที่ดูแลความปลอดภัยทั้งบริษัท ไม่ได้ผูกกับโครงการเดียวแบบ PM/CM/Admin Site
+  // จึงให้เห็นข้อมูล workforce/exposure ของทุกโครงการเฉพาะในหน้า HR–Safety (ไม่กระทบสิทธิ์
+  // canSeeAllProjects เดิมที่ใช้คุมหน้า Project Dashboard/Dropdown โครงการของโหมดอื่น)
+  const safetyCanSeeAllProjects = canSeeAllProjects || hasRole(["Safety"]);
   const defaultTodayRange = getTodayPresetRange();
   const [dashboardMode, setDashboardMode] = useState<DashboardMode>(showOnlyRiskMonitoring ? "hr" : (canSeeHrDashboard ? "hr" : "project"));
   const [timePreset, setTimePreset] = useState<TimePreset>("today");
@@ -1131,6 +1139,10 @@ export const ManpowerDashboard = ({
   const [riskEmployeeTypeFilter, setRiskEmployeeTypeFilter] = useState("all");
   const [loading, setLoading] = useState(true);
   const [employees, setEmployees] = useState<Employee[]>([]);
+  // รายชื่อพนักงานสถานะ "ทำงาน" แบบไม่กรองตาม assignedProjects — ใช้เฉพาะหน้า
+  // HR–Safety สำหรับ role "Safety" ที่ต้องเห็นภาพรวมความเสี่ยง/exposure ทั้งบริษัท
+  // แม้จะยังไม่ถูก assign โครงการเฉพาะเจาะจงแบบ PM/CM/Admin Site (ดู safetyCanSeeAllProjects ด้านล่าง)
+  const [allActiveEmployees, setAllActiveEmployees] = useState<Employee[]>([]);
   const [projectRecords, setProjectRecords] = useState<ProjectRecord[]>([]);
   const [attendanceByDate, setAttendanceByDate] = useState<Record<string, Record<string, AttendanceEntry>>>({});
   const [overtimeByDate, setOvertimeByDate] = useState<Record<string, Record<string, OvertimeEntry>>>({});
@@ -1286,8 +1298,22 @@ export const ManpowerDashboard = ({
 
   const hasAssignedProjects = useMemo(() => {
     if (canSeeAllProjects) return true;
+    // HR–Safety tab ไม่ผูกกับ selectedProject เดียวเหมือน Project Dashboard (มี dropdown
+    // เลือกโครงการของตัวเองอยู่แล้ว และ query ข้อมูลโดยกรองตาม assignedProjects ภายในอยู่แล้ว)
+    // จึงไม่ควรบล็อกทั้งหน้าด้วยข้อความ "ยังไม่ได้ถูกกำหนดโครงการ" สำหรับ role ที่เห็นแท็บนี้ได้
+    // (เช่น Safety ที่อาจยังไม่ถูก assign โครงการเฉพาะเจาะจงแบบ PM/CM/Admin Site)
+    if (canSeeSafetyDashboard) return true;
     return filteredProjectOptions.length > 0;
-  }, [canSeeAllProjects, filteredProjectOptions]);
+  }, [canSeeAllProjects, canSeeSafetyDashboard, filteredProjectOptions]);
+
+  // ถ้า role เห็นได้แค่ HR–Safety (ไม่เห็น HR Dashboard เดิม) และยังไม่ถูก assign โครงการ
+  // (เช่น Safety ที่เพิ่งถูกสร้างบัญชี ยังไม่ได้ assign โครงการแบบ PM/CM/Admin Site) ให้พาไปแท็บ
+  // HR–Safety โดยตรงแทนที่จะค้างอยู่ที่ Project Dashboard ซึ่งจะว่างเปล่าไม่มีโครงการให้เลือก
+  useEffect(() => {
+    if (!canSeeHrDashboard && canSeeSafetyDashboard && filteredProjectOptions.length === 0) {
+      setDashboardMode("safety");
+    }
+  }, [canSeeHrDashboard, canSeeSafetyDashboard, filteredProjectOptions]);
 
   useEffect(() => {
     setLoading(true);
@@ -1303,6 +1329,8 @@ export const ManpowerDashboard = ({
         let list = snapshot.docs
           .map((docSnap) => ({ id: docSnap.id, ...docSnap.data() } as Employee))
           .filter((emp) => emp["สถานะพนักงาน"] === "ทำงาน");
+
+        setAllActiveEmployees(list);
 
         if (!canSeeAllProjects) {
           const assignedProjects = userProfile?.assignedProjects || [];
@@ -4166,29 +4194,42 @@ export const ManpowerDashboard = ({
           </div>
 
           <div className="flex flex-wrap items-center gap-2 border-t border-slate-100 pt-2">
-            {canSeeHrDashboard && !showOnlyRiskMonitoring && (
+            {(canSeeHrDashboard || canSeeSafetyDashboard) && !showOnlyRiskMonitoring && (
               <div className="inline-flex h-8 shrink-0 border border-slate-200 rounded-lg overflow-hidden bg-white">
-                <button
-                  type="button"
-                  onClick={() => setDashboardMode("hr")}
-                  className={`px-3 inline-flex items-center gap-1.5 text-xs font-bold ${dashboardMode === "hr" ? "bg-slate-900 text-white" : "text-slate-600 hover:bg-slate-50"}`}
-                >
-                  <Users size={14} /> HR Dashboard
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setDashboardMode("project")}
-                  className={`px-3 inline-flex items-center gap-1.5 text-xs font-bold border-l border-slate-200 ${dashboardMode === "project" ? "bg-sky-500 text-white" : "text-slate-600 hover:bg-sky-50"}`}
-                >
-                  <Briefcase size={14} /> Project Dashboard
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setDashboardMode("analytics")}
-                  className={`px-3 inline-flex items-center gap-1.5 text-xs font-bold border-l border-slate-200 ${dashboardMode === "analytics" ? "bg-fuchsia-600 text-white" : "text-slate-600 hover:bg-fuchsia-50"}`}
-                >
-                  <TrendingUp size={14} /> HR Analytics
-                </button>
+                {canSeeHrDashboard && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => setDashboardMode("hr")}
+                      className={`px-3 inline-flex items-center gap-1.5 text-xs font-bold ${dashboardMode === "hr" ? "bg-slate-900 text-white" : "text-slate-600 hover:bg-slate-50"}`}
+                    >
+                      <Users size={14} /> HR Dashboard
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setDashboardMode("project")}
+                      className={`px-3 inline-flex items-center gap-1.5 text-xs font-bold border-l border-slate-200 ${dashboardMode === "project" ? "bg-sky-500 text-white" : "text-slate-600 hover:bg-sky-50"}`}
+                    >
+                      <Briefcase size={14} /> Project Dashboard
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setDashboardMode("analytics")}
+                      className={`px-3 inline-flex items-center gap-1.5 text-xs font-bold border-l border-slate-200 ${dashboardMode === "analytics" ? "bg-fuchsia-600 text-white" : "text-slate-600 hover:bg-fuchsia-50"}`}
+                    >
+                      <TrendingUp size={14} /> HR Analytics
+                    </button>
+                  </>
+                )}
+                {canSeeSafetyDashboard && (
+                  <button
+                    type="button"
+                    onClick={() => setDashboardMode("safety")}
+                    className={`px-3 inline-flex items-center gap-1.5 text-xs font-bold border-l border-slate-200 ${dashboardMode === "safety" ? "bg-emerald-600 text-white" : "text-slate-600 hover:bg-emerald-50"}`}
+                  >
+                    <AlertCircle size={14} /> HR–Safety
+                  </button>
+                )}
               </div>
             )}
             <div className="inline-flex h-8 shrink-0 border border-slate-200 rounded-lg overflow-hidden bg-white">
@@ -4267,6 +4308,15 @@ export const ManpowerDashboard = ({
         <div className="p-8 text-center text-rose-600 font-medium">กรุณาเลือกช่วงวันที่ให้ถูกต้อง</div>
       ) : dashboardMode === "analytics" && canSeeHrDashboard ? (
         <HRAnalyticsTab activeEmployees={employees} canSeeAllProjects={canSeeAllProjects} assignedProjects={userProfile?.assignedProjects || []} />
+      ) : dashboardMode === "safety" && canSeeSafetyDashboard ? (
+        <SafetyDashboardTab
+          activeEmployees={safetyCanSeeAllProjects ? allActiveEmployees : employees}
+          canSeeAllProjects={safetyCanSeeAllProjects}
+          assignedProjects={userProfile?.assignedProjects || []}
+          selectedDates={dateRange}
+          startDate={startDate}
+          endDate={endDate}
+        />
       ) : dashboardMode === "hr" && canSeeHrDashboard ? (
         <div className="p-2 space-y-2 lg:p-4 lg:space-y-4">
           {!showOnlyRiskMonitoring && (
