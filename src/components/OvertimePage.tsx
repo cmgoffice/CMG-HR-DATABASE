@@ -42,7 +42,7 @@ import {
   OvertimeTier,
 } from "../config/overtimeLimits";
 import { isOvertimeDateAllowed } from "../utils/overtimeDateRules";
-import { OtScan, evaluateScan } from "../utils/otScan";
+import { OtScan, evaluateScan, thaiDate } from "../utils/otScan";
 import { OtScanControl } from "./OtScanControl";
 
 interface Employee {
@@ -65,6 +65,15 @@ interface OvertimeEntry {
   type?: string;       // "x1.5", "x2"
   recordedAt: number;  // Unix timestamp (ms)
   project?: string;    // โครงการที่ลงเวลา (เฉพาะเมื่อ hours != "")
+}
+
+interface DailyAttendanceEntry {
+  status?: string;
+  recordedAt?: number;
+  checkout?: string;
+  checkoutTransactionId?: string;
+  checkoutFetchedAt?: number;
+  [key: string]: any;
 }
 
 interface ColumnConfig {
@@ -129,11 +138,15 @@ interface OvertimeCellProps {
   employeeId: string;
   dateStr: string;
   entry?: OvertimeEntry;
+  attendanceRecord?: DailyAttendanceEntry;
+  workStartTime?: string;
+  otStartTime?: string;
   canEdit: boolean;
   isOtherProject: boolean;
   locked: boolean;
   isToday: boolean;
   isWeekend: boolean;
+  isSunday: boolean;
   employee: Employee;
   handleOvertimeChange: (
     employeeId: string,
@@ -152,11 +165,15 @@ const OvertimeCell: React.FC<OvertimeCellProps> = React.memo(({
   employeeId,
   dateStr,
   entry,
+  attendanceRecord,
+  workStartTime,
+  otStartTime,
   canEdit,
   isOtherProject,
   locked,
   isToday,
   isWeekend,
+  isSunday,
   employee,
   handleOvertimeChange,
   filterOtType,
@@ -279,15 +296,45 @@ const OvertimeCell: React.FC<OvertimeCellProps> = React.memo(({
 
   if (isToday) tooltipExtra = " 📅 วันนี้" + tooltipExtra;
 
-  const scan = entry?.scan;
+  // Attendance is the source of truth for the latest BioTime checkout. The
+  // legacy OT scan remains as a fallback for records created before the
+  // central attendance sync was introduced.
+  // Sundays and configured holidays have no normal work period. Their OT
+  // clock therefore starts at the project's regular start time instead of
+  // the weekday OT start time.
+  const noRegularWork = isSunday || Boolean(dayOffName);
+  const scanStartTime = noRegularWork ? (workStartTime || otStartTime) : otStartTime;
+  const centralScan = attendanceRecord && scanStartTime ? {
+    date: dateStr,
+    project: "",
+    otStart: scanStartTime,
+    punchTime: attendanceRecord.checkout || "",
+    transactionId: attendanceRecord.checkoutTransactionId || "",
+    fetchedAt: attendanceRecord.checkoutFetchedAt || 0,
+  } : null;
+  const legacyScan = entry?.scan && scanStartTime ? { ...entry.scan, otStart: scanStartTime } : entry?.scan;
+  const scan = centralScan || legacyScan || (entry?.hours && scanStartTime ? {
+    date: dateStr,
+    project: "",
+    otStart: scanStartTime,
+    punchTime: "",
+    transactionId: "",
+    fetchedAt: 0,
+  } : null);
   const scanResult = scan ? evaluateScan(scan, entry?.hours || "") : null;
-  const showScan = !!scan && !isOtherProject && (filterOtType === "all" || filterOtType === localType);
+  const showScan = !!scan && (filterOtType === "all" || filterOtType === localType);
   const scanWarning = scanResult && ["short", "missing", "unplanned"].includes(scanResult.status);
   if (showScan && scanResult?.status === "ok") bg = "bg-green-100";
   const scanTitle = scanResult ? ({ ok: "เวลาออกครบ OT", short: "เวลาออกไม่ครบ OT", missing: "ไม่พบเวลาออก", unplanned: "ไม่ได้ลง OT แต่ออกเกินเวลาอย่างน้อย 1 ชั่วโมง", none: "เวลาออก" }[scanResult.status] || "") + " · " + (scan?.punchTime || "-") + " · ควรออก " + new Date(scanResult.expected).toLocaleString("th-TH", { timeZone: "Asia/Bangkok" }) : "";
-  const hasScanBadge = showScan && scanResult?.status !== "none";
-  const scanBadge = hasScanBadge ? <span title={scanTitle} className={`block whitespace-nowrap leading-[8px] ${scanWarning ? "text-red-600" : "text-green-800"}`} style={{ fontSize: 7 }}>
-    {scan?.punchTime ? scan.punchTime.slice(11, 16) : "ไม่พบ"}
+  const isPastDate = dateStr < thaiDate();
+  const hasScanBadge = showScan
+    && scanResult?.status !== "none"
+    && (scanResult?.status !== "missing" || isPastDate || Boolean(scan?.punchTime));
+  const checkoutLabel = scan?.punchTime
+    ? (String(scan.punchTime).match(/(?:T|\s)(\d{2}:\d{2})/)?.[1] || String(scan.punchTime).slice(0, 5))
+    : "ไม่พบ";
+  const scanBadge = hasScanBadge ? <span title={scanTitle} className={`absolute right-0 top-0 max-w-full overflow-hidden text-ellipsis whitespace-nowrap leading-[8px] ${scanWarning ? "text-red-600" : "text-green-800"}`} style={{ fontSize: 7 }}>
+    {checkoutLabel}
   </span> : null;
   const weeklyWarning = typeof weeklyHours === "number" && typeof weeklyCapHours === "number" ? (
     <span className={`absolute top-0 ${showScan ? "left-0" : "right-0"} leading-none pointer-events-none`} style={{ transform: "translate(15%, -25%)" }}>
@@ -298,20 +345,16 @@ const OvertimeCell: React.FC<OvertimeCellProps> = React.memo(({
   if (isOtherProject || !canEdit) {
     return (
       <td
-        className={`border border-gray-200 text-center select-none ${bg} ${textCls} cursor-not-allowed opacity-60 relative`}
-        style={{ minWidth: 40, maxWidth: 40, width: 40, padding: 0, fontSize: 10, height: 24 }}
+        className={`border border-gray-200 text-center select-none overflow-hidden ${bg} ${textCls} cursor-not-allowed opacity-60 relative z-0`}
+        style={{ minWidth: 40, maxWidth: 40, width: 40, padding: 0, fontSize: 10, height: 24, verticalAlign: "middle" }}
         title={`${dateStr}${tooltipExtra}`}
       >
-        {hasScanBadge ? (
-          <div className="relative z-10 flex h-full flex-col items-center justify-center leading-none">
-            {scanBadge}
-            <span className="block leading-[11px]" style={{ fontSize: 10 }}>
-              {isOtherProject ? getProjectShortCode(entry?.project || "") : localVal}
-            </span>
-          </div>
-        ) : (
-          <span className="relative z-10">{isOtherProject ? getProjectShortCode(entry?.project || "") : localVal}</span>
-        )}
+        <div className="relative flex h-full w-full items-end justify-center overflow-hidden leading-none">
+          {scanBadge}
+          <span className={`relative z-0 block leading-[11px] ${hasScanBadge ? "pt-[7px]" : ""}`} style={{ fontSize: 10 }}>
+            {isOtherProject ? getProjectShortCode(entry?.project || "") : localVal}
+          </span>
+        </div>
         {weeklyWarning}
       </td>
     );
@@ -319,12 +362,12 @@ const OvertimeCell: React.FC<OvertimeCellProps> = React.memo(({
 
   return (
     <td
-      className={`border border-gray-200 text-center transition-colors p-0 relative ${bg} focus-within:ring-2 focus-within:ring-inset focus-within:ring-purple-500`}
-      style={{ minWidth: 40, maxWidth: 40, width: 40, height: 24 }}
+      className={`border border-gray-200 text-center transition-colors p-0 relative z-0 overflow-hidden ${bg} focus-within:ring-2 focus-within:ring-inset focus-within:ring-purple-500`}
+      style={{ minWidth: 40, maxWidth: 40, width: 40, height: 24, verticalAlign: "middle" }}
       title={`${dateStr}${tooltipExtra}`}
     >
       {weeklyWarning}
-      <div className={hasScanBadge ? "relative z-10 flex h-full flex-col items-center justify-center leading-none" : "contents"}>
+      <div className="relative h-full w-full overflow-hidden leading-none">
         {scanBadge}
         <input
           data-date={dateStr}
@@ -338,7 +381,7 @@ const OvertimeCell: React.FC<OvertimeCellProps> = React.memo(({
           }}
           onBlur={handleBlur}
           onKeyDown={handleKeyDown}
-          className={`relative w-full ${hasScanBadge ? "h-[11px]" : "h-full"} text-center bg-transparent outline-none ${textCls} text-[10px] leading-[11px] m-0 p-0 select-all`}
+          className={`relative w-full ${hasScanBadge ? "h-full pt-[7px]" : "h-full"} box-border text-center bg-transparent outline-none ${textCls} text-[10px] leading-[11px] m-0 p-0 select-all`}
         />
       </div>
       {showPopup && (
@@ -375,6 +418,7 @@ export const OvertimePage = ({ projectOptions }: { projectOptions: string[] }) =
   const [loading, setLoading] = useState(true);
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [overtimeData, setOvertimeData] = useState<Record<string, Record<string, OvertimeEntry>>>({});
+  const [attendanceData, setAttendanceData] = useState<Record<string, Record<string, DailyAttendanceEntry>>>({});
   const [selectedProject, setSelectedProject] = useState<string>("all");
   const [currentMonth, setCurrentMonth] = useState<Date>(new Date());
   const [saving, setSaving] = useState(false);
@@ -506,6 +550,36 @@ export const OvertimePage = ({ projectOptions }: { projectOptions: string[] }) =
     };
   }, [currentMonth, employees, db]);
 
+  // BioTime checkout is stored centrally with the daily attendance record.
+  // Listen to the same month as the OT grid so changing project only changes
+  // the schedule used for evaluation, not the source punch data.
+  useEffect(() => {
+    if (employees.length === 0) return;
+    const year = currentMonth.getFullYear();
+    const month = currentMonth.getMonth();
+    const totalDays = new Date(year, month + 1, 0).getDate();
+    const unsubscribes: (() => void)[] = [];
+
+    for (let d = 1; d <= totalDays; d += 1) {
+      const dateStr = `${year}-${String(month + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+      const attendanceDocRef = doc(db, "CMG-HR-Database", "root", "attendance", dateStr);
+      const unsubscribe = onSnapshot(attendanceDocRef, (docSnap) => {
+        const raw = docSnap.exists() ? docSnap.data() : {};
+        const records: Record<string, DailyAttendanceEntry> = {};
+        if (raw.records && typeof raw.records === "object") {
+          for (const [employeeId, value] of Object.entries(raw.records)) {
+            if (typeof value === "string") records[employeeId] = { status: value, recordedAt: 0 };
+            else if (value && typeof value === "object") records[employeeId] = value as DailyAttendanceEntry;
+          }
+        }
+        setAttendanceData((prev) => ({ ...prev, [dateStr]: records }));
+      }, (error) => console.error(`Error listening to attendance for ${dateStr}:`, error));
+      unsubscribes.push(unsubscribe);
+    }
+
+    return () => unsubscribes.forEach((unsubscribe) => unsubscribe());
+  }, [currentMonth, employees, db]);
+
   // ── โหลดเวลาเริ่มงาน/เวลาเริ่ม OT รายโครงการ (Realtime) — ใช้แสดงเป็นข้อมูลอ้างอิงเท่านั้น ──
   useEffect(() => {
     const projectsRef = collection(db, "CMG-HR-Database", "root", "projects");
@@ -589,7 +663,7 @@ export const OvertimePage = ({ projectOptions }: { projectOptions: string[] }) =
       const checkDate = new Date(year, month, day);
       checkDate.setHours(0, 0, 0, 0);
       const isToday = checkDate.getTime() === today.getTime();
-      return { day, dateStr, isWeekend: dow === 0 || dow === 6, isToday };
+      return { day, dateStr, isWeekend: dow === 0 || dow === 6, isSunday: dow === 0, isToday };
     });
   }, [currentMonth]);
 
@@ -753,8 +827,9 @@ export const OvertimePage = ({ projectOptions }: { projectOptions: string[] }) =
     });
   }, [columns]);
 
-  const renderStatusCell = (employeeId: string, dateStr: string, isWeekend: boolean, isToday: boolean, employee: Employee) => {
+  const renderStatusCell = (employeeId: string, dateStr: string, isWeekend: boolean, isSunday: boolean, isToday: boolean, employee: Employee) => {
     const entry = overtimeData[dateStr]?.[employeeId];
+    const attendanceRecord = attendanceData[dateStr]?.[employeeId];
     const locked = isLocked(entry);
 
     const empProjects = employee.สถานะโครงการ;
@@ -774,11 +849,15 @@ export const OvertimePage = ({ projectOptions }: { projectOptions: string[] }) =
       employeeId={employeeId} 
       dateStr={dateStr} 
       entry={entry} 
+      attendanceRecord={attendanceRecord}
+      workStartTime={selectedProject !== "all" ? projectSchedules[selectedProject]?.workStartTime : undefined}
+      otStartTime={selectedProject !== "all" ? projectSchedules[selectedProject]?.otStartTime : undefined}
       canEdit={canEdit} 
       isOtherProject={isOtherProject} 
       locked={locked} 
       isToday={isToday} 
       isWeekend={isWeekend} 
+      isSunday={isSunday}
       employee={employee}
       handleOvertimeChange={handleOvertimeChange}
       filterOtType={filterOtType}
@@ -1292,8 +1371,8 @@ export const OvertimePage = ({ projectOptions }: { projectOptions: string[] }) =
                       >
                         <OvertimeTierBadge hours={monthlyOtByEmployee[emp.id] || 0} tiers={otLimits.monthlyTiers} />
                       </td>
-                      {daysInMonth.map(({ dateStr, isWeekend, isToday }) =>
-                        renderStatusCell(emp.id, dateStr, isWeekend, isToday, emp)
+                      {daysInMonth.map(({ dateStr, isWeekend, isSunday, isToday }) =>
+                        renderStatusCell(emp.id, dateStr, isWeekend, isSunday, isToday, emp)
                       )}
                     </tr>
                   ))}

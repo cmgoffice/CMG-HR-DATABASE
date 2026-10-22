@@ -14,6 +14,7 @@ const BANGKOK_TIME_ZONE = "Asia/Bangkok";
 const ACCESS_ROLES = new Set(["MasterAdmin", "MD", "GM", "HR", "Admin Site"]);
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const EMP_CODE_RE = /^\S{1,64}$/;
+const OVERNIGHT_EXIT_CUTOFF = "04:00";
 
 let cachedToken = "";
 let cachedTokenExpiresAt = 0;
@@ -178,99 +179,81 @@ const parsePunchTime = (value) => {
   return Date.parse(`${raw}${/(Z|[+-]\d\d:\d\d)$/.test(raw) ? "" : "+07:00"}`);
 };
 
-const evaluateScan = (scan, hours) => {
-  const amount = Number(hours) || 0;
-  const expectedMs = bangkokStamp(scan.date, scan.otStart) + amount * 3600000;
-  const actualMs = parsePunchTime(scan.punchTime);
-  const status = !Number.isFinite(actualMs)
-    ? amount > 0 ? "missing" : "none"
-    : amount > 0 ? actualMs >= expectedMs ? "ok" : "short"
-      : actualMs >= expectedMs + 3600000 ? "unplanned" : "none";
-  return { expected: new Date(expectedMs).toISOString(), status };
-};
-
-const chooseExit = async (empCode, date, schedule, token) => {
-  const next = nextDate(date);
-  const rows = [
-    ...(await fetchTransactions(empCode, date, token)),
-    ...(await fetchTransactions(empCode, next, token)),
-  ].filter((row) => String(row.punch_state) === "1" && row.punch_time);
-  const workStart = bangkokStamp(date, schedule.workStartTime);
-  const nextWorkStart = bangkokStamp(next, schedule.workStartTime);
-  const valid = rows.filter((row) => {
-    const time = parsePunchTime(row.punch_time);
-    return Number.isFinite(time) && time >= workStart && time < nextWorkStart;
-  }).sort((a, b) => parsePunchTime(a.punch_time) - parsePunchTime(b.punch_time));
-  return valid[valid.length - 1] || null;
-};
-
-const projectList = (value) => {
-  const values = Array.isArray(value) ? value : [value];
-  return values.flatMap((item) => String(item || "").split("|")).map((item) => item.trim()).filter(Boolean);
-};
-
-const getProjectSchedule = async (project) => {
-  const snapshot = await ROOT_DOC.collection("projects").get();
-  const found = snapshot.docs.map((item) => item.data()).find((data) => {
-    const label = data.project_name ? `${data.project_no} - ${data.project_name}` : data.project_no;
-    return String(label || "").trim() === project;
-  });
-  if (!found) throw new Error(`ไม่พบโครงการ ${project}`);
-  return {
-    workStartTime: parseTime(found.work_start_time),
-    otStartTime: parseTime(found.ot_start_time),
-  };
-};
-
-const getEmployeesForProject = async (project, requestedEmployeeIds) => {
+const getActiveEmployees = async () => {
   const snapshot = await ROOT_DOC.collection("employee_data").get();
   const employees = snapshot.docs.map((item) => ({ id: item.id, ...item.data() }));
-  if (Array.isArray(requestedEmployeeIds)) {
-    const requested = new Set(requestedEmployeeIds);
-    return employees.filter((employee) => requested.has(employee.id));
-  }
-  return employees.filter((employee) => {
-    return projectList(employee["สถานะโครงการ"]).includes(project);
-  });
+  return employees.filter((employee) => String(employee["สถานะพนักงาน"] || "").trim() === "ทำงาน");
 };
 
-const getDayRecord = (day, employeeId) => {
+const normalizeAttendanceRecord = (value) => {
+  if (typeof value === "string") return { status: value, recordedAt: 0 };
+  return value && typeof value === "object" ? { ...value } : null;
+};
+
+const getAttendanceRecord = (day, employeeId) => {
   const records = day && day.records && typeof day.records === "object" ? day.records : {};
-  const entry = records[employeeId];
-  return entry && typeof entry === "object" ? entry : null;
+  return normalizeAttendanceRecord(records[employeeId]);
 };
 
-const syncOneEmployee = async ({ employee, project, date, schedule, token, dayRef, jobRef, owner }) => {
-  const before = (await dayRef.get()).data();
-  const existing = getDayRecord(before, employee.id);
-  if (existing && existing.project && existing.project !== project) return "skippedOtherProject";
+const chooseCheckout = async (empCode, date, token) => {
+  const next = nextDate(date);
+  const nextDayStart = bangkokStamp(next, "00:00");
+  const nextDayCutoff = bangkokStamp(next, OVERNIGHT_EXIT_CUTOFF);
+  const chooseLatest = (rows, minTime, maxTime, { allowSingleUnknownState = false } = {}) => {
+    const candidates = rows
+      .filter((row) => row && row.punch_time)
+      .map((row) => ({ row, time: parsePunchTime(row.punch_time) }))
+      .filter(({ time }) => Number.isFinite(time) && time >= minTime && time < maxTime)
+      .sort((a, b) => a.time - b.time);
+    if (!candidates.length) return null;
+
+    const latest = candidates[candidates.length - 1];
+    // Some ZKBioTime terminals report the exit punch with punch_state=0,
+    // even though other terminals report it as 1. Prefer the latest punch,
+    // but do not mistake a lone morning check-in for a checkout.
+    if (String(latest.row.punch_state) === "1") return latest.row;
+    if (allowSingleUnknownState) return latest.row;
+    if (candidates.length < 2) return null;
+
+    // When the terminal gives no reliable state, two punches separated by a
+    // meaningful interval identify the latter as the day's checkout. This
+    // also avoids treating duplicate uploads of one check-in as an exit.
+    const first = candidates[0];
+    if (latest.time - first.time < 30 * 60 * 1000) return null;
+    return latest.row;
+  };
+
+  // A punch from 04:00 onward belongs to the requested calendar day. The
+  // early-morning window is reserved for the previous day's overnight work.
+  const sameDay = chooseLatest(
+    await fetchTransactions(empCode, date, token),
+    bangkokStamp(date, OVERNIGHT_EXIT_CUTOFF),
+    nextDayStart,
+  );
+  if (sameDay) return sameDay;
+
+  // When the employee finishes after midnight, today's 00:00-03:59:59 punch
+  // is stored as yesterday's checkout.
+  return chooseLatest(
+    await fetchTransactions(empCode, next, token),
+    nextDayStart,
+    nextDayCutoff,
+    { allowSingleUnknownState: true },
+  );
+};
+
+const fetchOneEmployeeCheckout = async ({ employee, date, token }) => {
   const empCode = String(employee["รหัสพนักงาน"] || "").trim();
   if (!EMP_CODE_RE.test(empCode)) throw new Error("ไม่มีรหัสพนักงานที่ถูกต้อง");
 
-  const last = await chooseExit(empCode, date, schedule, token);
-  const scanBase = {
-    date,
-    project,
-    otStart: schedule.otStartTime,
-    punchTime: last?.punch_time || "",
-    transactionId: String(last?.id || ""),
-    fetchedAt: Date.now(),
+  const last = await chooseCheckout(empCode, date, token);
+  return {
+    employeeId: employee.id,
+    checkout: last?.punch_time || "",
+    checkoutTransactionId: String(last?.id || ""),
+    checkoutFetchedAt: Date.now(),
+    hasPunch: Boolean(last),
   };
-
-  await db.runTransaction(async (transaction) => {
-    const jobSnapshot = await transaction.get(jobRef);
-    const daySnapshot = await transaction.get(dayRef);
-    const job = jobSnapshot.data() || {};
-    if (job.owner !== owner) throw new LeaseLostError("lease lost");
-    const day = daySnapshot.data() || {};
-    const latest = getDayRecord(day, employee.id);
-    if (latest && latest.project && latest.project !== project) return;
-    const scan = { ...scanBase, ...evaluateScan(scanBase, latest?.hours || "") };
-    const record = { ...(latest || { hours: "", recordedAt: 0 }), scan };
-    transaction.set(dayRef, { date, records: { [employee.id]: record } }, { merge: true });
-    transaction.set(jobRef, { leaseUntil: Date.now() + 540000 }, { merge: true });
-  });
-  return last ? "updated" : "missingPunch";
 };
 
 const runPool = async (items, worker, concurrency = 8) => {
@@ -285,13 +268,11 @@ const runPool = async (items, worker, concurrency = 8) => {
   await Promise.all(workers);
 };
 
-const syncProjectForDate = async (project, date, { force = false, employeeIds } = {}) => {
-  if (project === "all") throw new Error("ต้องเลือกโครงการก่อนดึงข้อมูล");
+const syncAttendanceForDate = async (date, { force = false, updateSetting = false } = {}) => {
   if (!DATE_RE.test(date)) throw new Error("วันที่ไม่ถูกต้อง");
-  const schedule = await getProjectSchedule(project);
-  const employees = await getEmployeesForProject(project, employeeIds);
-  const dayRef = ROOT_DOC.collection("overtime").doc(date);
-  const jobRef = ROOT_DOC.collection("ot_scan_jobs").doc(`${encodeURIComponent(project)}_${date}`);
+  const employees = await getActiveEmployees();
+  const dayRef = ROOT_DOC.collection("attendance").doc(date);
+  const jobRef = ROOT_DOC.collection("zkteco_attendance_jobs").doc(date);
   const owner = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
   const acquired = await db.runTransaction(async (transaction) => {
     const snapshot = await transaction.get(jobRef);
@@ -299,7 +280,6 @@ const syncProjectForDate = async (project, date, { force = false, employeeIds } 
     if ((job.leaseUntil || 0) > Date.now() || (!force && job.done)) return false;
     transaction.set(jobRef, {
       owner,
-      project,
       date,
       startedAt: Date.now(),
       leaseUntil: Date.now() + 540000,
@@ -332,26 +312,14 @@ const syncProjectForDate = async (project, date, { force = false, employeeIds } 
   };
   try {
     const token = await getJwtToken();
+    const checkoutResults = [];
     await runPool(employees, async (employee) => {
       try {
-        const result = await syncOneEmployee({ employee, project, date, schedule, token, dayRef, jobRef, owner });
+        const result = await fetchOneEmployeeCheckout({ employee, date, token });
+        checkoutResults.push(result);
         summary.processed += 1;
-        if (result === "updated") summary.updated += 1;
-        if (result === "missingPunch") {
-          summary.updated += 1;
-          summary.missingPunch += 1;
-        }
-        if (result === "skippedAmbiguous") summary.skippedAmbiguous += 1;
-        if (result === "skippedOtherProject") {
-          summary.skippedOtherProject += 1;
-          if (summary.skippedDetails.length < 20) {
-            summary.skippedDetails.push({
-              employeeId: employee.id,
-              empCode: String(employee["รหัสพนักงาน"] || ""),
-              reason: "รายการ OT ของวันนี้ถูกผูกกับโครงการอื่น จึงไม่เขียนทับ",
-            });
-          }
-        }
+        summary.updated += 1;
+        if (!result.hasPunch) summary.missingPunch += 1;
       } catch (error) {
         summary.failed += 1;
         if (summary.failures.length < 20) {
@@ -362,11 +330,29 @@ const syncProjectForDate = async (project, date, { force = false, employeeIds } 
           });
         }
       }
-    });
+    }, 12);
     await db.runTransaction(async (transaction) => {
       const jobSnapshot = await transaction.get(jobRef);
+      const daySnapshot = await transaction.get(dayRef);
       const job = jobSnapshot.data() || {};
-      if (job.owner !== owner) return;
+      if (job.owner !== owner) throw new LeaseLostError("lease lost");
+      const day = daySnapshot.data() || {};
+      const records = day.records && typeof day.records === "object" ? { ...day.records } : {};
+      for (const result of checkoutResults) {
+        const latest = getAttendanceRecord(day, result.employeeId);
+        // Avoid creating thousands of empty records when there is neither an
+        // attendance status nor a punch to save.
+        if (!latest && !result.hasPunch) continue;
+        records[result.employeeId] = {
+          ...(latest || { status: "", recordedAt: 0 }),
+          checkout: result.checkout,
+          checkoutTransactionId: result.checkoutTransactionId,
+          checkoutFetchedAt: result.checkoutFetchedAt,
+        };
+      }
+      // Write only the checkout fields. Existing attendance status, project,
+      // leave metadata, and manual timestamps remain unchanged.
+      transaction.set(dayRef, { date, records }, { merge: true });
       const done = summary.failed === 0;
       const storedSummary = {
         processed: summary.processed,
@@ -385,10 +371,10 @@ const syncProjectForDate = async (project, date, { force = false, employeeIds } 
         summary: storedSummary,
         completedAt: done ? Date.now() : 0,
       }, { merge: true });
-      if (done) {
-        const settingRef = ROOT_DOC.collection("ot_scan_settings").doc(encodeURIComponent(project));
+      if (done && updateSetting) {
+        const settingRef = ROOT_DOC.collection("ot_scan_settings").doc("global");
         transaction.set(settingRef, {
-          project,
+          project: "all",
           lastDate: date,
           lastSuccess: Date.now(),
           lastSummary: storedSummary,
@@ -477,21 +463,16 @@ exports.zktecoAttendance = onRequest({ region: ZK_REGION, timeoutSeconds: 60, me
   }
 });
 
-exports.zktecoSyncNow = onRequest({ region: ZK_REGION, timeoutSeconds: 540, memory: "512MiB", maxInstances: 1 }, async (request, response) => {
+exports.zktecoSyncNow = onRequest({ region: ZK_REGION, timeoutSeconds: 3600, memory: "512MiB", maxInstances: 1 }, async (request, response) => {
   setCors(response, request);
   if (request.method === "OPTIONS") return response.status(204).send("");
   if (request.method !== "POST") return response.status(405).json({ error: "รองรับเฉพาะ POST" });
   try {
     await verifyCaller(request, Array.from(ACCESS_ROLES));
-    const project = String(request.body?.project || "").trim();
     const date = String(request.body?.date || nextDate(bangkokDate(), -1)).trim();
-    const employeeIds = Array.isArray(request.body?.employeeIds)
-      ? request.body.employeeIds.map((id) => String(id || "").trim()).filter(Boolean).slice(0, 2000)
-      : undefined;
-    if (!project || project === "all") throw new HttpError(400, "กรุณาระบุโครงการ");
     if (!DATE_RE.test(date)) throw new HttpError(400, "วันที่ไม่ถูกต้อง");
-    const summary = await syncProjectForDate(project, date, { force: true, employeeIds });
-    return response.json({ project, date, summary: publicSyncSummary(summary) });
+    const summary = await syncAttendanceForDate(date, { force: true });
+    return response.json({ date, summary: publicSyncSummary(summary) });
   } catch (error) {
     return sendError(response, error);
   }
@@ -501,19 +482,50 @@ exports.syncZktecoOt = onSchedule({ schedule: "every 5 minutes", timeZone: BANGK
   const settings = await ROOT_DOC.collection("ot_scan_settings").get();
   const today = bangkokDate();
   const yesterday = nextDate(today, -1);
-  for (const settingDoc of settings.docs) {
-    const setting = settingDoc.data() || {};
-    if (!setting.enabled) continue;
-    const project = String(setting.project || decodeURIComponent(settingDoc.id)).trim();
-    try {
-      if (!project || project === "all" || !isDue(setting.time || "09:00")) continue;
-      const target = setting.lastDate ? nextDate(String(setting.lastDate)) : yesterday;
-      if (target > yesterday) continue;
-      const employeeIds = Array.isArray(setting.employeeIds) ? setting.employeeIds : undefined;
-      const summary = await syncProjectForDate(project, target, { employeeIds });
-      console.log(`ZKBioTime OT sync ${project} ${target}: ${summary.updated || 0} updated, ${summary.failed || 0} failed`);
-    } catch (error) {
-      console.error(`ZKBioTime OT sync failed for ${project}: ${error instanceof Error ? error.message : "unknown error"}`);
+  const globalDoc = settings.docs.find((item) => item.id === "global");
+  const globalSetting = globalDoc?.data() || null;
+  const candidates = globalSetting?.enabled
+    ? [{ settingDoc: globalDoc, setting: globalSetting, target: globalSetting.lastDate ? nextDate(String(globalSetting.lastDate)) : yesterday }]
+    : settings.docs
+      .filter((item) => item.id !== "global" && item.data()?.enabled)
+      .map((item) => {
+        const setting = item.data() || {};
+        return {
+          settingDoc: item,
+          setting,
+          target: setting.lastDate ? nextDate(String(setting.lastDate)) : yesterday,
+        };
+      });
+
+  const dueCandidates = candidates
+    .filter(({ setting, target }) => isDue(setting.time || "09:00") && target <= yesterday)
+    .sort((a, b) => a.target.localeCompare(b.target));
+  if (!dueCandidates.length) return;
+
+  // A legacy project setting may still exist. It is used only as a trigger;
+  // the actual sync is now global and runs once per target date.
+  const target = dueCandidates[0].target;
+  try {
+    const summary = await syncAttendanceForDate(target, { updateSetting: Boolean(globalSetting?.enabled) });
+    if (!summary.skipped && summary.failed === 0) {
+      const batch = db.batch();
+      dueCandidates.filter((item) => item.target === target).forEach(({ settingDoc }) => {
+        batch.set(settingDoc.ref, {
+          project: "all",
+          lastDate: target,
+          lastSuccess: Date.now(),
+          lastSummary: {
+            processed: summary.processed,
+            updated: summary.updated,
+            missingPunch: summary.missingPunch,
+            failed: summary.failed,
+          },
+        }, { merge: true });
+      });
+      await batch.commit();
     }
+    console.log(`ZKBioTime attendance sync ${target}: ${summary.updated || 0} updated, ${summary.failed || 0} failed`);
+  } catch (error) {
+    console.error(`ZKBioTime attendance sync failed for ${target}: ${error instanceof Error ? error.message : "unknown error"}`);
   }
 });

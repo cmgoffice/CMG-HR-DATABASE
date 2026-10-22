@@ -68,6 +68,9 @@ interface Employee {
 interface AttendanceEntry {
   status: string;       // "มา" | "ไม่มา" | "ลา"
   recordedAt: number;   // Unix timestamp (ms) ตอนที่กรอก
+  checkout?: string;    // เวลาออกจาก ZKBioTime ของวันนั้น
+  checkoutTransactionId?: string;
+  checkoutFetchedAt?: number;
   project?: string;     // โครงการที่ลงเวลา (เฉพาะเมื่อ status = "มา")
   editstatus?: string;  // "donotEdit" = ล็อคช่องนี้จากฐานข้อมูล
   color?: string;       // "red" = บังคับพื้นหลังสีแดง ตัวอักษรสีขาว
@@ -601,7 +604,14 @@ export const AttendancePage = ({ projectOptions }: { projectOptions: string[] })
       // อัพเดท state
       const dayRecords = { ...(prevData[dateStr] || {}) };
       if (newEntry === null) {
-        delete dayRecords[employeeId];
+        // Keep BioTime checkout metadata when the manual status is cleared.
+        // The central sync owns checkout; the attendance editor owns status.
+        if (currentEntry?.checkout || currentEntry?.checkoutTransactionId || currentEntry?.checkoutFetchedAt) {
+          dayRecords[employeeId] = { ...currentEntry, status: "", recordedAt: now };
+          delete dayRecords[employeeId].project;
+        } else {
+          delete dayRecords[employeeId];
+        }
       } else {
         dayRecords[employeeId] = newEntry;
       }
@@ -713,6 +723,13 @@ export const AttendancePage = ({ projectOptions }: { projectOptions: string[] })
 
       if (newStatus === "") {
         if (currentEntry?.color !== undefined || currentEntry?.editstatus !== undefined) {
+          updatedRecords[emp.id] = {
+            ...currentEntry,
+            status: "",
+            recordedAt: now,
+          };
+          delete updatedRecords[emp.id].project;
+        } else if (currentEntry?.checkout || currentEntry?.checkoutTransactionId || currentEntry?.checkoutFetchedAt) {
           updatedRecords[emp.id] = {
             ...currentEntry,
             status: "",
