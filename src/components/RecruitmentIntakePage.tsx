@@ -1,10 +1,31 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { collection, getFirestore, onSnapshot } from "firebase/firestore";
-import { AlertTriangle, Inbox, Loader2, Lock, Search } from "lucide-react";
+import { collection, doc, getDoc, getFirestore, onSnapshot, setDoc, updateDoc } from "firebase/firestore";
+import {
+  AlertTriangle,
+  CheckCircle2,
+  FileUp,
+  Inbox,
+  Loader2,
+  Lock,
+  Paperclip,
+  Search,
+  UserPlus,
+  X,
+} from "lucide-react";
 import { useAuth } from "../auth/AuthContext";
 import {
+  appendAttachmentToRecruitmentPending,
+  uploadHiringDocumentFile,
+} from "../utils/hiringDocsAttachments";
+import {
   buildFullName,
+  canManageRecruitmentIntake,
+  EMPLOYEE_TYPE_BY_GROUP_STATUS,
+  EMPLOYEE_TYPE_OPTIONS,
   getSourceGroup,
+  GROUP_STATUS_BY_EMPLOYEE_TYPE,
+  HIRING_DOC_TYPE_OPTIONS,
+  HiringAttachment,
   RecruitmentPendingEmployee,
   RECRUITMENT_PENDING_EMPLOYEES_COLLECTION,
   RecruitmentSourceGroup,
@@ -40,14 +61,50 @@ const MaskedCell = () => (
   </span>
 );
 
-export const RecruitmentIntakePage = () => {
-  const { userProfile } = useAuth();
+// candidateKey ต้องดึงมาจาก record เดิมเท่านั้น (ห้ามสุ่ม/สร้างใหม่) — ใช้ candidateId เป็นหลัก
+// เพราะเป็น id ของผู้สมัครที่คงที่ตลอด pipeline, ถ้าไม่มีค่อย fallback เป็น hiringPacketId/doc id
+const resolveCandidateKey = (c: RecruitmentPendingEmployee): string =>
+  (c.candidateId as string) || c.hiringPacketId || c.recruitmentSourceId || c.id;
+
+interface IntakeFormState {
+  รหัสพนักงาน: string;
+  คำนำหน้า: string;
+  ชื่อตัว: string;
+  ชื่อสกุล: string;
+  ตำแหน่ง: string;
+  แผนก: string;
+  โครงการ: string;
+  employee_type: string;
+  start_date: string;
+  เลขบัตรประชาชน: string;
+  โทรศัพท์: string;
+  เพศ: string;
+  สัญชาติ: string;
+}
+
+export const RecruitmentIntakePage = ({ projectOptions = [] }: { projectOptions?: string[] }) => {
+  const { firebaseUser, userProfile } = useAuth();
   const canViewSalary = canViewSalaryInfo(userProfile?.role);
+  const canManage = canManageRecruitmentIntake(userProfile?.role);
+
   const [items, setItems] = useState<RecruitmentPendingEmployee[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [groupFilter, setGroupFilter] = useState<"all" | RecruitmentSourceGroup>("all");
+
+  // ฟอร์มเพิ่มเข้าระบบ
+  const [formTarget, setFormTarget] = useState<RecruitmentPendingEmployee | null>(null);
+  const [form, setForm] = useState<IntakeFormState | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [duplicateWarning, setDuplicateWarning] = useState<string | null>(null);
+
+  // แผงเอกสารแนบ
+  const [docsTarget, setDocsTarget] = useState<RecruitmentPendingEmployee | null>(null);
+  const [docType, setDocType] = useState<string>(HIRING_DOC_TYPE_OPTIONS[0]?.value || "");
+  const [docFile, setDocFile] = useState<File | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const [docsError, setDocsError] = useState<string | null>(null);
 
   useEffect(() => {
     setLoading(true);
@@ -74,6 +131,13 @@ export const RecruitmentIntakePage = () => {
     );
     return () => unsub();
   }, []);
+
+  // sync docsTarget กับ items ล่าสุด (เพื่อให้เห็น attachments ใหม่ทันทีหลังอัปโหลดสำเร็จ แบบ realtime)
+  useEffect(() => {
+    if (!docsTarget) return;
+    const fresh = items.find((i) => i.id === docsTarget.id);
+    if (fresh && fresh !== docsTarget) setDocsTarget(fresh);
+  }, [items, docsTarget]);
 
   const filtered = useMemo(() => {
     const kw = search.trim().toLowerCase();
@@ -105,12 +169,176 @@ export const RecruitmentIntakePage = () => {
     return result;
   }, [items]);
 
+  // ------------------------------------------------------------------------
+  // ส่วนที่ 1: เพิ่มเข้าระบบพนักงาน
+  // ------------------------------------------------------------------------
+
+  const openIntakeForm = (candidate: RecruitmentPendingEmployee) => {
+    const groupStatus = (candidate.สถานะกลุ่มงาน as string) || "Staff";
+    const empType = EMPLOYEE_TYPE_BY_GROUP_STATUS[groupStatus] || "Indirect";
+    setFormTarget(candidate);
+    setDuplicateWarning(null);
+    setForm({
+      รหัสพนักงาน: (candidate.รหัสพนักงานเดิม as string) || "",
+      คำนำหน้า: candidate.ชื่อต้น || "",
+      ชื่อตัว: (candidate.ชื่อตัว || "").trim(),
+      ชื่อสกุล: candidate.ชื่อสกุล || "",
+      ตำแหน่ง: candidate.ตำแหน่ง || "",
+      แผนก: candidate.แผนก || "",
+      โครงการ: candidate.โครงการ || "",
+      employee_type: empType,
+      start_date: candidate.วันเริ่มงาน || "",
+      เลขบัตรประชาชน: candidate.เลขบัตรประชาชน || "",
+      โทรศัพท์: candidate.โทรศัพท์ || "",
+      เพศ: candidate.เพศ || "",
+      สัญชาติ: candidate.สัญชาติ || "",
+    });
+    if (candidate.รหัสพนักงานเดิม) {
+      setDuplicateWarning("ℹ️ มีรหัสพนักงานเดิม (เคยเป็นพนักงานมาก่อน) ระบบ prefill รหัสเดิมไว้ให้แล้ว ตรวจสอบก่อนบันทึก");
+    }
+  };
+
+  const closeForm = () => {
+    setFormTarget(null);
+    setForm(null);
+    setDuplicateWarning(null);
+  };
+
+  const checkDuplicate = async (empCode: string) => {
+    if (!empCode.trim()) {
+      setDuplicateWarning(null);
+      return;
+    }
+    const db = getFirestore();
+    const existing = await getDoc(doc(db, "CMG-HR-Database", "root", "employee_data", empCode.trim()));
+    setDuplicateWarning(
+      existing.exists()
+        ? "⚠️ มีรหัสพนักงานนี้อยู่แล้วในระบบ (อาจเป็นพนักงานเก่าที่กลับเข้ามาใหม่) ตรวจสอบก่อนบันทึกทับ"
+        : null
+    );
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!formTarget || !form) return;
+    if (!form.รหัสพนักงาน.trim()) {
+      window.alert("กรุณากรอกรหัสพนักงาน");
+      return;
+    }
+    if (!form.โครงการ.trim()) {
+      window.alert("กรุณาระบุโครงการที่จะเข้าทำงาน");
+      return;
+    }
+    setSaving(true);
+    try {
+      const db = getFirestore();
+      const empCode = form.รหัสพนักงาน.trim();
+      const groupStatus = GROUP_STATUS_BY_EMPLOYEE_TYPE[form.employee_type] || "Staff";
+
+      const employeeRecord: Record<string, unknown> = {
+        id: empCode,
+        รหัสพนักงาน: empCode,
+        ชื่อตัว: form.ชื่อตัว.trim(),
+        ชื่อสกุล: form.ชื่อสกุล.trim(),
+        ตำแหน่ง: form.ตำแหน่ง.trim(),
+        แผนก: form.แผนก.trim(),
+        โครงการ: form.โครงการ.trim(),
+        สถานะโครงการ: form.โครงการ.trim() ? [form.โครงการ.trim()] : [],
+        employee_type: form.employee_type,
+        สถานะกลุ่มงาน: groupStatus,
+        สถานะพนักงาน: "ทำงาน",
+        start_date: form.start_date,
+        เลขบัตรประชาชน: form.เลขบัตรประชาชน.trim(),
+        โทรศัพท์: form.โทรศัพท์.trim(),
+        เพศ: form.เพศ.trim(),
+        สัญชาติ: form.สัญชาติ.trim(),
+        // เก็บลิงก์ย้อนกลับไปหา record ต้นทาง ไว้ตรวจสอบ/แนบเอกสารเพิ่มได้ภายหลัง
+        recruitmentSourceId: formTarget.id,
+      };
+
+      // ฟิลด์คำนำหน้าชื่อ: โมดูล Indirect ใช้ "ชื่อต้น" ส่วนโมดูล Direct_* ใช้ "คำนำหน้าชื่อ"
+      // (ดู src/components/MigrantWorkerPage.tsx) ห้ามเขียนผิดฟิลด์เพราะจะไม่ขึ้นในหน้านั้น ๆ
+      if (form.employee_type === "Indirect") {
+        employeeRecord["ชื่อต้น"] = form.คำนำหน้า.trim();
+      } else {
+        employeeRecord["คำนำหน้าชื่อ"] = form.คำนำหน้า.trim();
+      }
+
+      await setDoc(doc(db, "CMG-HR-Database", "root", "employee_data", empCode), employeeRecord, { merge: true });
+
+      // อัปเดตเฉพาะ field สถานะนำเข้า ห้ามแตะ attachments เดิม (updateDoc แบบระบุ field เท่านั้น ไม่ overwrite ทั้ง doc)
+      await updateDoc(doc(db, "CMG-HR-Database", "root", RECRUITMENT_PENDING_EMPLOYEES_COLLECTION, formTarget.id), {
+        importedEmployeeId: empCode,
+        importedAt: Date.now(),
+        importedByUid: firebaseUser?.uid || "",
+        importedByName: `${userProfile?.firstName || ""} ${userProfile?.lastName || ""}`.trim(),
+      });
+
+      closeForm();
+    } catch (error) {
+      window.alert(`บันทึกไม่สำเร็จ: ${error instanceof Error ? error.message : "เกิดข้อผิดพลาดที่ไม่คาดคิด"}`);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // ------------------------------------------------------------------------
+  // ส่วนที่ 2: เอกสารแนบรายคน
+  // ------------------------------------------------------------------------
+
+  const openDocsPanel = (candidate: RecruitmentPendingEmployee) => {
+    setDocsTarget(candidate);
+    setDocType(HIRING_DOC_TYPE_OPTIONS[0]?.value || "");
+    setDocFile(null);
+    setDocsError(null);
+  };
+
+  const closeDocsPanel = () => {
+    setDocsTarget(null);
+    setDocFile(null);
+    setDocsError(null);
+  };
+
+  const handleUploadDoc = async () => {
+    if (!docsTarget || !docFile) return;
+    setUploading(true);
+    setDocsError(null);
+    try {
+      const candidateKey = resolveCandidateKey(docsTarget);
+      const uploadResult = await uploadHiringDocumentFile(docFile, {
+        candidateName: buildFullName(docsTarget),
+        position: docsTarget.ตำแหน่ง || "",
+        candidateKey,
+        docType: docType || "other",
+      });
+
+      const attachment: HiringAttachment = {
+        docType: docType || "other",
+        name: uploadResult.fileName || docFile.name,
+        url: uploadResult.url,
+        uploadedAt: new Date().toISOString(),
+      };
+
+      // record นี้มาจาก recruitment_pending_employees (ผ่าน GM อนุมัติแล้ว) -> ต่อท้าย attachments เดิมที่นี่
+      await appendAttachmentToRecruitmentPending(docsTarget.id, attachment);
+
+      setDocFile(null);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "เกิดข้อผิดพลาดที่ไม่คาดคิด";
+      console.error(`[RecruitmentIntakePage] Upload document failed for candidate "${docsTarget.id}":`, err);
+      setDocsError(message);
+    } finally {
+      setUploading(false);
+    }
+  };
+
   return (
     <div className="p-4 sm:p-6 flex flex-col gap-4 h-full">
       <div>
         <h2 className="text-lg font-bold text-gray-800">รายชื่อรอเพิ่มจาก Recruitment</h2>
         <p className="text-sm text-gray-500 mt-0.5">
-          ข้อมูลจากระบบ Recruitment แบบ realtime (อ่านอย่างเดียว) จาก <code className="text-xs bg-gray-100 px-1 py-0.5 rounded">{FIRESTORE_PATH}</code>
+          ข้อมูลจากระบบ Recruitment แบบ realtime จาก <code className="text-xs bg-gray-100 px-1 py-0.5 rounded">{FIRESTORE_PATH}</code> —
+          กด "เพิ่มเข้าระบบ" เพื่อสร้างพนักงานจริง หรือ "เอกสารแนบ" เพื่อเพิ่ม/ดูเอกสารของคนนั้น
         </p>
       </div>
 
@@ -185,12 +413,16 @@ export const RecruitmentIntakePage = () => {
                 <th className="p-3 text-left font-semibold text-gray-600 border-b whitespace-nowrap">Source</th>
                 <th className="p-3 text-left font-semibold text-gray-600 border-b whitespace-nowrap">รหัสพนักงานเดิม</th>
                 <th className="p-3 text-left font-semibold text-gray-600 border-b whitespace-nowrap">สร้างเมื่อ</th>
+                <th className="p-3 text-left font-semibold text-gray-600 border-b whitespace-nowrap">สถานะ</th>
+                {canManage && <th className="p-3 text-center font-semibold text-gray-600 border-b whitespace-nowrap">จัดการ</th>}
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
               {filtered.map((c) => {
                 const group = getSourceGroup(c.source);
                 const meta = SOURCE_GROUP_META[group];
+                const attachmentCount = (c.attachments as HiringAttachment[] | undefined)?.length || 0;
+                const imported = Boolean(c.importedEmployeeId);
                 return (
                   <tr key={c.id} className="hover:bg-gray-50">
                     <td className="p-3 text-gray-800 font-medium whitespace-nowrap">{buildFullName(c)}</td>
@@ -223,6 +455,40 @@ export const RecruitmentIntakePage = () => {
                     </td>
                     <td className="p-3 text-gray-600 whitespace-nowrap">{c.รหัสพนักงานเดิม || "-"}</td>
                     <td className="p-3 text-gray-600 whitespace-nowrap">{formatDate(c.createdAt)}</td>
+                    <td className="p-3 whitespace-nowrap">
+                      {imported ? (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-xs font-semibold bg-emerald-50 text-emerald-700 border-emerald-200">
+                          <CheckCircle2 size={12} /> เพิ่มแล้ว
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-xs font-semibold bg-amber-50 text-amber-700 border-amber-200">
+                          รอเพิ่มเข้าระบบ
+                        </span>
+                      )}
+                      {imported && (
+                        <div className="text-[11px] text-gray-400 mt-0.5">รหัส: {c.importedEmployeeId as string}</div>
+                      )}
+                    </td>
+                    {canManage && (
+                      <td className="p-3">
+                        <div className="flex items-center justify-center gap-2">
+                          {!imported && (
+                            <button
+                              onClick={() => openIntakeForm(c)}
+                              className="flex items-center gap-1 px-3 py-1.5 bg-blue-600 text-white rounded-lg text-xs font-semibold hover:bg-blue-700 whitespace-nowrap"
+                            >
+                              <UserPlus size={14} /> เพิ่มเข้าระบบ
+                            </button>
+                          )}
+                          <button
+                            onClick={() => openDocsPanel(c)}
+                            className="flex items-center gap-1 px-3 py-1.5 bg-gray-100 text-gray-700 rounded-lg text-xs font-semibold hover:bg-gray-200 whitespace-nowrap"
+                          >
+                            <Paperclip size={14} /> เอกสารแนบ ({attachmentCount})
+                          </button>
+                        </div>
+                      </td>
+                    )}
                   </tr>
                 );
               })}
@@ -230,6 +496,216 @@ export const RecruitmentIntakePage = () => {
           </table>
         )}
       </div>
+
+      {/* ฟอร์มเพิ่มเข้าระบบพนักงาน */}
+      {formTarget && form && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[80] flex items-center justify-center p-4">
+          <form
+            onSubmit={handleSubmit}
+            className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col"
+          >
+            <div className="p-5 border-b">
+              <h3 className="text-lg font-bold text-gray-800 flex items-center gap-2">
+                <UserPlus className="text-blue-600" size={20} />
+                เพิ่ม {buildFullName(formTarget)} เข้าระบบพนักงาน
+              </h3>
+              <p className="text-xs text-gray-500 mt-1">
+                ตรวจสอบและกรอกข้อมูลให้ครบก่อนบันทึก (โครงการ/รหัสพนักงาน เป็นข้อมูลที่ต้องเติมเอง) ข้อมูลอื่น
+                (ที่อยู่ เลขผู้เสียภาษี ฯลฯ) ไปกรอกต่อที่หน้าพนักงานได้ภายหลัง
+              </p>
+            </div>
+
+            <div className="p-5 overflow-auto flex-1 grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <Field label="รหัสพนักงาน *">
+                <input
+                  required
+                  value={form.รหัสพนักงาน}
+                  onChange={(e) => setForm((f) => (f ? { ...f, รหัสพนักงาน: e.target.value } : f))}
+                  onBlur={(e) => checkDuplicate(e.target.value)}
+                  className="input"
+                />
+              </Field>
+              <Field label="ประเภทพนักงาน">
+                <select
+                  value={form.employee_type}
+                  onChange={(e) => setForm((f) => (f ? { ...f, employee_type: e.target.value } : f))}
+                  className="input"
+                >
+                  {EMPLOYEE_TYPE_OPTIONS.map((o) => (
+                    <option key={o.value} value={o.value}>{o.label}</option>
+                  ))}
+                </select>
+              </Field>
+              <Field label="คำนำหน้า">
+                <input value={form.คำนำหน้า} onChange={(e) => setForm((f) => (f ? { ...f, คำนำหน้า: e.target.value } : f))} className="input" />
+              </Field>
+              <Field label="ชื่อตัว">
+                <input value={form.ชื่อตัว} onChange={(e) => setForm((f) => (f ? { ...f, ชื่อตัว: e.target.value } : f))} className="input" />
+              </Field>
+              <Field label="ชื่อสกุล">
+                <input value={form.ชื่อสกุล} onChange={(e) => setForm((f) => (f ? { ...f, ชื่อสกุล: e.target.value } : f))} className="input" />
+              </Field>
+              <Field label="ตำแหน่ง">
+                <input value={form.ตำแหน่ง} onChange={(e) => setForm((f) => (f ? { ...f, ตำแหน่ง: e.target.value } : f))} className="input" />
+              </Field>
+              <Field label="แผนก">
+                <input value={form.แผนก} onChange={(e) => setForm((f) => (f ? { ...f, แผนก: e.target.value } : f))} className="input" />
+              </Field>
+              <Field label="โครงการ *">
+                <input
+                  required
+                  list="recruitment-intake-project-options"
+                  value={form.โครงการ}
+                  onChange={(e) => setForm((f) => (f ? { ...f, โครงการ: e.target.value } : f))}
+                  className="input"
+                />
+                <datalist id="recruitment-intake-project-options">
+                  {projectOptions.map((p) => <option key={p} value={p} />)}
+                </datalist>
+              </Field>
+              <Field label="วันเริ่มงาน">
+                <input
+                  type="date"
+                  value={form.start_date}
+                  onChange={(e) => setForm((f) => (f ? { ...f, start_date: e.target.value } : f))}
+                  className="input"
+                />
+              </Field>
+              <Field label="เลขบัตรประชาชน">
+                <input value={form.เลขบัตรประชาชน} onChange={(e) => setForm((f) => (f ? { ...f, เลขบัตรประชาชน: e.target.value } : f))} className="input" />
+              </Field>
+              <Field label="โทรศัพท์">
+                <input value={form.โทรศัพท์} onChange={(e) => setForm((f) => (f ? { ...f, โทรศัพท์: e.target.value } : f))} className="input" />
+              </Field>
+              <Field label="เพศ">
+                <input value={form.เพศ} onChange={(e) => setForm((f) => (f ? { ...f, เพศ: e.target.value } : f))} className="input" />
+              </Field>
+              <Field label="สัญชาติ">
+                <input value={form.สัญชาติ} onChange={(e) => setForm((f) => (f ? { ...f, สัญชาติ: e.target.value } : f))} className="input" />
+              </Field>
+
+              {duplicateWarning && (
+                <div className="sm:col-span-2 text-xs font-medium text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-2">
+                  {duplicateWarning}
+                </div>
+              )}
+            </div>
+
+            <div className="p-5 border-t bg-gray-50 flex justify-between items-center">
+              <button type="button" onClick={closeForm} className="px-5 py-2 text-gray-600 hover:bg-gray-200 rounded-lg text-sm">
+                ยกเลิก
+              </button>
+              <button
+                type="submit"
+                disabled={saving}
+                className="px-6 py-2 rounded-lg font-semibold flex items-center gap-2 bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 text-sm"
+              >
+                {saving ? <Loader2 className="animate-spin" size={16} /> : <CheckCircle2 size={16} />}
+                บันทึกเป็นพนักงาน
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {/* แผงเอกสารแนบ */}
+      {docsTarget && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[80] flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] flex flex-col">
+            <div className="p-5 border-b flex items-start justify-between">
+              <div>
+                <h3 className="text-lg font-bold text-gray-800 flex items-center gap-2">
+                  <Paperclip className="text-blue-600" size={20} />
+                  เอกสารแนบของ {buildFullName(docsTarget)}
+                </h3>
+                <p className="text-xs text-gray-500 mt-1">
+                  ไฟล์จะถูกอัปโหลดเข้าโฟลเดอร์ Drive คนเดิม (candidateKey เดิม) แล้วต่อท้าย attachments เดิมอัตโนมัติ
+                </p>
+              </div>
+              <button onClick={closeDocsPanel} className="text-gray-400 hover:text-red-500 p-1">
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="p-5 overflow-auto flex-1 flex flex-col gap-4">
+              <div>
+                <h4 className="text-xs font-semibold text-gray-500 mb-2">เอกสารที่มีอยู่แล้ว</h4>
+                {((docsTarget.attachments as HiringAttachment[] | undefined) || []).length === 0 ? (
+                  <p className="text-sm text-gray-400">ยังไม่มีเอกสารแนบ</p>
+                ) : (
+                  <ul className="flex flex-col gap-1.5">
+                    {((docsTarget.attachments as HiringAttachment[]) || []).map((a, idx) => (
+                      <li key={`${a.url}-${idx}`} className="flex items-center justify-between gap-2 text-sm bg-gray-50 rounded-lg px-3 py-2">
+                        <div className="min-w-0">
+                          <div className="font-medium text-gray-700 truncate">{a.name}</div>
+                          <div className="text-[11px] text-gray-400">{a.docType}</div>
+                        </div>
+                        <a
+                          href={a.url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-blue-600 hover:underline text-xs font-semibold whitespace-nowrap shrink-0"
+                        >
+                          เปิดไฟล์
+                        </a>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+
+              <div className="border-t pt-4">
+                <h4 className="text-xs font-semibold text-gray-500 mb-2">เพิ่มเอกสารใหม่</h4>
+                <div className="flex flex-col gap-2">
+                  <Field label="ประเภทเอกสาร">
+                    <select value={docType} onChange={(e) => setDocType(e.target.value)} className="input">
+                      {HIRING_DOC_TYPE_OPTIONS.map((o) => (
+                        <option key={o.value} value={o.value}>{o.label}</option>
+                      ))}
+                      <option value="other">อื่น ๆ (พิมพ์เอง)</option>
+                    </select>
+                  </Field>
+                  {docType === "other" && (
+                    <input
+                      placeholder="พิมพ์ชื่อประเภทเอกสาร"
+                      onChange={(e) => setDocType(e.target.value)}
+                      className="input"
+                    />
+                  )}
+                  <input
+                    type="file"
+                    onChange={(e) => setDocFile(e.target.files?.[0] || null)}
+                    className="text-sm"
+                  />
+                  {docsError && (
+                    <div className="text-xs font-medium text-red-600 bg-red-50 border border-red-200 rounded-lg p-2">
+                      {docsError}
+                    </div>
+                  )}
+                  <button
+                    type="button"
+                    onClick={handleUploadDoc}
+                    disabled={!docFile || uploading}
+                    className="flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-semibold hover:bg-blue-700 disabled:opacity-50"
+                  >
+                    {uploading ? <Loader2 className="animate-spin" size={16} /> : <FileUp size={16} />}
+                    อัปโหลดและแนบเข้าระบบ
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <style>{`.input { border: 1px solid #e5e7eb; border-radius: 0.5rem; padding: 0.5rem 0.75rem; font-size: 0.875rem; width: 100%; outline: none; } .input:focus { box-shadow: 0 0 0 2px #dbeafe; }`}</style>
     </div>
   );
 };
+
+const Field = ({ label, children }: { label: string; children: React.ReactNode }) => (
+  <label className="flex flex-col gap-1">
+    <span className="text-xs font-semibold text-gray-600">{label}</span>
+    {children}
+  </label>
+);

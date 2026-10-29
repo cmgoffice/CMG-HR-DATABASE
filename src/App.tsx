@@ -3498,7 +3498,7 @@ function MasterDatabaseApp() {
             ) : activeModule === 'approval_center' ? (
               <ApprovalCenterPage setActiveModule={setActiveModule} />
             ) : activeModule === 'recruitment_intake' ? (
-              <RecruitmentIntakePage />
+              <RecruitmentIntakePage projectOptions={projectStatusOptions} />
             ) : activeModule === 'attendance' ? (
               <div className="p-6">
                 <AttendancePage projectOptions={projectStatusOptions} />

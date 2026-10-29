@@ -102,8 +102,61 @@ export const toDateSafe = (value: RecruitmentPendingEmployee["createdAt"]): Date
   return null;
 };
 
-// Role อนุญาตให้เห็นหน้านี้
+// Role อนุญาตให้เห็นหน้านี้ และกดเพิ่มเข้าระบบ/แนบเอกสารได้ (สิทธิ์เดียวกัน)
 export const RECRUITMENT_INTAKE_VIEW_ROLES: UserRole[] = ["MasterAdmin", "HRM", "HR"];
 
 export const canViewRecruitmentIntake = (roles: string[] | undefined | null): boolean =>
   !!roles && roles.some((r) => (RECRUITMENT_INTAKE_VIEW_ROLES as string[]).includes(r));
+
+export const canManageRecruitmentIntake = canViewRecruitmentIntake;
+
+// ---------------------------------------------------------------------------
+// ส่วนที่ 1: นำเข้าเป็นพนักงาน (employee_data)
+// ---------------------------------------------------------------------------
+
+// ตัวเลือก employee_type ที่ใช้ตรงกับที่โมดูลพนักงานอื่น ๆ ใช้อยู่จริง (เทียบจาก MODULE_CONFIG ใน App.tsx)
+export const EMPLOYEE_TYPE_OPTIONS: { value: string; label: string }[] = [
+  { value: "Indirect", label: "Staff Monthly (Indirect)" },
+  { value: "Direct_TeamLeader", label: "DC Daily" },
+  { value: "Direct_SupplyDC", label: "Supply manpower" },
+  { value: "Direct_SubContractor", label: "Sub contractor" },
+];
+
+// สถานะกลุ่มงาน (สิ่งที่ระบบ Recruitment ส่งมาใน "สถานะกลุ่มงาน") -> employee_type เริ่มต้นที่ควรเลือกให้
+export const EMPLOYEE_TYPE_BY_GROUP_STATUS: Record<string, string> = {
+  Staff: "Indirect",
+  Worker: "Direct_TeamLeader",
+  "Supply Contract": "Direct_SupplyDC",
+  Subcontract: "Direct_SubContractor",
+};
+
+// ทิศทางกลับกัน: employee_type ที่ HR เลือกในฟอร์ม -> สถานะกลุ่มงานที่จะเขียนลง employee_data
+export const GROUP_STATUS_BY_EMPLOYEE_TYPE: Record<string, string> = {
+  Indirect: "Staff",
+  Direct_TeamLeader: "Worker",
+  Direct_SupplyDC: "Supply Contract",
+  Direct_SubContractor: "Subcontract",
+};
+
+// ---------------------------------------------------------------------------
+// ส่วนที่ 2: เอกสารแนบรายคน (attachments)
+// ---------------------------------------------------------------------------
+
+/** รูปแบบ 1 รายการใน attachments array (เหมือนกันทุกที่ที่เก็บ ตามสเปคจากทีม Recruitment) */
+export interface HiringAttachment {
+  docType: string;
+  name: string;
+  url: string;
+  uploadedAt?: string;
+}
+
+/** ประเภทเอกสารที่พบจริงในข้อมูล (HR พิมพ์เองเพิ่มได้ ไม่บังคับเลือกจากลิสต์นี้) */
+export const HIRING_DOC_TYPE_OPTIONS: { value: string; label: string }[] = [
+  { value: "id_card", label: "สำเนาบัตรประชาชน" },
+  { value: "photo", label: "รูปถ่าย" },
+  { value: "house_reg", label: "สำเนาทะเบียนบ้าน" },
+  { value: "education_cert", label: "สำเนาวุฒิการศึกษา" },
+  { value: "full_packet_pdf", label: "เอกสารรวมทั้งชุด (PDF)" },
+];
+
+export const HIRING_DOCS_MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024; // ~10MB ตามสเปค
