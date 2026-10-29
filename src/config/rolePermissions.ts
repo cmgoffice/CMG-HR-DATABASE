@@ -58,6 +58,7 @@ export const ROLE_PERMISSION_MODULES: RolePermissionModule[] = [
   { key: "risk_monitoring", label: "Risk Monitoring" },
   { key: "project_transfer", label: "ย้ายโครงการ" },
   { key: "migrant_workers", label: "แรงงานต่างด้าว" },
+  { key: "employee_documents", label: "เอกสารพนักงาน" },
   { key: "recruitment_intake", label: "รายชื่อรอเพิ่มจาก Recruitment" },
   { key: "activity_logs", label: "Activity Logs" },
   { key: ROLE_PERMISSIONS_MODULE_KEY, label: "จัดการสิทธิ์การเข้าถึงตาม Role" },
@@ -108,6 +109,8 @@ export const MODULE_DEFAULT_ROLES: Record<string, UserRole[] | "*"> = {
   // จัดการเอกสารได้: MasterAdmin/MD/GM/PD/HRM/HR — ดูได้อย่างเดียว: Admin Site/Safety/PM/CM
   // (ดูรายละเอียดใน src/components/migrantWorkerConfig.ts: canManageMigrantWorkers / canViewMigrantWorkers)
   migrant_workers: ["MasterAdmin", "MD", "GM", "PD", "HRM", "HR", "Admin Site", "Safety", "PM", "CM"],
+  // เอกสารพนักงานทั่วไป (ไม่ใช่แรงงานต่างด้าว): สิทธิ์เดียวกับหน้าพนักงานหลัก
+  employee_documents: ["MasterAdmin", "MD", "GM", "PD", "HRM", "HR"],
   // รายชื่อผู้สมัครรอเพิ่มเข้าระบบจาก Recruitment system: HR/HRM เท่านั้น (ตามที่ตกลงกันไว้)
   recruitment_intake: ["MasterAdmin", "HRM", "HR"],
   activity_logs: ["MasterAdmin", "MD", "GM", "HRM"],

@@ -502,6 +502,7 @@ import { EvaluationPage } from './components/EvaluationPage';
 import { ProjectTransferPage } from './components/ProjectTransferPage';
 import { MigrantWorkerPage } from './components/MigrantWorkerPage';
 import { RecruitmentIntakePage } from './components/RecruitmentIntakePage';
+import { EmployeeDocumentsPage, OPEN_EMPLOYEE_DOCUMENTS_STORAGE_KEY } from './components/EmployeeDocumentsPage';
 import { ApprovalCenterPage } from './components/ApprovalCenterPage';
 import { InfoTooltip } from './components/InfoTooltip';
 import { ColumnMappingModal } from './components/ColumnMappingModal';
@@ -653,6 +654,9 @@ const Sidebar = ({ activeModule, setActiveModule, dbConnected, sidebarOpen, onTo
       hasRole(["MasterAdmin", "MD", "GM", "PD", "HRM", "HR", "Admin Site", "Safety", "PM", "CM"])
     )
       ? [{ id: "migrant_workers", label: "แรงงานต่างด้าว", icon: Globe2 } as SidebarLinkItem]
+      : []),
+    ...(canSee("employee_documents", dfManagement)
+      ? [{ id: "employee_documents", label: "เอกสารพนักงาน", icon: FileText } as SidebarLinkItem]
       : []),
   ];
 
@@ -3118,6 +3122,7 @@ function MasterDatabaseApp() {
     day_off: "วันหยุดบริษัทที่ใช้เป็นฐานตัดวันทำงานในหน้าลงเวลาและหน้า OT",
     approval_center: "รวมรายการรออนุมัติ/รอดำเนินการจากทุกเรื่อง (ย้ายโครงการ ติดตามพนักงาน ประเมินผล ผู้ใช้ใหม่) ไว้หน้าเดียว คลิกรายการเพื่อไปอนุมัติที่หน้าเรื่องนั้นโดยตรง",
     recruitment_intake: "ข้อมูลผู้สมัคร/พนักงานโยกย้ายภายในจากระบบ Recruitment แบบ realtime (อ่านอย่างเดียว ยังไม่มีระบบอนุมัติ/นำเข้า)",
+    employee_documents: "เก็บเอกสารรายคนของพนักงานทุกกลุ่มที่ไม่ได้มาจากระบบ Recruitment หรือเพิ่มเอกสารเพิ่มเติมภายหลัง กดเข้ามาจากปุ่ม 'เอกสารแนบ' ในตารางพนักงานได้โดยตรง",
   };
   const moduleTooltipContent =
     moduleTooltipMap[activeModule] ||
@@ -3176,6 +3181,8 @@ function MasterDatabaseApp() {
                       ? 'ย้ายโครงการ'
                     : activeModule === 'migrant_workers'
                       ? 'ระบบจัดการแรงงานต่างด้าว'
+                    : activeModule === 'employee_documents'
+                      ? 'เอกสารพนักงาน'
                     : activeModule === 'evaluation'
                       ? 'ประเมินผลพนักงาน'
                     : activeModule === 'approval_center'
@@ -3198,7 +3205,7 @@ function MasterDatabaseApp() {
             </div>
           )}
           
-          {activeModule !== 'attendance' && activeModule !== 'overtime' && activeModule !== 'manpower_dashboard' && activeModule !== 'risk_monitoring' && activeModule !== 'project_transfer' && activeModule !== 'evaluation' && activeModule !== 'approval_center' && activeModule !== 'recruitment_intake' && activeModule !== 'activity_logs' && (
+          {activeModule !== 'attendance' && activeModule !== 'overtime' && activeModule !== 'manpower_dashboard' && activeModule !== 'risk_monitoring' && activeModule !== 'project_transfer' && activeModule !== 'evaluation' && activeModule !== 'approval_center' && activeModule !== 'recruitment_intake' && activeModule !== 'employee_documents' && activeModule !== 'activity_logs' && (
             <>
               <div className="w-px h-5 bg-gray-200 shrink-0" />
 
@@ -3499,6 +3506,8 @@ function MasterDatabaseApp() {
               <ApprovalCenterPage setActiveModule={setActiveModule} />
             ) : activeModule === 'recruitment_intake' ? (
               <RecruitmentIntakePage projectOptions={projectStatusOptions} />
+            ) : activeModule === 'employee_documents' ? (
+              <EmployeeDocumentsPage />
             ) : activeModule === 'attendance' ? (
               <div className="p-6">
                 <AttendancePage projectOptions={projectStatusOptions} />
@@ -3767,7 +3776,23 @@ function MasterDatabaseApp() {
                               <Trash2 size={14} />
                             </button>
                           )}
-                          {!canEdit && !canDelete && (
+                          {isEmployeeModule && (
+                            <button
+                              onClick={() => {
+                                // ส่งรหัสพนักงานไปเปิดหน้า "เอกสารพนักงาน" ของคนนี้อัตโนมัติ (ไม่ต้องค้นหาซ้ำ)
+                                sessionStorage.setItem(
+                                  OPEN_EMPLOYEE_DOCUMENTS_STORAGE_KEY,
+                                  String(row["รหัสพนักงาน"] || row.id)
+                                );
+                                setActiveModule("employee_documents");
+                              }}
+                              className="p-1 text-slate-500 hover:bg-slate-100 rounded"
+                              title="เอกสารแนบ"
+                            >
+                              <FileText size={14} />
+                            </button>
+                          )}
+                          {!canEdit && !canDelete && !isEmployeeModule && (
                             <span className="text-xs text-gray-400">-</span>
                           )}
                         </div>

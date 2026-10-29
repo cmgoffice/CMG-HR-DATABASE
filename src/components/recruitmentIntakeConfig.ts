@@ -150,13 +150,18 @@ export interface HiringAttachment {
   uploadedAt?: string;
 }
 
-/** ประเภทเอกสารที่พบจริงในข้อมูล (HR พิมพ์เองเพิ่มได้ ไม่บังคับเลือกจากลิสต์นี้) */
+/** ประเภทเอกสารที่พบจริงในข้อมูล + ประเภทที่ใช้บ่อยสำหรับพนักงานทั่วไป (HR พิมพ์เองเพิ่มได้ ไม่บังคับเลือกจากลิสต์นี้) */
 export const HIRING_DOC_TYPE_OPTIONS: { value: string; label: string }[] = [
   { value: "id_card", label: "สำเนาบัตรประชาชน" },
   { value: "photo", label: "รูปถ่าย" },
   { value: "house_reg", label: "สำเนาทะเบียนบ้าน" },
   { value: "education_cert", label: "สำเนาวุฒิการศึกษา" },
   { value: "full_packet_pdf", label: "เอกสารรวมทั้งชุด (PDF)" },
+  { value: "employment_contract", label: "สัญญาจ้างงาน" },
+  { value: "bank_book", label: "สำเนาสมุดบัญชีธนาคาร" },
+  { value: "health_cert", label: "ใบรับรองแพทย์" },
+  { value: "criminal_record", label: "หนังสือรับรองความประพฤติ" },
+  { value: "resignation_letter", label: "หนังสือลาออก/เลิกจ้าง" },
 ];
 
 export const HIRING_DOCS_MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024; // ~10MB ตามสเปค
