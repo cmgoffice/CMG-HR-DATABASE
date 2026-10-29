@@ -171,6 +171,7 @@ import {
   Gavel,
   ClipboardList,
   UserCog,
+  UserPlus,
   Plus,
   Search,
   Download,
@@ -500,6 +501,7 @@ import { RiskMonitoringPage } from './components/RiskMonitoringPage';
 import { EvaluationPage } from './components/EvaluationPage';
 import { ProjectTransferPage } from './components/ProjectTransferPage';
 import { MigrantWorkerPage } from './components/MigrantWorkerPage';
+import { RecruitmentIntakePage } from './components/RecruitmentIntakePage';
 import { ApprovalCenterPage } from './components/ApprovalCenterPage';
 import { InfoTooltip } from './components/InfoTooltip';
 import { ColumnMappingModal } from './components/ColumnMappingModal';
@@ -511,6 +513,7 @@ import {
   ROLE_PERMISSIONS_DOC_ID,
   isModuleVisible,
 } from './config/rolePermissions';
+import { RECRUITMENT_PENDING_EMPLOYEES_COLLECTION } from './components/recruitmentIntakeConfig';
 
 type SidebarSubItem = {
   id: string;
@@ -575,6 +578,18 @@ const Sidebar = ({ activeModule, setActiveModule, dbConnected, sidebarOpen, onTo
       return () => unsubscribe();
     }
   }, [hasRole, db]);
+
+  // จำนวนรายการทั้งหมดใน recruitment_pending_employees (ใช้แสดง badge บนเมนู)
+  // ไม่ filter ด้วย intakeStatus เพราะต้นทาง (ระบบ Recruitment) ยังไม่มี field นี้
+  const [pendingRecruitsCount, setPendingRecruitsCount] = useState(0);
+  useEffect(() => {
+    const unsubscribe = onSnapshot(
+      collection(db, "CMG-HR-Database", "root", RECRUITMENT_PENDING_EMPLOYEES_COLLECTION),
+      (snapshot) => setPendingRecruitsCount(snapshot.size),
+      () => setPendingRecruitsCount(0)
+    );
+    return () => unsubscribe();
+  }, [db]);
 
   useEffect(() => {
     const uid = firebaseUser?.uid;
@@ -660,6 +675,15 @@ const Sidebar = ({ activeModule, setActiveModule, dbConnected, sidebarOpen, onTo
     hasRole(["MasterAdmin", "MD", "GM", "PD", "PM", "CM", "HRM", "HR", "Admin Site", "Safety"]) ||
     isAssignedEvaluator;
   const showApprovalCenter = canSee("approval_center", dfApprovalCenter);
+
+  // ผู้สมัครรอเพิ่มเข้าระบบจาก Recruitment system: เมนูแยกระดับบนสุด เห็นได้เฉพาะ HR/HRM/MasterAdmin
+  const recruitmentIntakeItem: SidebarLinkItem = {
+    id: "recruitment_intake",
+    label: "รายชื่อรอเพิ่มจาก Recruitment",
+    icon: UserPlus,
+    badge: pendingRecruitsCount > 0 ? pendingRecruitsCount : undefined,
+  };
+  const showRecruitmentIntake = canSee("recruitment_intake", hasRole(["MasterAdmin", "HRM", "HR"]));
 
   const manpowerItems: SidebarMenuItem[] = [
     ...(canSee("attendance", dfAttendance)
@@ -964,6 +988,7 @@ const Sidebar = ({ activeModule, setActiveModule, dbConnected, sidebarOpen, onTo
       <nav className="flex-1 p-2 space-y-1 min-w-0">
         {showDashboard && renderMenuItem(dashboardItem)}
         {showApprovalCenter && renderMenuItem(approvalCenterItem)}
+        {showRecruitmentIntake && renderMenuItem(recruitmentIntakeItem)}
         {(showDashboard || showApprovalCenter) && <div className="border-t border-slate-800 my-1.5 mx-2" />}
 
         {renderSection("management_section", "การจัดการ", Settings, managementItems)}
@@ -3092,6 +3117,7 @@ function MasterDatabaseApp() {
     activity_logs: "บันทึกกิจกรรมการเปลี่ยนแปลงข้อมูลในระบบ เรียงตามเวลาล่าสุด",
     day_off: "วันหยุดบริษัทที่ใช้เป็นฐานตัดวันทำงานในหน้าลงเวลาและหน้า OT",
     approval_center: "รวมรายการรออนุมัติ/รอดำเนินการจากทุกเรื่อง (ย้ายโครงการ ติดตามพนักงาน ประเมินผล ผู้ใช้ใหม่) ไว้หน้าเดียว คลิกรายการเพื่อไปอนุมัติที่หน้าเรื่องนั้นโดยตรง",
+    recruitment_intake: "ข้อมูลผู้สมัคร/พนักงานโยกย้ายภายในจากระบบ Recruitment แบบ realtime (อ่านอย่างเดียว ยังไม่มีระบบอนุมัติ/นำเข้า)",
   };
   const moduleTooltipContent =
     moduleTooltipMap[activeModule] ||
@@ -3154,6 +3180,8 @@ function MasterDatabaseApp() {
                       ? 'ประเมินผลพนักงาน'
                     : activeModule === 'approval_center'
                       ? 'ศูนย์อนุมัติ'
+                    : activeModule === 'recruitment_intake'
+                      ? 'รายชื่อรอเพิ่มจาก Recruitment'
                     : activeModule === 'activity_logs'
                       ? 'บันทึกกิจกรรมระบบ (Activity Logs)'
                       : config.label}
@@ -3170,7 +3198,7 @@ function MasterDatabaseApp() {
             </div>
           )}
           
-          {activeModule !== 'attendance' && activeModule !== 'overtime' && activeModule !== 'manpower_dashboard' && activeModule !== 'risk_monitoring' && activeModule !== 'project_transfer' && activeModule !== 'evaluation' && activeModule !== 'approval_center' && activeModule !== 'activity_logs' && (
+          {activeModule !== 'attendance' && activeModule !== 'overtime' && activeModule !== 'manpower_dashboard' && activeModule !== 'risk_monitoring' && activeModule !== 'project_transfer' && activeModule !== 'evaluation' && activeModule !== 'approval_center' && activeModule !== 'recruitment_intake' && activeModule !== 'activity_logs' && (
             <>
               <div className="w-px h-5 bg-gray-200 shrink-0" />
 
@@ -3469,6 +3497,8 @@ function MasterDatabaseApp() {
               <EvaluationPage projectOptions={projectStatusOptions} />
             ) : activeModule === 'approval_center' ? (
               <ApprovalCenterPage setActiveModule={setActiveModule} />
+            ) : activeModule === 'recruitment_intake' ? (
+              <RecruitmentIntakePage />
             ) : activeModule === 'attendance' ? (
               <div className="p-6">
                 <AttendancePage projectOptions={projectStatusOptions} />
