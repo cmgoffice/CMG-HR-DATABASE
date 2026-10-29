@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { collection, getFirestore, onSnapshot } from "firebase/firestore";
-import { AlertTriangle, Inbox, Loader2, Search } from "lucide-react";
+import { AlertTriangle, Inbox, Loader2, Lock, Search } from "lucide-react";
+import { useAuth } from "../auth/AuthContext";
 import {
   buildFullName,
   getSourceGroup,
@@ -28,7 +29,20 @@ const formatBenefits = (benefits: RecruitmentPendingEmployee["benefits"]): strin
     .join(", ");
 };
 
+// เรื่องเงิน (payType / salaryAmount / benefits) ให้เห็นได้เฉพาะ HRM (และ MasterAdmin ซึ่ง bypass
+// ทุกหน้าในระบบอยู่แล้ว) role อื่น ๆ ที่เห็นหน้านี้ได้ (เช่น HR) จะเห็นเป็นค่าพรางแทน
+const canViewSalaryInfo = (roles: string[] | undefined | null): boolean =>
+  !!roles && (roles.includes("HRM") || roles.includes("MasterAdmin"));
+
+const MaskedCell = () => (
+  <span className="inline-flex items-center gap-1 text-gray-300" title="ข้อมูลเงินเดือน/ค่าตอบแทน เห็นได้เฉพาะ HRM">
+    <Lock size={12} /> ••••••
+  </span>
+);
+
 export const RecruitmentIntakePage = () => {
+  const { userProfile } = useAuth();
+  const canViewSalary = canViewSalaryInfo(userProfile?.role);
   const [items, setItems] = useState<RecruitmentPendingEmployee[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -159,9 +173,15 @@ export const RecruitmentIntakePage = () => {
                 <th className="p-3 text-left font-semibold text-gray-600 border-b whitespace-nowrap">โทรศัพท์</th>
                 <th className="p-3 text-left font-semibold text-gray-600 border-b whitespace-nowrap">วันเริ่มงาน</th>
                 <th className="p-3 text-left font-semibold text-gray-600 border-b whitespace-nowrap">สถานะกลุ่มงาน</th>
-                <th className="p-3 text-left font-semibold text-gray-600 border-b whitespace-nowrap">Pay Type</th>
-                <th className="p-3 text-right font-semibold text-gray-600 border-b whitespace-nowrap">Salary</th>
-                <th className="p-3 text-left font-semibold text-gray-600 border-b whitespace-nowrap">Benefits</th>
+                <th className="p-3 text-left font-semibold text-gray-600 border-b whitespace-nowrap">
+                  Pay Type {!canViewSalary && <Lock size={11} className="inline ml-1 text-gray-400" />}
+                </th>
+                <th className="p-3 text-right font-semibold text-gray-600 border-b whitespace-nowrap">
+                  Salary {!canViewSalary && <Lock size={11} className="inline ml-1 text-gray-400" />}
+                </th>
+                <th className="p-3 text-left font-semibold text-gray-600 border-b whitespace-nowrap">
+                  Benefits {!canViewSalary && <Lock size={11} className="inline ml-1 text-gray-400" />}
+                </th>
                 <th className="p-3 text-left font-semibold text-gray-600 border-b whitespace-nowrap">Source</th>
                 <th className="p-3 text-left font-semibold text-gray-600 border-b whitespace-nowrap">รหัสพนักงานเดิม</th>
                 <th className="p-3 text-left font-semibold text-gray-600 border-b whitespace-nowrap">สร้างเมื่อ</th>
@@ -180,14 +200,20 @@ export const RecruitmentIntakePage = () => {
                     <td className="p-3 text-gray-600 whitespace-nowrap">{c.โทรศัพท์ || "-"}</td>
                     <td className="p-3 text-gray-600 whitespace-nowrap">{c.วันเริ่มงาน || "-"}</td>
                     <td className="p-3 text-gray-600 whitespace-nowrap">{c.สถานะกลุ่มงาน || "-"}</td>
-                    <td className="p-3 text-gray-600 whitespace-nowrap">{c.payType || "-"}</td>
-                    <td className="p-3 text-gray-600 text-right whitespace-nowrap">
-                      {c.salaryAmount !== undefined && c.salaryAmount !== null && c.salaryAmount !== ""
-                        ? Number(c.salaryAmount).toLocaleString("th-TH")
-                        : "-"}
+                    <td className="p-3 text-gray-600 whitespace-nowrap">
+                      {canViewSalary ? (c.payType || "-") : <MaskedCell />}
                     </td>
-                    <td className="p-3 text-gray-600 max-w-[220px] truncate" title={formatBenefits(c.benefits)}>
-                      {formatBenefits(c.benefits)}
+                    <td className="p-3 text-gray-600 text-right whitespace-nowrap">
+                      {canViewSalary ? (
+                        c.salaryAmount !== undefined && c.salaryAmount !== null && c.salaryAmount !== ""
+                          ? Number(c.salaryAmount).toLocaleString("th-TH")
+                          : "-"
+                      ) : (
+                        <MaskedCell />
+                      )}
+                    </td>
+                    <td className="p-3 text-gray-600 max-w-[220px] truncate" title={canViewSalary ? formatBenefits(c.benefits) : undefined}>
+                      {canViewSalary ? formatBenefits(c.benefits) : <MaskedCell />}
                     </td>
                     <td className="p-3 whitespace-nowrap">
                       <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-xs font-semibold ${meta.className}`}>
