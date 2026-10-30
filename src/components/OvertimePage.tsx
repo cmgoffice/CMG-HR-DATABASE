@@ -420,16 +420,55 @@ export const OvertimePage = ({ projectOptions }: { projectOptions: string[] }) =
   const [overtimeData, setOvertimeData] = useState<Record<string, Record<string, OvertimeEntry>>>({});
   const [attendanceData, setAttendanceData] = useState<Record<string, Record<string, DailyAttendanceEntry>>>({});
   const [selectedProject, setSelectedProject] = useState<string>("all");
-  const [currentMonth, setCurrentMonth] = useState<Date>(new Date());
+  const [currentMonth, setCurrentMonth] = useState<Date>(() => new Date(`${thaiDate()}T00:00:00`));
   const [saving, setSaving] = useState(false);
   const [isColumnMenuOpen, setIsColumnMenuOpen] = useState(false);
   const [draggedIdx, setDraggedIdx] = useState<number | null>(null);
   const [columns, setColumns] = useState<ColumnConfig[]>(DEFAULT_COLUMNS);
   const [filterOtType, setFilterOtType] = useState<string>("all");
+  const [displayPeriod, setDisplayPeriod] = useState<"day" | "week" | "month">("week");
+  const [selectedDay, setSelectedDay] = useState(() => Number(thaiDate().slice(8, 10)));
   const [dayOffs, setDayOffs] = useState<Record<string, string>>({});
   const [isLimitsModalOpen, setIsLimitsModalOpen] = useState(false);
   // ── เวลาเริ่มงาน/เวลาเริ่ม OT รายโครงการ (ข้อมูลอ้างอิงเท่านั้น ตั้งค่าได้ที่เมนู "โครงการ") ──
   const [projectSchedules, setProjectSchedules] = useState<Record<string, { workStartTime?: string; otStartTime?: string }>>({});
+
+  const today = thaiDate();
+  const daysInMonth = useMemo(() => {
+    const year = currentMonth.getFullYear();
+    const month = currentMonth.getMonth();
+    const total = new Date(year, month + 1, 0).getDate();
+    return Array.from({ length: total }, (_, i) => {
+      const day = i + 1;
+      const dateStr = `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+      const dow = new Date(year, month, day).getDay();
+      return { day, dateStr, isWeekend: dow === 0 || dow === 6, isSunday: dow === 0, isToday: dateStr === today };
+    });
+  }, [currentMonth, today]);
+
+  const weeksInMonth = useMemo(() => {
+    const weeks: typeof daysInMonth[] = [];
+    daysInMonth.forEach((day) => {
+      if (weeks.length === 0 || new Date(`${day.dateStr}T00:00:00`).getDay() === 1) weeks.push([]);
+      weeks[weeks.length - 1].push(day);
+    });
+    return weeks;
+  }, [daysInMonth]);
+
+  const activeDay = Math.min(selectedDay, daysInMonth.length);
+  const selectedWeek = weeksInMonth.find((week) => week.some(({ day }) => day === activeDay)) || weeksInMonth[0];
+  const displayDays = useMemo(() => {
+    if (displayPeriod === "day") return daysInMonth.filter(({ day }) => day === activeDay);
+    if (displayPeriod === "week") return selectedWeek;
+    return daysInMonth;
+  }, [displayPeriod, daysInMonth, activeDay, selectedWeek]);
+  const periodValue = displayPeriod === "month" ? "month" : `${displayPeriod}:${displayPeriod === "day" ? activeDay : selectedWeek[0].day}`;
+  const formatDisplayDate = (dateStr: string) => new Date(`${dateStr}T00:00:00`).toLocaleDateString("th-TH", { day: "numeric", month: "short", year: "numeric" });
+  const displayDateLabel = displayDays.length === 1
+    ? formatDisplayDate(displayDays[0].dateStr)
+    : `${formatDisplayDate(displayDays[0].dateStr)} – ${formatDisplayDate(displayDays[displayDays.length - 1].dateStr)}`;
+  const summaryLabel = displayPeriod === "month" ? "OT เดือนนี้" : "OT ช่วงที่เลือก";
+  const hasEmployees = employees.length > 0;
 
   const { limits: otLimits, canEditLimits, updateLimits: saveOtLimits, saving: savingLimits } = useOvertimeLimits();
 
@@ -517,17 +556,16 @@ export const OvertimePage = ({ projectOptions }: { projectOptions: string[] }) =
   }, [db]);
 
   useEffect(() => {
-    if (employees.length === 0) return;
-    const year = currentMonth.getFullYear();
-    const month = currentMonth.getMonth();
-    const totalDays = new Date(year, month + 1, 0).getDate();
+    setOvertimeData({});
+    if (!hasEmployees) return;
+    let active = true;
     const unsubscribes: (() => void)[] = [];
     
-    for (let d = 1; d <= totalDays; d++) {
-      const dateStr = `${year}-${String(month + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+    for (const { dateStr } of displayDays) {
       const overtimeDocRef = doc(db, "CMG-HR-Database", "root", "overtime", dateStr);
       
       const unsubscribe = onSnapshot(overtimeDocRef, (docSnap) => {
+        if (!active) return;
         if (docSnap.exists()) {
           const raw = docSnap.data();
           const records: Record<string, OvertimeEntry> = {};
@@ -546,24 +584,23 @@ export const OvertimePage = ({ projectOptions }: { projectOptions: string[] }) =
       unsubscribes.push(unsubscribe);
     }
     return () => {
+      active = false;
       unsubscribes.forEach((unsub) => unsub());
     };
-  }, [currentMonth, employees, db]);
+  }, [displayDays, hasEmployees, db]);
 
   // BioTime checkout is stored centrally with the daily attendance record.
-  // Listen to the same month as the OT grid so changing project only changes
-  // the schedule used for evaluation, not the source punch data.
+  // Subscribe only to the displayed dates, matching the OT subscriptions.
   useEffect(() => {
-    if (employees.length === 0) return;
-    const year = currentMonth.getFullYear();
-    const month = currentMonth.getMonth();
-    const totalDays = new Date(year, month + 1, 0).getDate();
+    setAttendanceData({});
+    if (!hasEmployees) return;
+    let active = true;
     const unsubscribes: (() => void)[] = [];
 
-    for (let d = 1; d <= totalDays; d += 1) {
-      const dateStr = `${year}-${String(month + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+    for (const { dateStr } of displayDays) {
       const attendanceDocRef = doc(db, "CMG-HR-Database", "root", "attendance", dateStr);
       const unsubscribe = onSnapshot(attendanceDocRef, (docSnap) => {
+        if (!active) return;
         const raw = docSnap.exists() ? docSnap.data() : {};
         const records: Record<string, DailyAttendanceEntry> = {};
         if (raw.records && typeof raw.records === "object") {
@@ -577,8 +614,11 @@ export const OvertimePage = ({ projectOptions }: { projectOptions: string[] }) =
       unsubscribes.push(unsubscribe);
     }
 
-    return () => unsubscribes.forEach((unsubscribe) => unsubscribe());
-  }, [currentMonth, employees, db]);
+    return () => {
+      active = false;
+      unsubscribes.forEach((unsubscribe) => unsubscribe());
+    };
+  }, [displayDays, hasEmployees, db]);
 
   // ── โหลดเวลาเริ่มงาน/เวลาเริ่ม OT รายโครงการ (Realtime) — ใช้แสดงเป็นข้อมูลอ้างอิงเท่านั้น ──
   useEffect(() => {
@@ -648,30 +688,11 @@ export const OvertimePage = ({ projectOptions }: { projectOptions: string[] }) =
     return groups;
   }, [filteredEmployees, sortState]);
 
-  const daysInMonth = useMemo(() => {
-    const year = currentMonth.getFullYear();
-    const month = currentMonth.getMonth();
-    const total = new Date(year, month + 1, 0).getDate();
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    
-    return Array.from({ length: total }, (_, i) => {
-      const day = i + 1;
-      const date = new Date(year, month, day);
-      const dateStr = `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
-      const dow = date.getDay();
-      const checkDate = new Date(year, month, day);
-      checkDate.setHours(0, 0, 0, 0);
-      const isToday = checkDate.getTime() === today.getTime();
-      return { day, dateStr, isWeekend: dow === 0 || dow === 6, isSunday: dow === 0, isToday };
-    });
-  }, [currentMonth]);
-
-  // ── สรุป OT รายเดือน/รายสัปดาห์ ต่อพนักงาน (ใช้เตือนเพดาน OT) ──────────
+  // ── สรุป OT เฉพาะช่วงที่แสดง (ใช้เพดานรายเดือนเฉพาะเมื่อแสดงทั้งเดือน) ──
   // นับรวมทุกโครงการของพนักงานคนนั้น (ไม่กรองตาม selectedProject) เพราะเพดาน OT ผูกกับ "คน" ไม่ใช่โครงการ
-  const monthlyOtByEmployee = useMemo(() => {
+  const displayedOtByEmployee = useMemo(() => {
     const totals: Record<string, number> = {};
-    daysInMonth.forEach(({ dateStr }) => {
+    displayDays.forEach(({ dateStr }) => {
       const dayRecords = overtimeData[dateStr];
       if (!dayRecords) return;
       Object.entries(dayRecords).forEach(([empId, entry]) => {
@@ -680,7 +701,7 @@ export const OvertimePage = ({ projectOptions }: { projectOptions: string[] }) =
       });
     });
     return totals;
-  }, [overtimeData, daysInMonth]);
+  }, [overtimeData, displayDays]);
 
   // จัดกลุ่มวันในเดือนเป็น "สัปดาห์ปฏิทิน" (จันทร์–อาทิตย์) โดยใช้ dateStr ของวันจันทร์ (หรือวันแรกของเดือนถ้ายังไม่ถึงจันทร์แรก) เป็น key
   // ข้อจำกัด V1: ไม่ query ข้ามเดือน จึงสัปดาห์แรก/สุดท้ายของเดือนอาจนับได้ไม่ครบสัปดาห์เต็ม
@@ -697,7 +718,7 @@ export const OvertimePage = ({ projectOptions }: { projectOptions: string[] }) =
 
   const weeklyOtByEmployee = useMemo(() => {
     const totals: Record<string, Record<string, number>> = {};
-    daysInMonth.forEach(({ dateStr }) => {
+    displayDays.forEach(({ dateStr }) => {
       const dayRecords = overtimeData[dateStr];
       if (!dayRecords) return;
       const weekKey = weekKeyByDate[dateStr];
@@ -709,18 +730,19 @@ export const OvertimePage = ({ projectOptions }: { projectOptions: string[] }) =
       });
     });
     return totals;
-  }, [overtimeData, daysInMonth, weekKeyByDate]);
+  }, [overtimeData, displayDays, weekKeyByDate]);
 
   // วันสุดท้ายของแต่ละสัปดาห์ที่แสดงอยู่ในเดือนนี้ (อาทิตย์ หรือวันสุดท้ายของเดือนถ้าเดือนจบก่อนถึงอาทิตย์) — ใช้เป็นจุดแสดงไอคอนเตือน
   const weekEndDates = useMemo(() => {
     const set = new Set<string>();
-    const lastDayIdx = daysInMonth.length - 1;
-    daysInMonth.forEach(({ dateStr, isWeekend }, idx) => {
+    if (displayPeriod === "day") return set;
+    const lastDayIdx = displayDays.length - 1;
+    displayDays.forEach(({ dateStr }, idx) => {
       const dow = new Date(`${dateStr}T00:00:00`).getDay();
       if (dow === 0 || idx === lastDayIdx) set.add(dateStr);
     });
     return set;
-  }, [daysInMonth]);
+  }, [displayDays, displayPeriod]);
 
   const isLocked = (entry: OvertimeEntry | undefined): boolean => {
     if (!entry || !entry.hours) return false;
@@ -799,11 +821,10 @@ export const OvertimePage = ({ projectOptions }: { projectOptions: string[] }) =
   }, [db, firebaseUser, selectedProject]);
 
   const changeMonth = (offset: number) => {
-    setCurrentMonth((prev) => {
-      const d = new Date(prev);
-      d.setMonth(d.getMonth() + offset);
-      return d;
-    });
+    const nextMonth = new Date(currentMonth.getFullYear(), currentMonth.getMonth() + offset, 1);
+    const monthKey = `${nextMonth.getFullYear()}-${String(nextMonth.getMonth() + 1).padStart(2, "0")}`;
+    setCurrentMonth(nextMonth);
+    setSelectedDay(monthKey === today.slice(0, 7) ? Number(today.slice(8, 10)) : 1);
   };
 
   const toggleColumnVisibility = (id: string) => setColumns((prev) => prev.map((c) => (c.id === id ? { ...c, visible: !c.visible } : c)));
@@ -867,18 +888,19 @@ export const OvertimePage = ({ projectOptions }: { projectOptions: string[] }) =
     />;
   };
 
-  // ความกว้างจริงของตาราง (รวมทุกคอลัมน์วันในเดือน) ใช้คำนวณ windowWidth ตอนส่งออก เพื่อไม่ให้ html2canvas ตัดคอลัมน์ที่ล้นจอ
+  // ความกว้างจริงของตารางตามช่วงที่เลือก ใช้คำนวณ windowWidth ตอนส่งออก
   const getTableContentWidth = useCallback((hasSetColumn: boolean) => {
     const colsWidth = visibleColumns.reduce((s, c) => s + c.widthPx, 0);
-    return colsWidth + (hasSetColumn ? 100 : 0) + OT_SUMMARY_COL_WIDTH + daysInMonth.length * 40;
-  }, [visibleColumns, daysInMonth]);
+    return colsWidth + (hasSetColumn ? 100 : 0) + OT_SUMMARY_COL_WIDTH + displayDays.length * 40;
+  }, [visibleColumns, displayDays]);
 
   const buildExportFileBase = useCallback(() => {
     const monthTag = `${currentMonth.getFullYear()}-${String(currentMonth.getMonth() + 1).padStart(2, "0")}`;
     const projectLabel = selectedProject === "all" ? "ทุกโครงการ" : selectedProject;
     const safeProject = projectLabel.replace(/[^\w\u0E00-\u0E7F]+/g, "_").slice(0, 60);
-    return `OT-${safeProject}-${monthTag}`;
-  }, [currentMonth, selectedProject]);
+    const periodTag = displayPeriod === "month" ? monthTag : `${displayDays[0].dateStr}_${displayDays[displayDays.length - 1].dateStr}`;
+    return `OT-${safeProject}-${periodTag}`;
+  }, [currentMonth, selectedProject, displayPeriod, displayDays]);
 
   // แคปตารางทั้งหมดที่กำลังแสดง (ทุกกลุ่มงาน) เป็น canvas เดียว โดยบังคับให้คอลัมน์ที่ปกติต้องเลื่อนดูแสดงเต็มความกว้างจริง
   const captureTablesCanvas = useCallback(async (): Promise<HTMLCanvasElement> => {
@@ -970,6 +992,7 @@ export const OvertimePage = ({ projectOptions }: { projectOptions: string[] }) =
       const rows: string[][] = [];
       rows.push([`รายงาน OT - ${projectLabel}`]);
       rows.push([`เดือน ${monthLabel}`]);
+      rows.push([`ช่วงที่แสดง: ${displayDateLabel}`]);
       const schedule = selectedProject !== "all" ? projectSchedules[selectedProject] : undefined;
       if (schedule?.workStartTime || schedule?.otStartTime) {
         rows.push([`เวลาเริ่มงาน: ${schedule?.workStartTime || "-"} น.  |  เวลาเริ่ม OT: ${schedule?.otStartTime || "-"} น.`]);
@@ -981,8 +1004,8 @@ export const OvertimePage = ({ projectOptions }: { projectOptions: string[] }) =
         rows.push([`กลุ่มงาน: ${groupName} (${groupEmps.length} คน)`]);
         const header = ["ลำดับ", "รหัสพนักงาน", "ชื่อ-นามสกุล", "ตำแหน่ง", "เพศ"];
         if (hasSetColumn) header.push("ชื่อชุด");
-        header.push("OT เดือนนี้ (ชม.)");
-        daysInMonth.forEach(({ day }) => header.push(String(day)));
+        header.push(`${summaryLabel} (ชม.)`);
+        displayDays.forEach(({ day }) => header.push(String(day)));
         rows.push(header);
 
         groupEmps.forEach((emp, idx) => {
@@ -994,8 +1017,8 @@ export const OvertimePage = ({ projectOptions }: { projectOptions: string[] }) =
             emp.เพศ || emp.gender || "-",
           ];
           if (hasSetColumn) row.push(emp.ชื่อชุด || "-");
-          row.push(String(monthlyOtByEmployee[emp.id] || 0));
-          daysInMonth.forEach(({ dateStr }) => {
+          row.push(String(displayedOtByEmployee[emp.id] || 0));
+          displayDays.forEach(({ dateStr }) => {
             const entry = overtimeData[dateStr]?.[emp.id];
             if (!entry?.hours) { row.push(""); return; }
             const typeTag = entry.type === "x2" ? " (x2)" : "";
@@ -1045,7 +1068,7 @@ export const OvertimePage = ({ projectOptions }: { projectOptions: string[] }) =
                   <div className="font-semibold text-slate-800 mb-1">วิธีอ่านข้อมูล</div>
                   <div>ตารางนี้แสดงชั่วโมง OT รายวันของพนักงานในเดือนและโครงการที่เลือก</div>
                   <div>สูตรสรุปหลัก: OT รวม = ผลรวมชั่วโมง OT ทุก record ในช่วงที่แสดง</div>
-                  <div className="mt-1">คอลัมน์ "OT เดือนนี้" และไอคอน ⚠ ท้ายแต่ละสัปดาห์ ใช้เตือนเพดาน OT ตามที่ตั้งค่าไว้</div>
+                  <div className="mt-1">ยอดรวมอิงช่วงที่เลือก ดูระดับเพดาน OT รายเดือนได้เมื่อเลือกแสดงทั้งเดือน</div>
                 </div>
               }
             />
@@ -1095,7 +1118,7 @@ export const OvertimePage = ({ projectOptions }: { projectOptions: string[] }) =
       </div>
       {/* ── Controls ── */}
       <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-3">
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+        <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
           <div>
             <label className="block text-xs font-medium text-gray-600 mb-1"><Calendar size={13} className="inline mr-1" />เลือกเดือน</label>
             <div className="flex items-center gap-1">
@@ -1126,6 +1149,39 @@ export const OvertimePage = ({ projectOptions }: { projectOptions: string[] }) =
               <option value="x1.5">OT x1.5</option>
               <option value="x2">OT x2</option>
             </select>
+          </div>
+          <div>
+            <label htmlFor="ot-display-period" className="block text-xs font-medium text-gray-600 mb-1"><Calendar size={13} className="inline mr-1" />แสดง OT และเวลา</label>
+            <select
+              id="ot-display-period"
+              value={periodValue}
+              onChange={(e) => {
+                const [period, day] = e.target.value.split(":");
+                setDisplayPeriod(period as "day" | "week" | "month");
+                if (day) setSelectedDay(Number(day));
+              }}
+              aria-describedby="ot-display-period-description"
+              className="w-full px-3 py-1.5 text-sm border rounded focus:ring-2 focus:ring-purple-500 outline-none bg-white"
+            >
+              <optgroup label="1 วัน">
+                {daysInMonth.map(({ day, dateStr, isToday }) => (
+                  <option key={dateStr} value={`day:${day}`}>{isToday ? "วันนี้ · " : ""}{formatDisplayDate(dateStr)}</option>
+                ))}
+              </optgroup>
+              <optgroup label="1 สัปดาห์ (จันทร์–อาทิตย์)">
+                {weeksInMonth.map((week, index) => (
+                  <option key={week[0].dateStr} value={`week:${week[0].day}`}>
+                    {week.some(({ isToday }) => isToday) ? "สัปดาห์ปัจจุบัน" : `สัปดาห์ที่ ${index + 1}`} · {week[0].day}–{week[week.length - 1].day}
+                  </option>
+                ))}
+              </optgroup>
+              <optgroup label="1 เดือน">
+                <option value="month">ทั้งเดือน</option>
+              </optgroup>
+            </select>
+            <p id="ot-display-period-description" className="mt-1 text-xs text-gray-400">
+              {displayPeriod === "day" ? "อ่านเฉพาะวันที่เลือก" : displayPeriod === "week" ? "อ่านเฉพาะสัปดาห์ที่เลือกในเดือนนี้" : "อ่านข้อมูลทั้งเดือนที่เลือก"}
+            </p>
           </div>
           <div>
             <label className="block text-xs font-medium text-gray-600 mb-1"><Columns size={13} className="inline mr-1" />จัดการคอลัมน์</label>
@@ -1163,6 +1219,7 @@ export const OvertimePage = ({ projectOptions }: { projectOptions: string[] }) =
 
       {/* ── ตั้งแต่จุดนี้ลงไปคือเนื้อหาที่ครอบด้วย exportTablesRef เพื่อรวมอยู่ในไฟล์ส่งออก (รูปภาพ/PDF) ── */}
       <div ref={exportTablesRef} data-export-tables="true" className="space-y-3">
+      <div className="text-xs text-gray-600">ช่วงที่แสดง: {displayDateLabel}</div>
 
       {/* ── เวลาเริ่มงาน/เวลาเริ่ม OT ของโครงการที่เลือก (ข้อมูลอ้างอิง ตั้งค่าได้ที่เมนู "โครงการ") ── */}
       {selectedProject !== "all" && (projectSchedules[selectedProject]?.workStartTime || projectSchedules[selectedProject]?.otStartTime) && (
@@ -1259,7 +1316,7 @@ export const OvertimePage = ({ projectOptions }: { projectOptions: string[] }) =
                 <table
                   className="border-collapse"
                   style={{ fontSize: 11, lineHeight: "1.1", tableLayout: "fixed",
-                    width: `${visibleColumns.reduce((s, c) => s + c.widthPx, 0) + (hasSetColumn ? 100 : 0) + OT_SUMMARY_COL_WIDTH + daysInMonth.length * 40}px` }}
+                    width: `${visibleColumns.reduce((s, c) => s + c.widthPx, 0) + (hasSetColumn ? 100 : 0) + OT_SUMMARY_COL_WIDTH + displayDays.length * 40}px` }}
                 >
                 <thead>
                   <tr style={{ height: 26 }}>
@@ -1295,11 +1352,11 @@ export const OvertimePage = ({ projectOptions }: { projectOptions: string[] }) =
                     <th
                       className="border border-gray-400 bg-purple-500 text-white px-1 py-0.5 sticky z-20 text-left select-none"
                       style={{ width: OT_SUMMARY_COL_WIDTH, minWidth: OT_SUMMARY_COL_WIDTH, left: visibleColumns.reduce((sum, c) => sum + c.widthPx, 0) + (hasSetColumn ? 100 : 0) }}
-                      title="ผลรวมชั่วโมง OT สะสมของพนักงานในเดือนนี้ (ทุกโครงการ) เทียบกับเพดานที่ตั้งไว้"
+                      title={displayPeriod === "month" ? "ผลรวมชั่วโมง OT สะสมของพนักงานในเดือนนี้ (ทุกโครงการ) เทียบกับเพดานที่ตั้งไว้" : "ผลรวมชั่วโมง OT ของพนักงานเฉพาะช่วงที่เลือก (ทุกโครงการ)"}
                     >
-                      OT เดือนนี้
+                      {summaryLabel}
                     </th>
-                    {daysInMonth.map(({ day, isWeekend, isToday }) => (
+                    {displayDays.map(({ day, isWeekend, isToday }) => (
                       <th
                         key={day}
                         className={`border border-gray-400 text-white px-0 py-0.5 text-center transition-opacity ${
@@ -1369,9 +1426,13 @@ export const OvertimePage = ({ projectOptions }: { projectOptions: string[] }) =
                         className="border border-gray-200 px-1 py-0 sticky bg-white z-10 overflow-hidden whitespace-nowrap text-ellipsis"
                         style={{ width: OT_SUMMARY_COL_WIDTH, minWidth: OT_SUMMARY_COL_WIDTH, left: visibleColumns.reduce((sum, c) => sum + c.widthPx, 0) + (hasSetColumn ? 100 : 0) }}
                       >
-                        <OvertimeTierBadge hours={monthlyOtByEmployee[emp.id] || 0} tiers={otLimits.monthlyTiers} />
+                        {displayPeriod === "month" ? (
+                          <OvertimeTierBadge hours={displayedOtByEmployee[emp.id] || 0} tiers={otLimits.monthlyTiers} />
+                        ) : (
+                          <span className="font-semibold text-purple-700">{(displayedOtByEmployee[emp.id] || 0).toFixed(1)} ชม.</span>
+                        )}
                       </td>
-                      {daysInMonth.map(({ dateStr, isWeekend, isSunday, isToday }) =>
+                      {displayDays.map(({ dateStr, isWeekend, isSunday, isToday }) =>
                         renderStatusCell(emp.id, dateStr, isWeekend, isSunday, isToday, emp)
                       )}
                     </tr>
@@ -1384,7 +1445,7 @@ export const OvertimePage = ({ projectOptions }: { projectOptions: string[] }) =
                 className="absolute top-[26px] bottom-0 pointer-events-none flex z-10"
                 style={{ left: visibleColumns.reduce((sum, c) => sum + c.widthPx, 0) + (hasSetColumn ? 100 : 0) + OT_SUMMARY_COL_WIDTH }}
               >
-                {daysInMonth.map(({ day, dateStr }) => (
+                {displayDays.map(({ day, dateStr }) => (
                   <div key={day} className="w-[40px] shrink-0 h-full flex items-center justify-center overflow-hidden">
                     {dayOffs[dateStr] && (
                       <span 
