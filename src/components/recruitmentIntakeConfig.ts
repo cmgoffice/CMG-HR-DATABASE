@@ -162,6 +162,9 @@ export const HIRING_DOC_TYPE_OPTIONS: { value: string; label: string }[] = [
   { value: "health_cert", label: "ใบรับรองแพทย์" },
   { value: "criminal_record", label: "หนังสือรับรองความประพฤติ" },
   { value: "resignation_letter", label: "หนังสือลาออก/เลิกจ้าง" },
+  { value: "social_security_form", label: "แบบขึ้นทะเบียนประกันสังคม (สปส. 1-03)" },
+  { value: "social_security_exit_form", label: "แบบแจ้งออกจากประกันสังคม (สปส. 6-09)" },
+  { value: "social_security_cert", label: "หนังสือรับรองการเป็นผู้ประกันตน" },
 ];
 
 export const HIRING_DOCS_MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024; // ~10MB ตามสเปค
