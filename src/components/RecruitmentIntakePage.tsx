@@ -115,6 +115,9 @@ export const RecruitmentIntakePage = ({ projectOptions = [] }: { projectOptions?
   const [saving, setSaving] = useState(false);
   const [duplicateWarning, setDuplicateWarning] = useState<string | null>(null);
 
+  // แผงดูรายละเอียด (ข้อมูลที่ไม่ได้โชว์ในตารางแล้ว เช่น ที่อยู่ ผู้ติดต่อฉุกเฉิน การศึกษา ประสบการณ์ ฯลฯ)
+  const [viewTarget, setViewTarget] = useState<RecruitmentPendingEmployee | null>(null);
+
   // แผงเอกสารแนบ
   const [docsTarget, setDocsTarget] = useState<RecruitmentPendingEmployee | null>(null);
   const [docType, setDocType] = useState<string>(HIRING_DOC_TYPE_OPTIONS[0]?.value || "");
@@ -154,6 +157,13 @@ export const RecruitmentIntakePage = ({ projectOptions = [] }: { projectOptions?
     const fresh = items.find((i) => i.id === docsTarget.id);
     if (fresh && fresh !== docsTarget) setDocsTarget(fresh);
   }, [items, docsTarget]);
+
+  // sync viewTarget กับ items ล่าสุดเช่นกัน
+  useEffect(() => {
+    if (!viewTarget) return;
+    const fresh = items.find((i) => i.id === viewTarget.id);
+    if (fresh && fresh !== viewTarget) setViewTarget(fresh);
+  }, [items, viewTarget]);
 
   const filtered = useMemo(() => {
     const kw = search.trim().toLowerCase();
@@ -459,23 +469,8 @@ export const RecruitmentIntakePage = ({ projectOptions = [] }: { projectOptions?
                 <th className="p-3 text-left font-semibold text-gray-600 border-b whitespace-nowrap">ตำแหน่ง</th>
                 <th className="p-3 text-left font-semibold text-gray-600 border-b whitespace-nowrap">แผนก</th>
                 <th className="p-3 text-left font-semibold text-gray-600 border-b whitespace-nowrap">โครงการ</th>
-                <th className="p-3 text-left font-semibold text-gray-600 border-b whitespace-nowrap">โทรศัพท์</th>
-                <th className="p-3 text-left font-semibold text-gray-600 border-b whitespace-nowrap">วันเริ่มงาน</th>
-                <th className="p-3 text-left font-semibold text-gray-600 border-b whitespace-nowrap">สถานะกลุ่มงาน</th>
-                <th className="p-3 text-left font-semibold text-gray-600 border-b whitespace-nowrap">
-                  Pay Type {!canViewSalary && <Lock size={11} className="inline ml-1 text-gray-400" />}
-                </th>
-                <th className="p-3 text-right font-semibold text-gray-600 border-b whitespace-nowrap">
-                  Salary {!canViewSalary && <Lock size={11} className="inline ml-1 text-gray-400" />}
-                </th>
-                <th className="p-3 text-left font-semibold text-gray-600 border-b whitespace-nowrap">
-                  Benefits {!canViewSalary && <Lock size={11} className="inline ml-1 text-gray-400" />}
-                </th>
-                <th className="p-3 text-left font-semibold text-gray-600 border-b whitespace-nowrap">Source</th>
-                <th className="p-3 text-left font-semibold text-gray-600 border-b whitespace-nowrap">รหัสพนักงานเดิม</th>
-                <th className="p-3 text-left font-semibold text-gray-600 border-b whitespace-nowrap">สร้างเมื่อ</th>
                 <th className="p-3 text-left font-semibold text-gray-600 border-b whitespace-nowrap">สถานะ</th>
-                {canManage && <th className="p-3 text-center font-semibold text-gray-600 border-b whitespace-nowrap">จัดการ</th>}
+                <th className="p-3 text-center font-semibold text-gray-600 border-b whitespace-nowrap">จัดการ</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
@@ -486,36 +481,23 @@ export const RecruitmentIntakePage = ({ projectOptions = [] }: { projectOptions?
                 const imported = Boolean(c.importedEmployeeId);
                 return (
                   <tr key={c.id} className="hover:bg-gray-50">
-                    <td className="p-3 text-gray-800 font-medium whitespace-nowrap">{buildFullName(c)}</td>
+                    <td className="p-3 whitespace-nowrap">
+                      <button
+                        onClick={() => setViewTarget(c)}
+                        className="font-medium text-blue-700 hover:underline text-left"
+                        title="ดูรายละเอียดทั้งหมด"
+                      >
+                        {buildFullName(c)}
+                      </button>
+                      <div className="mt-0.5">
+                        <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full border text-[10px] font-semibold ${meta.className}`}>
+                          {meta.label}
+                        </span>
+                      </div>
+                    </td>
                     <td className="p-3 text-gray-600 whitespace-nowrap">{c.ตำแหน่ง || "-"}</td>
                     <td className="p-3 text-gray-600 whitespace-nowrap">{c.แผนก || "-"}</td>
                     <td className="p-3 text-gray-600 whitespace-nowrap">{c.โครงการ || "-"}</td>
-                    <td className="p-3 text-gray-600 whitespace-nowrap">{c.โทรศัพท์ || "-"}</td>
-                    <td className="p-3 text-gray-600 whitespace-nowrap">{c.วันเริ่มงาน || "-"}</td>
-                    <td className="p-3 text-gray-600 whitespace-nowrap">{c.สถานะกลุ่มงาน || "-"}</td>
-                    <td className="p-3 text-gray-600 whitespace-nowrap">
-                      {canViewSalary ? (c.payType || "-") : <MaskedCell />}
-                    </td>
-                    <td className="p-3 text-gray-600 text-right whitespace-nowrap">
-                      {canViewSalary ? (
-                        c.salaryAmount !== undefined && c.salaryAmount !== null && c.salaryAmount !== ""
-                          ? Number(c.salaryAmount).toLocaleString("th-TH")
-                          : "-"
-                      ) : (
-                        <MaskedCell />
-                      )}
-                    </td>
-                    <td className="p-3 text-gray-600 max-w-[220px] truncate" title={canViewSalary ? formatBenefits(c.benefits) : undefined}>
-                      {canViewSalary ? formatBenefits(c.benefits) : <MaskedCell />}
-                    </td>
-                    <td className="p-3 whitespace-nowrap">
-                      <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-xs font-semibold ${meta.className}`}>
-                        {meta.label}
-                      </span>
-                      <div className="text-[10px] text-gray-400 mt-0.5">{c.source || "-"}</div>
-                    </td>
-                    <td className="p-3 text-gray-600 whitespace-nowrap">{c.รหัสพนักงานเดิม || "-"}</td>
-                    <td className="p-3 text-gray-600 whitespace-nowrap">{formatDate(c.createdAt)}</td>
                     <td className="p-3 whitespace-nowrap">
                       {imported ? (
                         <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-xs font-semibold bg-emerald-50 text-emerald-700 border-emerald-200">
@@ -530,26 +512,32 @@ export const RecruitmentIntakePage = ({ projectOptions = [] }: { projectOptions?
                         <div className="text-[11px] text-gray-400 mt-0.5">รหัส: {c.importedEmployeeId as string}</div>
                       )}
                     </td>
-                    {canManage && (
-                      <td className="p-3">
-                        <div className="flex items-center justify-center gap-2">
-                          {!imported && (
-                            <button
-                              onClick={() => openIntakeForm(c)}
-                              className="flex items-center gap-1 px-3 py-1.5 bg-blue-600 text-white rounded-lg text-xs font-semibold hover:bg-blue-700 whitespace-nowrap"
-                            >
-                              <UserPlus size={14} /> เพิ่มเข้าระบบ
-                            </button>
-                          )}
+                    <td className="p-3">
+                      <div className="flex items-center justify-center gap-2">
+                        <button
+                          onClick={() => setViewTarget(c)}
+                          className="flex items-center gap-1 px-3 py-1.5 bg-gray-100 text-gray-700 rounded-lg text-xs font-semibold hover:bg-gray-200 whitespace-nowrap"
+                        >
+                          ดูรายละเอียด
+                        </button>
+                        {canManage && !imported && (
+                          <button
+                            onClick={() => openIntakeForm(c)}
+                            className="flex items-center gap-1 px-3 py-1.5 bg-blue-600 text-white rounded-lg text-xs font-semibold hover:bg-blue-700 whitespace-nowrap"
+                          >
+                            <UserPlus size={14} /> เพิ่มเข้าระบบ
+                          </button>
+                        )}
+                        {canManage && (
                           <button
                             onClick={() => openDocsPanel(c)}
                             className="flex items-center gap-1 px-3 py-1.5 bg-gray-100 text-gray-700 rounded-lg text-xs font-semibold hover:bg-gray-200 whitespace-nowrap"
                           >
                             <Paperclip size={14} /> เอกสารแนบ ({attachmentCount})
                           </button>
-                        </div>
-                      </td>
-                    )}
+                        )}
+                      </div>
+                    </td>
                   </tr>
                 );
               })}
@@ -837,7 +825,149 @@ export const RecruitmentIntakePage = ({ projectOptions = [] }: { projectOptions?
         </div>
       )}
 
+      {/* แผงดูรายละเอียดทั้งหมด (คลิกชื่อ หรือกด "ดูรายละเอียด" จากตาราง) */}
+      {viewTarget && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[80] flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col">
+            <div className="p-5 border-b flex items-start justify-between">
+              <div>
+                <h3 className="text-lg font-bold text-gray-800">{buildFullName(viewTarget)}</h3>
+                <p className="text-xs text-gray-500 mt-1">{viewTarget.ตำแหน่ง || "-"} · {viewTarget.แผนก || "-"}</p>
+              </div>
+              <button onClick={() => setViewTarget(null)} className="text-gray-400 hover:text-red-500 p-1">
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="p-5 overflow-auto flex-1 flex flex-col gap-4 text-sm">
+              <DetailSection title="ข้อมูลงาน">
+                <DetailRow label="โครงการ" value={viewTarget.โครงการ} />
+                <DetailRow label="สถานะกลุ่มงาน" value={viewTarget.สถานะกลุ่มงาน} />
+                <DetailRow label="วันเริ่มงาน" value={viewTarget.วันเริ่มงาน} />
+                <DetailRow label="รหัสพนักงานเดิม" value={viewTarget.รหัสพนักงานเดิม as string} />
+              </DetailSection>
+
+              <DetailSection title="ข้อมูลติดต่อ/ส่วนตัว">
+                <DetailRow label="โทรศัพท์" value={viewTarget.โทรศัพท์} />
+                <DetailRow label="อีเมล" value={viewTarget.อีเมล} />
+                <DetailRow label="เลขบัตรประชาชน" value={viewTarget.เลขบัตรประชาชน} />
+                <DetailRow label="วันเกิด" value={viewTarget.วันเกิด} />
+                <DetailRow label="เพศ" value={viewTarget.เพศ} />
+                <DetailRow label="สัญชาติ" value={viewTarget.สัญชาติ} />
+                <DetailRow label="สถานภาพสมรส" value={viewTarget.สถานภาพสมรส} />
+                <DetailRow label="สถานะทางทหาร" value={viewTarget.สถานะทางทหาร} />
+                <DetailRow label="ระดับภาษาอังกฤษ" value={viewTarget.ระดับภาษาอังกฤษ} />
+              </DetailSection>
+
+              <DetailSection title="ที่อยู่ปัจจุบัน">
+                <DetailRow
+                  label="ที่อยู่"
+                  value={[viewTarget.บ้านเลขที่, viewTarget.หมู่ ? `หมู่ ${viewTarget.หมู่}` : "", viewTarget.แขวงตำบล, viewTarget.เขตอำเภอ, viewTarget.จังหวัด, viewTarget.ไปรษณีย์]
+                    .filter(Boolean)
+                    .join(" ")}
+                />
+              </DetailSection>
+
+              <DetailSection title="ผู้ติดต่อฉุกเฉิน">
+                <DetailRow label="ชื่อ-สกุล" value={viewTarget.ผู้ติดต่อฉุกเฉิน_ชื่อ} />
+                <DetailRow label="เกี่ยวข้องเป็น" value={viewTarget.ผู้ติดต่อฉุกเฉิน_ความสัมพันธ์} />
+                <DetailRow label="เบอร์โทร" value={viewTarget.ผู้ติดต่อฉุกเฉิน_โทร} />
+                <DetailRow label="ที่อยู่" value={viewTarget.ผู้ติดต่อฉุกเฉิน_ที่อยู่ as string} />
+              </DetailSection>
+
+              <DetailSection title="การศึกษาและประสบการณ์ทำงาน">
+                <DetailRow label="วุฒิการศึกษา" value={viewTarget.วุฒิการศึกษา} />
+                <DetailRow label="สถาบันการศึกษา" value={viewTarget.สถาบันการศึกษา} />
+                <DetailRow label="สาขา" value={viewTarget.สาขา} />
+                <DetailRow label="ประสบการณ์ทำงาน" value={viewTarget.ประสบการณ์ทำงาน} />
+                {viewTarget.ลักษณะงานที่เคยทำ && (
+                  <div className="text-xs text-gray-600 whitespace-pre-line bg-gray-50 rounded-lg p-2 mt-1">
+                    {viewTarget.ลักษณะงานที่เคยทำ as string}
+                  </div>
+                )}
+                {(viewTarget.ประวัติการทำงาน || []).map((job, idx) => (
+                  <div key={idx} className="text-xs text-gray-600 border rounded-lg p-2 mt-1 bg-gray-50">
+                    <span className="font-medium">{job.company || "-"}</span>
+                    {job.position ? ` · ${job.position}` : ""}
+                    {job.duration ? ` (${job.duration})` : ""}
+                    {job.notes ? <div className="text-gray-500 mt-0.5">{job.notes}</div> : null}
+                  </div>
+                ))}
+              </DetailSection>
+
+              <DetailSection title="ค่าตอบแทน">
+                <DetailRow label="Pay Type" value={canViewSalary ? (viewTarget.payType as string) : "••••••"} />
+                <DetailRow
+                  label="เงินเดือน/ค่าแรง"
+                  value={
+                    canViewSalary
+                      ? viewTarget.salaryAmount !== undefined && viewTarget.salaryAmount !== null && viewTarget.salaryAmount !== ""
+                        ? Number(viewTarget.salaryAmount).toLocaleString("th-TH")
+                        : "-"
+                      : "••••••"
+                  }
+                />
+                <DetailRow label="สวัสดิการ" value={canViewSalary ? formatBenefits(viewTarget.benefits) : "••••••"} />
+              </DetailSection>
+
+              <DetailSection title="ประวัติ/บันทึกเพิ่มเติม">
+                <DetailRow label="เคยถูกให้ออกจากงาน" value={viewTarget.เคยถูกให้ออกจากงาน === "yes" ? "เคย" : viewTarget.เคยถูกให้ออกจากงาน === "no" ? "ไม่เคย" : (viewTarget.เคยถูกให้ออกจากงาน as string)} />
+                {viewTarget.รายละเอียดการถูกให้ออกจากงาน ? <DetailRow label="รายละเอียด" value={viewTarget.รายละเอียดการถูกให้ออกจากงาน as string} /> : null}
+                <DetailRow label="ญาติ/เพื่อนในบริษัท" value={viewTarget.ญาติหรือเพื่อนในบริษัท as string} />
+                {viewTarget.บันทึกเพิ่มเติม ? <DetailRow label="บันทึกเพิ่มเติม" value={viewTarget.บันทึกเพิ่มเติม as string} /> : null}
+              </DetailSection>
+
+              <DetailSection title="เอกสาร / ที่มา">
+                <DetailRow label="แหล่งที่มา" value={viewTarget.source as string} />
+                <DetailRow label="สร้างเมื่อ" value={formatDate(viewTarget.createdAt)} />
+                <DetailRow label="สร้างโดย" value={viewTarget.createdByName as string} />
+                <DetailRow label="จำนวนเอกสารแนบ" value={String((viewTarget.attachments as HiringAttachment[] | undefined)?.length || 0)} />
+                {viewTarget.fullPacketPdfUrl ? (
+                  <a href={viewTarget.fullPacketPdfUrl as string} target="_blank" rel="noreferrer" className="text-blue-600 hover:underline text-xs font-semibold">
+                    เปิดไฟล์ใบสมัคร+เอกสารจ้างงานฉบับเต็ม (PDF)
+                  </a>
+                ) : null}
+              </DetailSection>
+            </div>
+
+            <div className="p-4 border-t bg-gray-50 flex justify-end gap-2">
+              <button
+                onClick={() => { openDocsPanel(viewTarget); setViewTarget(null); }}
+                className="flex items-center gap-1 px-4 py-2 bg-gray-100 text-gray-700 rounded-lg text-sm font-semibold hover:bg-gray-200"
+              >
+                <Paperclip size={14} /> เอกสารแนบ
+              </button>
+              {canManage && !viewTarget.importedEmployeeId && (
+                <button
+                  onClick={() => { openIntakeForm(viewTarget); setViewTarget(null); }}
+                  className="flex items-center gap-1 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-semibold hover:bg-blue-700"
+                >
+                  <UserPlus size={14} /> เพิ่มเข้าระบบ
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       <style>{`.input { border: 1px solid #e5e7eb; border-radius: 0.5rem; padding: 0.5rem 0.75rem; font-size: 0.875rem; width: 100%; outline: none; } .input:focus { box-shadow: 0 0 0 2px #dbeafe; }`}</style>
+    </div>
+  );
+};
+
+const DetailSection = ({ title, children }: { title: string; children: React.ReactNode }) => (
+  <div className="border-b pb-3 last:border-b-0 last:pb-0">
+    <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">{title}</h4>
+    <div className="flex flex-col gap-1">{children}</div>
+  </div>
+);
+
+const DetailRow = ({ label, value }: { label: string; value?: string | null }) => {
+  const display = value && String(value).trim() ? value : "-";
+  return (
+    <div className="flex items-start gap-2 text-sm">
+      <span className="text-gray-400 min-w-[140px] shrink-0">{label}</span>
+      <span className="text-gray-800 break-words">{display}</span>
     </div>
   );
 };

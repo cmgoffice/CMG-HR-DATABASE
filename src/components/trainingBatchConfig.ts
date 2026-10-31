@@ -72,6 +72,9 @@ export interface TrainingBatch {
   createdByName?: string;
   createdAt?: number;
   updatedAt?: number;
+  // token สุ่มสำหรับลิงก์สาธารณะที่ส่งให้คลินิกตรวจสุขภาพก่อนอบรม — รู้ token เท่ากับเข้าดู/แก้ไขได้
+  // (ไม่ต้อง login) ตามแบบ "ใครมีลิงก์ก็เข้าดูได้" จึงต้องเป็นสตริงสุ่มที่เดาไม่ได้เท่านั้น
+  healthCheckToken?: string;
 }
 
 export const DEFAULT_TRAINING_COURSE_OPTIONS: string[] = [
@@ -143,11 +146,15 @@ export interface TrainingEnrollment {
   employeeId: string;
   employeeCode?: string;
   employeeName: string;
+  employeeFirstName?: string; // ชื่อตัวอย่างเดียว (ไม่มีนามสกุล) ไว้ตั้งชื่อไฟล์ใบรับรองแพทย์
   position?: string;
   company?: string;
   nationality?: string;
+  idCardNumber?: string; // snapshot ตอนเพิ่มเข้ารอบ ไว้แสดงในลิงก์คลินิก
+  gender?: string; // snapshot ตอนเพิ่มเข้ารอบ
   language: TrainingLanguage;
   healthCheck?: TrainingHealthCheck;
+  healthCheckRecordId?: string; // อ้างอิงไปยัง health_check_records (ประวัติถาวร) รายการล่าสุดของรอบนี้
   documentSnapshot?: TrainingDocumentSnapshot;
   badgeRequestFileUrl?: string; // ไฟล์สแกนใบขอออกบัตรที่เซ็นแล้ว (print_sign_scan)
   status: TrainingEnrollmentStatus;
@@ -156,6 +163,99 @@ export interface TrainingEnrollment {
   enrolledByName?: string;
   enrolledAt?: number;
   updatedAt?: number;
+}
+
+// ---------------------------------------------------------------------------
+// ประวัติผลตรวจสุขภาพ (ถาวรต่อพนักงาน — เก็บแยกจาก training_enrollments
+// เพื่อให้ตรวจสอบอายุผลตรวจ (6 เดือน) ย้อนหลังได้ข้ามโครงการ/ข้ามรอบอบรม)
+// ---------------------------------------------------------------------------
+export const HEALTH_CHECK_RECORDS_COLLECTION = "health_check_records";
+
+export type HealthCheckResult = "fit" | "unfit";
+
+export const HEALTH_CHECK_RESULT_OPTIONS: Array<{ value: HealthCheckResult; label: string }> = [
+  { value: "fit", label: "ผ่านเกณฑ์สุขภาพ" },
+  { value: "unfit", label: "ไม่ผ่านเกณฑ์สุขภาพ" },
+];
+
+// อายุผลตรวจสุขภาพตามมาตรฐานทั่วไป
+export const HEALTH_CHECK_VALIDITY_MONTHS = 6;
+
+export interface HealthCheckRecord {
+  id: string;
+  employeeId: string;
+  employeeCode?: string;
+  employeeName: string;
+  project: string;
+  batchId?: string; // รอบอบรมที่ขอให้ตรวจ (ถ้ามี) — ไว้ตรวจย้อนกลับได้ว่ามาจากรอบไหน
+  checkedDate: string; // yyyy-mm-dd วันที่ตรวจจริง
+  expiryDate: string; // yyyy-mm-dd = checkedDate + 6 เดือน คำนวณไว้ล่วงหน้าเพื่อ query ง่าย
+  result: HealthCheckResult;
+  fileUrl?: string;
+  fileName?: string;
+  source: "clinic_portal" | "hr_manual";
+  uploadedByName?: string;
+  uploadedByUid?: string;
+  createdAt: number;
+}
+
+// ---------------------------------------------------------------------------
+// Public token helpers — ใช้สำหรับลิงก์ส่งให้คลินิก (ไม่ต้อง login)
+// ---------------------------------------------------------------------------
+export function generatePublicToken(): string {
+  // สุ่ม 24 ไบต์ -> hex 48 ตัวอักษร ยาวพอที่จะเดาไม่ได้ในทางปฏิบัติ
+  const bytes = new Uint8Array(24);
+  if (typeof crypto !== "undefined" && crypto.getRandomValues) {
+    crypto.getRandomValues(bytes);
+  } else {
+    for (let i = 0; i < bytes.length; i++) bytes[i] = Math.floor(Math.random() * 256);
+  }
+  return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+export function buildClinicPortalUrl(token: string): string {
+  const origin = typeof window !== "undefined" ? window.location.origin : "";
+  return `${origin}/clinic/${token}`;
+}
+
+// ---------------------------------------------------------------------------
+// คำนวณวันหมดอายุผลตรวจสุขภาพ (+6 เดือนจากวันที่ตรวจ)
+// ---------------------------------------------------------------------------
+export function computeHealthCheckExpiry(checkedDateStr: string): string {
+  const d = new Date(checkedDateStr);
+  if (Number.isNaN(d.getTime())) return "";
+  d.setMonth(d.getMonth() + HEALTH_CHECK_VALIDITY_MONTHS);
+  return d.toISOString().slice(0, 10);
+}
+
+export function isHealthCheckStillValid(expiryDateStr: string | undefined): boolean {
+  if (!expiryDateStr) return false;
+  const expiry = new Date(expiryDateStr);
+  if (Number.isNaN(expiry.getTime())) return false;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  return expiry.getTime() >= today.getTime();
+}
+
+// หาผลตรวจล่าสุดของพนักงาน 1 คน จาก record ทั้งหมด (เรียงตามวันที่ตรวจล่าสุด)
+export function getLatestHealthCheck(
+  records: HealthCheckRecord[],
+  employeeId: string
+): HealthCheckRecord | undefined {
+  return records
+    .filter((r) => r.employeeId === employeeId)
+    .sort((a, b) => (b.checkedDate || "").localeCompare(a.checkedDate || ""))[0];
+}
+
+// ---------------------------------------------------------------------------
+// ชื่อไฟล์ใบรับรองแพทย์ — ต้องมีเลขโครงการ + ชื่อ(ไม่มีนามสกุล) + วันที่ตรวจ เพื่อให้หาไฟล์ง่าย
+// รูปแบบ: {project}_{firstName}_{checkedDate}.{ext}
+// ---------------------------------------------------------------------------
+export function buildHealthCheckFileName(project: string, firstName: string, checkedDate: string, originalFileName: string): string {
+  const ext = originalFileName.includes(".") ? originalFileName.split(".").pop() : "";
+  const safe = (s: string) => s.replace(/[^a-zA-Zก-๙0-9]/g, "").trim() || "x";
+  const base = `${safe(project)}_${safe(firstName)}_${checkedDate || "nodate"}`;
+  return ext ? `${base}.${ext}` : base;
 }
 
 // ---------------------------------------------------------------------------

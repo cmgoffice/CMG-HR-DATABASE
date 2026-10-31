@@ -1,15 +1,20 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { collection, doc, getFirestore, onSnapshot, setDoc, updateDoc, deleteDoc } from "firebase/firestore";
+import { collection, doc, getFirestore, onSnapshot, setDoc, updateDoc, deleteDoc, query, where } from "firebase/firestore";
 import {
   AlertTriangle,
   Calendar,
   CheckCircle2,
+  ChevronDown,
   ChevronLeft,
+  ChevronUp,
+  Copy,
   GraduationCap,
   Inbox,
+  Link2,
   Loader2,
   Plus,
   Search,
+  Stethoscope,
   Trash2,
   UserPlus,
   Users,
@@ -17,13 +22,16 @@ import {
 } from "lucide-react";
 import { useAuth } from "../auth/AuthContext";
 import {
+  buildClinicPortalUrl,
   buildEmployeeFullName,
   canManageTrainingBatches,
   CONGENITAL_DISEASE_OPTIONS,
   DEFAULT_TRAINING_COURSE_OPTIONS,
   employeeProjectNames,
-  HEALTH_CHECK_STATUS_OPTIONS,
-  HealthCheckStatus,
+  generatePublicToken,
+  getLatestHealthCheck,
+  HEALTH_CHECK_RECORDS_COLLECTION,
+  HealthCheckRecord,
   isMigrantNationality,
   TRAINING_BATCHES_COLLECTION,
   TRAINING_BATCH_STATUS_META,
@@ -36,6 +44,7 @@ import {
   TrainingEnrollmentStatus,
   TrainingLanguage,
 } from "./trainingBatchConfig";
+import { HealthCheckBadge, HealthCheckRowEditor, SharedFileUploadPanel } from "./HealthCheckControls";
 
 interface EmployeeRow {
   id: string;
@@ -47,6 +56,8 @@ interface EmployeeRow {
   ตำแหน่ง?: string;
   แผนก?: string;
   สัญชาติ?: string;
+  เพศ?: string;
+  เลขบัตรประชาชน?: string;
   สถานะพนักงาน?: string;
   โครงการ?: string;
   โครงการปัจจุบัน?: string;
@@ -491,9 +502,62 @@ const TrainingBatchDetail = ({
   const { firebaseUser, userProfile } = useAuth();
   const db = getFirestore();
   const [showPicker, setShowPicker] = useState(false);
+  const [healthRecords, setHealthRecords] = useState<HealthCheckRecord[]>([]);
+  const [clinicLinkCopied, setClinicLinkCopied] = useState(false);
+  const [generatingLink, setGeneratingLink] = useState(false);
+  const [expandedHealthRow, setExpandedHealthRow] = useState<string | null>(null);
+  const [showSharedUpload, setShowSharedUpload] = useState(false);
 
   const meta = TRAINING_BATCH_STATUS_META[batch.status] || TRAINING_BATCH_STATUS_META.planned;
   const enrolledIds = useMemo(() => new Set(enrollments.map((e) => e.employeeId)), [enrollments]);
+
+  useEffect(() => {
+    const q = query(
+      collection(db, "CMG-HR-Database", "root", HEALTH_CHECK_RECORDS_COLLECTION),
+      where("batchId", "==", batch.id)
+    );
+    const unsub = onSnapshot(q, (snap) => {
+      setHealthRecords(snap.docs.map((d) => ({ id: d.id, ...(d.data() as object) } as HealthCheckRecord)));
+    });
+    return () => unsub();
+  }, [db, batch.id]);
+
+  const recordByEmployee = useMemo(() => {
+    const map = new Map<string, HealthCheckRecord>();
+    enrollments.forEach((e) => {
+      const latest = getLatestHealthCheck(healthRecords, e.employeeId);
+      if (latest) map.set(e.employeeId, latest);
+    });
+    return map;
+  }, [enrollments, healthRecords]);
+
+  const clinicLink = batch.healthCheckToken ? buildClinicPortalUrl(batch.healthCheckToken) : null;
+
+  const handleGenerateClinicLink = async () => {
+    setGeneratingLink(true);
+    try {
+      const token = generatePublicToken();
+      await updateDoc(doc(db, "CMG-HR-Database", "root", TRAINING_BATCHES_COLLECTION, batch.id), {
+        healthCheckToken: token,
+        updatedAt: Date.now(),
+      });
+    } catch (err) {
+      window.alert(`สร้างลิงก์ไม่สำเร็จ: ${err instanceof Error ? err.message : "เกิดข้อผิดพลาดที่ไม่คาดคิด"}`);
+    } finally {
+      setGeneratingLink(false);
+    }
+  };
+
+  const handleCopyClinicLink = async () => {
+    if (!clinicLink) return;
+    try {
+      await navigator.clipboard.writeText(clinicLink);
+      setClinicLinkCopied(true);
+      setTimeout(() => setClinicLinkCopied(false), 2000);
+    } catch {
+      window.prompt("คัดลอกลิงก์นี้:", clinicLink);
+    }
+  };
 
   const handleRemove = async (en: TrainingEnrollment) => {
     if (!window.confirm(`เอา ${en.employeeName} ออกจากรอบนี้?`)) return;
@@ -527,9 +591,12 @@ const TrainingBatchDetail = ({
             employeeId: emp.id,
             employeeCode: emp.รหัสพนักงาน || "",
             employeeName: buildEmployeeFullName(emp),
+            employeeFirstName: emp.ชื่อตัว || "",
             position: emp.ตำแหน่ง || "",
             company: emp.แผนก || "",
             nationality: emp.สัญชาติ || "",
+            idCardNumber: emp.เลขบัตรประชาชน || "",
+            gender: emp.เพศ || "",
             language,
             status: "registered",
             documentSnapshot: {
@@ -587,6 +654,37 @@ const TrainingBatchDetail = ({
         )}
       </div>
 
+      {canManage && (
+        <div className="bg-sky-50 border border-sky-200 rounded-xl p-4 flex flex-col gap-2">
+          <h3 className="text-sm font-bold text-sky-800 flex items-center gap-1.5">
+            <Stethoscope size={16} /> ลิงก์สาธารณะสำหรับคลินิกตรวจสุขภาพ
+          </h3>
+          <p className="text-xs text-sky-700">
+            ส่งลิงก์นี้ให้คลินิก — คลินิกเปิดดูรายชื่อ ปรับวันที่/เวลา/สถานที่นัดตรวจ และบันทึกผลตรวจ/แนบใบรับรองแพทย์ได้เอง โดยไม่ต้อง login
+          </p>
+          {clinicLink ? (
+            <div className="flex items-center gap-2 flex-wrap">
+              <code className="text-xs bg-white border border-sky-200 rounded-lg px-2 py-1.5 break-all">{clinicLink}</code>
+              <button
+                onClick={handleCopyClinicLink}
+                className="flex items-center gap-1 px-3 py-1.5 bg-sky-600 text-white rounded-lg text-xs font-semibold hover:bg-sky-700 whitespace-nowrap"
+              >
+                <Copy size={13} /> {clinicLinkCopied ? "คัดลอกแล้ว" : "คัดลอกลิงก์"}
+              </button>
+            </div>
+          ) : (
+            <button
+              onClick={handleGenerateClinicLink}
+              disabled={generatingLink}
+              className="self-start flex items-center gap-2 px-4 py-2 bg-sky-600 text-white rounded-lg text-xs font-semibold hover:bg-sky-700 disabled:opacity-50"
+            >
+              {generatingLink ? <Loader2 className="animate-spin" size={14} /> : <Link2 size={14} />}
+              สร้างลิงก์สำหรับคลินิก
+            </button>
+          )}
+        </div>
+      )}
+
       <div className="flex items-center gap-2 text-sm text-gray-500">
         <Users size={16} />
         รายชื่อในรอบนี้: {enrollments.length}
@@ -609,7 +707,7 @@ const TrainingBatchDetail = ({
                 <th className="p-3 text-left font-semibold text-gray-600 border-b whitespace-nowrap">สัญชาติ</th>
                 <th className="p-3 text-left font-semibold text-gray-600 border-b whitespace-nowrap">ภาษาเอกสาร</th>
                 <th className="p-3 text-left font-semibold text-gray-600 border-b whitespace-nowrap">เอกสาร</th>
-                <th className="p-3 text-left font-semibold text-gray-600 border-b whitespace-nowrap">สุขภาพ (ครั้งนี้)</th>
+                <th className="p-3 text-left font-semibold text-gray-600 border-b whitespace-nowrap">ผลตรวจสุขภาพ</th>
                 <th className="p-3 text-left font-semibold text-gray-600 border-b whitespace-nowrap">ผลอบรม</th>
                 {canManage && <th className="p-3 text-center font-semibold text-gray-600 border-b whitespace-nowrap">จัดการ</th>}
               </tr>
@@ -620,6 +718,9 @@ const TrainingBatchDetail = ({
                   key={en.id}
                   enrollment={en}
                   canManage={canManage}
+                  latestHealthRecord={recordByEmployee.get(en.employeeId)}
+                  isHealthExpanded={expandedHealthRow === en.id}
+                  onToggleHealthExpand={() => setExpandedHealthRow((prev) => (prev === en.id ? null : en.id))}
                   onRemove={() => handleRemove(en)}
                   onUpdate={(patch) => handleUpdateEnrollment(en, patch)}
                 />
@@ -628,6 +729,21 @@ const TrainingBatchDetail = ({
           </table>
         )}
       </div>
+
+      {canManage && enrollments.length > 0 && (
+        <div>
+          {!showSharedUpload ? (
+            <button
+              onClick={() => setShowSharedUpload(true)}
+              className="flex items-center gap-2 px-3 py-1.5 bg-gray-100 text-gray-700 rounded-lg text-xs font-semibold hover:bg-gray-200 whitespace-nowrap"
+            >
+              <Users size={14} /> กรอกผลตรวจแทนคลินิก (ไฟล์รวม/หลายคน)
+            </button>
+          ) : (
+            <SharedFileUploadPanel enrollments={enrollments} source="hr_manual" actorName={`${userProfile?.firstName || ""} ${userProfile?.lastName || ""}`.trim()} actorUid={firebaseUser?.uid} />
+          )}
+        </div>
+      )}
 
       {showPicker && (
         <EmployeePickerModal
@@ -647,14 +763,21 @@ const TrainingBatchDetail = ({
 const EnrollmentRow = ({
   enrollment,
   canManage,
+  latestHealthRecord,
+  isHealthExpanded,
+  onToggleHealthExpand,
   onRemove,
   onUpdate,
 }: {
   enrollment: TrainingEnrollment;
   canManage: boolean;
+  latestHealthRecord?: HealthCheckRecord;
+  isHealthExpanded: boolean;
+  onToggleHealthExpand: () => void;
   onRemove: () => void;
   onUpdate: (patch: Partial<TrainingEnrollment>) => void;
 }) => {
+  const { firebaseUser, userProfile } = useAuth();
   const statusMeta = TRAINING_ENROLLMENT_STATUS_META[enrollment.status] || TRAINING_ENROLLMENT_STATUS_META.registered;
   const snapshot = enrollment.documentSnapshot;
   const docBadge = !snapshot
@@ -663,9 +786,10 @@ const EnrollmentRow = ({
       ? { label: "ครบ", cls: "bg-emerald-50 text-emerald-700 border border-emerald-200" }
       : { label: snapshot.isMigrant ? "แรงงานต่างด้าว: ตรวจที่หน้าเอกสาร" : "ยังไม่มีเอกสารแนบ", cls: "bg-amber-50 text-amber-700 border border-amber-200" };
 
-  const health = enrollment.healthCheck || { status: "not_checked" as HealthCheckStatus };
+  const columnCount = canManage ? 9 : 8;
 
   return (
+    <>
     <tr className="hover:bg-gray-50 align-top">
       <td className="p-3 text-gray-800 font-medium whitespace-nowrap">{enrollment.employeeName}</td>
       <td className="p-3 text-gray-600 whitespace-nowrap">{enrollment.employeeCode || "-"}</td>
@@ -689,22 +813,20 @@ const EnrollmentRow = ({
       <td className="p-3 whitespace-nowrap">
         <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold ${docBadge.cls}`}>{docBadge.label}</span>
       </td>
-      <td className="p-3 min-w-[180px]">
-        {canManage ? (
-          <select
-            value={health.status}
-            onChange={(e) =>
-              onUpdate({ healthCheck: { ...health, status: e.target.value as HealthCheckStatus } })
-            }
-            className="input !py-1"
-          >
-            {HEALTH_CHECK_STATUS_OPTIONS.map((o) => (
-              <option key={o.value} value={o.value}>{o.label}</option>
-            ))}
-          </select>
-        ) : (
-          HEALTH_CHECK_STATUS_OPTIONS.find((o) => o.value === health.status)?.label || "-"
-        )}
+      <td className="p-3 min-w-[160px]">
+        <div className="flex flex-col gap-1.5 items-start">
+          <HealthCheckBadge latest={latestHealthRecord} />
+          {canManage && (
+            <button
+              type="button"
+              onClick={onToggleHealthExpand}
+              className="flex items-center gap-1 text-[11px] text-blue-600 hover:underline"
+            >
+              {isHealthExpanded ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+              {isHealthExpanded ? "ปิด" : "กรอกผลตรวจแทนคลินิก"}
+            </button>
+          )}
+        </div>
       </td>
       <td className="p-3 whitespace-nowrap">
         {canManage ? (
@@ -729,6 +851,20 @@ const EnrollmentRow = ({
         </td>
       )}
     </tr>
+    {isHealthExpanded && canManage && (
+      <tr className="bg-sky-50/50">
+        <td colSpan={columnCount} className="p-3">
+          <HealthCheckRowEditor
+            enrollment={enrollment}
+            latestRecord={latestHealthRecord}
+            source="hr_manual"
+            actorName={`${userProfile?.firstName || ""} ${userProfile?.lastName || ""}`.trim()}
+            actorUid={firebaseUser?.uid}
+          />
+        </td>
+      </tr>
+    )}
+    </>
   );
 };
 

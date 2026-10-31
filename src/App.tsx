@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
 import type { User } from "firebase/auth";
 import type { CollectionReference, DocumentData, Query } from "firebase/firestore";
+import { ThaiAddressGroupFields, THAI_ADDRESS_FIELD_IDS } from "./components/ThaiAddressFields";
 
 // --- TYPE DEFINITIONS ---
 interface SchemaField {
@@ -499,6 +500,7 @@ import { MigrantWorkerPage } from './components/MigrantWorkerPage';
 import { RecruitmentIntakePage } from './components/RecruitmentIntakePage';
 import { TrainingBatchPage } from './components/TrainingBatchPage';
 import { TRAINING_MANAGE_ROLES } from './components/trainingBatchConfig';
+import { ClinicCheckupPortal } from './components/ClinicCheckupPortal';
 import { EmployeeDocumentsPage, OPEN_EMPLOYEE_DOCUMENTS_STORAGE_KEY } from './components/EmployeeDocumentsPage';
 import { ApprovalCenterPage } from './components/ApprovalCenterPage';
 import { InfoTooltip } from './components/InfoTooltip';
@@ -3993,6 +3995,27 @@ function MasterDatabaseApp() {
                   const isContractorAuto =
                     activeModule === "contractors" && field.id === "con_id";
                   if ((isClientAuto || isContractorAuto) && !editingItem) return null;
+
+                  // ฟิลด์ที่อยู่ (ประเทศ/จังหวัด/เขตอำเภอ/แขวงตำบล/ไปรษณีย์) เรนเดอร์เป็นกลุ่ม
+                  // cascading dropdown เดียวที่ตำแหน่งของฟิลด์ "ประเทศ" เท่านั้น เพื่อไม่ให้ซ้ำ
+                  if ((THAI_ADDRESS_FIELD_IDS as readonly string[]).includes(field.id)) {
+                    if (field.id !== "ประเทศ") return null;
+                    const addressLabels: Record<string, string> = {};
+                    normalFields.forEach((f) => {
+                      if ((THAI_ADDRESS_FIELD_IDS as readonly string[]).includes(f.id)) {
+                        addressLabels[f.id] = f.label;
+                      }
+                    });
+                    return (
+                      <ThaiAddressGroupFields
+                        key="thai-address-group"
+                        labels={addressLabels}
+                        formData={formData}
+                        onChangeFields={(changes) => setFormData({ ...formData, ...changes })}
+                      />
+                    );
+                  }
+
                   return (
                     <div key={field.id} className="space-y-1">
                       <label className="text-sm font-medium text-gray-700">
@@ -4550,6 +4573,8 @@ function MasterDatabaseApp() {
 export default function App() {
   return (
     <Routes>
+      {/* หน้าสาธารณะสำหรับคลินิก — ไม่ต้อง login เข้าถึงได้ด้วย token ในลิงก์เท่านั้น */}
+      <Route path="/clinic/:token" element={<ClinicCheckupPortal />} />
       <Route path="/login" element={<LoginPage />} />
       <Route path="/register" element={<RegisterPage />} />
       <Route path="/pending" element={
