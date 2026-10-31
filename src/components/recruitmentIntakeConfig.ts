@@ -154,8 +154,8 @@ export const canManageRecruitmentIntake = canViewRecruitmentIntake;
 
 // ตัวเลือก employee_type ที่ใช้ตรงกับที่โมดูลพนักงานอื่น ๆ ใช้อยู่จริง (เทียบจาก MODULE_CONFIG ใน App.tsx)
 export const EMPLOYEE_TYPE_OPTIONS: { value: string; label: string }[] = [
-  { value: "Indirect", label: "Staff Monthly (Indirect)" },
-  { value: "Direct_TeamLeader", label: "DC Daily" },
+  { value: "Indirect", label: "Staff Monthly" },
+  { value: "Direct_TeamLeader", label: "DC Daily/Staff Daily" },
   { value: "Direct_SupplyDC", label: "Supply manpower" },
   { value: "Direct_SubContractor", label: "Sub contractor" },
 ];
