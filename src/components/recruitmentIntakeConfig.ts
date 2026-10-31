@@ -54,6 +54,44 @@ export interface RecruitmentPendingEmployee {
   สัญชาติ?: string;
   วันเกิด?: string;
   เลขบัตรประชาชน?: string;
+  อีเมล?: string;
+  สถานภาพสมรส?: string;
+  สถานะทางทหาร?: string;
+  ระดับภาษาอังกฤษ?: string;
+
+  // ที่อยู่ปัจจุบัน (เอกสารจ้างงาน — เพิ่มเข้ามาทีหลังใบสมัครเดิม)
+  บ้านเลขที่?: string;
+  หมู่?: string;
+  ที่อยู่บรรทัด_1?: string; // string รวมที่ฝั่ง Recruitment ประกอบไว้แล้ว (เผื่อไว้/ไม่ได้ใช้โดยตรง)
+  แขวงตำบล?: string;
+  เขตอำเภอ?: string;
+  จังหวัด?: string;
+  ไปรษณีย์?: string;
+
+  // ผู้ติดต่อฉุกเฉิน
+  ผู้ติดต่อฉุกเฉิน_ชื่อ?: string;
+  ผู้ติดต่อฉุกเฉิน_ความสัมพันธ์?: string;
+  ผู้ติดต่อฉุกเฉิน_โทร?: string;
+  ผู้ติดต่อฉุกเฉิน_ที่อยู่?: string;
+
+  // ประวัติส่วนตัวอื่น ๆ
+  เคยถูกให้ออกจากงาน?: string; // "yes" | "no"
+  รายละเอียดการถูกให้ออกจากงาน?: string;
+  ญาติหรือเพื่อนในบริษัท?: string;
+  บันทึกเพิ่มเติม?: string;
+
+  // การศึกษาและประสบการณ์ทำงาน
+  วุฒิการศึกษา?: string;
+  สถาบันการศึกษา?: string;
+  สาขา?: string;
+  ประสบการณ์ทำงาน?: string;
+  ไม่มีประสบการณ์ทำงาน?: boolean;
+  ลักษณะงานที่เคยทำ?: string;
+  ประวัติการทำงาน?: Array<{ company?: string; position?: string; duration?: string; notes?: string }>;
+
+  // เอกสารรวม (PDF ใบสมัคร + เอกสารจ้างงานที่เซ็นแล้ว)
+  fullPacketPdfUrl?: string;
+  detailsSyncedAt?: { seconds: number; nanoseconds: number } | number | string | null;
 
   // ค่าตอบแทน
   payType?: string;

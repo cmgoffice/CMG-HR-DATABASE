@@ -60,6 +60,7 @@ export const ROLE_PERMISSION_MODULES: RolePermissionModule[] = [
   { key: "migrant_workers", label: "แรงงานต่างด้าว" },
   { key: "employee_documents", label: "เอกสารพนักงาน" },
   { key: "recruitment_intake", label: "รายชื่อรอเพิ่มจาก Recruitment" },
+  { key: "training_batches", label: "ส่งพนักงานอบรมก่อนเข้างาน" },
   { key: "activity_logs", label: "Activity Logs" },
   { key: ROLE_PERMISSIONS_MODULE_KEY, label: "จัดการสิทธิ์การเข้าถึงตาม Role" },
 ];
@@ -113,6 +114,8 @@ export const MODULE_DEFAULT_ROLES: Record<string, UserRole[] | "*"> = {
   employee_documents: ["MasterAdmin", "MD", "GM", "PD", "HRM", "HR"],
   // รายชื่อผู้สมัครรอเพิ่มเข้าระบบจาก Recruitment system: HR/HRM เท่านั้น (ตามที่ตกลงกันไว้)
   recruitment_intake: ["MasterAdmin", "HRM", "HR"],
+  // ส่งพนักงานอบรมก่อนเข้างาน: HR/Safety มีสิทธิ์เท่ากัน, Admin Site เลือกคนส่งอบรมได้เช่นกัน
+  training_batches: ["MasterAdmin", "MD", "GM", "PD", "HRM", "HR", "Safety", "Admin Site"],
   activity_logs: ["MasterAdmin", "MD", "GM", "HRM"],
   [ROLE_PERMISSIONS_MODULE_KEY]: ["MasterAdmin"],
 };

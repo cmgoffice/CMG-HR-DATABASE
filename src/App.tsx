@@ -212,6 +212,7 @@ import {
   ArrowLeftRight,
   ListChecks,
   Globe2,
+  GraduationCap,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
@@ -395,12 +396,6 @@ const DEFAULT_SCHEMAS = {
     { id: "ตำแหน่ง", label: "ตำแหน่ง", type: "select", options: [] },
     { id: "แผนก", label: "แผนก", type: "text" },
     {
-      id: "Type",
-      label: "Type",
-      type: "select",
-      options: ["Full-time", "Part-time", "Contract"],
-    },
-    {
       id: "employee_type",
       label: "Employee Type",
       type: "select",
@@ -502,6 +497,8 @@ import { EvaluationPage } from './components/EvaluationPage';
 import { ProjectTransferPage } from './components/ProjectTransferPage';
 import { MigrantWorkerPage } from './components/MigrantWorkerPage';
 import { RecruitmentIntakePage } from './components/RecruitmentIntakePage';
+import { TrainingBatchPage } from './components/TrainingBatchPage';
+import { TRAINING_MANAGE_ROLES } from './components/trainingBatchConfig';
 import { EmployeeDocumentsPage, OPEN_EMPLOYEE_DOCUMENTS_STORAGE_KEY } from './components/EmployeeDocumentsPage';
 import { ApprovalCenterPage } from './components/ApprovalCenterPage';
 import { InfoTooltip } from './components/InfoTooltip';
@@ -688,6 +685,14 @@ const Sidebar = ({ activeModule, setActiveModule, dbConnected, sidebarOpen, onTo
     badge: pendingRecruitsCount > 0 ? pendingRecruitsCount : undefined,
   };
   const showRecruitmentIntake = canSee("recruitment_intake", hasRole(["MasterAdmin", "HRM", "HR"]));
+
+  // ส่งพนักงานอบรมก่อนเข้างาน (Safety Induction): เมนูแยกระดับบนสุด HR/Safety/Admin Site มีสิทธิ์เท่ากัน
+  const trainingBatchesItem: SidebarLinkItem = {
+    id: "training_batches",
+    label: "ส่งพนักงานอบรมก่อนเข้างาน",
+    icon: GraduationCap,
+  };
+  const showTrainingBatches = canSee("training_batches", hasRole(TRAINING_MANAGE_ROLES));
 
   const manpowerItems: SidebarMenuItem[] = [
     ...(canSee("attendance", dfAttendance)
@@ -993,6 +998,7 @@ const Sidebar = ({ activeModule, setActiveModule, dbConnected, sidebarOpen, onTo
         {showDashboard && renderMenuItem(dashboardItem)}
         {showApprovalCenter && renderMenuItem(approvalCenterItem)}
         {showRecruitmentIntake && renderMenuItem(recruitmentIntakeItem)}
+        {showTrainingBatches && renderMenuItem(trainingBatchesItem)}
         {(showDashboard || showApprovalCenter) && <div className="border-t border-slate-800 my-1.5 mx-2" />}
 
         {renderSection("management_section", "การจัดการ", Settings, managementItems)}
@@ -1665,6 +1671,22 @@ function MasterDatabaseApp() {
             label: "ระดับตำแหน่ง",
             type: "select",
             options: ["ปฏิบัติการ", "หัวหน้างาน", "ผู้จัดการ", "ผู้บริหาร"],
+          },
+          // เพิ่มเพื่อใช้กรอกเอกสารอบรม/ใบขอออกบัตร (Safety Induction Training) อัตโนมัติ
+          // ชื่อ-นามสกุลอังกฤษ: กรอกครั้งเดียวเก็บถาวรในโปรไฟล์ (ตัวพิมพ์ใหญ่ตามแบบฟอร์ม)
+          { id: "ชื่ออังกฤษ", label: "ชื่อ (ภาษาอังกฤษ, ตัวพิมพ์ใหญ่)", type: "text" },
+          { id: "นามสกุลอังกฤษ", label: "นามสกุล (ภาษาอังกฤษ, ตัวพิมพ์ใหญ่)", type: "text" },
+          {
+            id: "ศาสนา",
+            label: "ศาสนา",
+            type: "select",
+            options: ["พุทธ", "อิสลาม", "คริสต์", "ฮินดู", "อื่นๆ"],
+          },
+          {
+            id: "กรุ๊ปเลือด",
+            label: "กรุ๊ปเลือด",
+            type: "select",
+            options: ["A", "B", "AB", "O", "ไม่ทราบ"],
           },
         ];
         const isEmployeeSchemaModule = schemaModuleId === "emp_indirect" || schemaModuleId === "emp_direct_leader";
@@ -3122,6 +3144,7 @@ function MasterDatabaseApp() {
     day_off: "วันหยุดบริษัทที่ใช้เป็นฐานตัดวันทำงานในหน้าลงเวลาและหน้า OT",
     approval_center: "รวมรายการรออนุมัติ/รอดำเนินการจากทุกเรื่อง (ย้ายโครงการ ติดตามพนักงาน ประเมินผล ผู้ใช้ใหม่) ไว้หน้าเดียว คลิกรายการเพื่อไปอนุมัติที่หน้าเรื่องนั้นโดยตรง",
     recruitment_intake: "ข้อมูลผู้สมัคร/พนักงานโยกย้ายภายในจากระบบ Recruitment แบบ realtime (อ่านอย่างเดียว ยังไม่มีระบบอนุมัติ/นำเข้า)",
+    training_batches: "สร้างรอบอบรมความปลอดภัยก่อนเข้างาน เลือกรายชื่อพนักงาน ตรวจสอบความครบถ้วนของเอกสาร และบันทึกผลการอบรม ใช้ได้ทุกโครงการ",
     employee_documents: "เก็บเอกสารรายคนของพนักงานทุกกลุ่มที่ไม่ได้มาจากระบบ Recruitment หรือเพิ่มเอกสารเพิ่มเติมภายหลัง กดเข้ามาจากปุ่ม 'เอกสารแนบ' ในตารางพนักงานได้โดยตรง",
   };
   const moduleTooltipContent =
@@ -3189,6 +3212,8 @@ function MasterDatabaseApp() {
                       ? 'ศูนย์อนุมัติ'
                     : activeModule === 'recruitment_intake'
                       ? 'รายชื่อรอเพิ่มจาก Recruitment'
+                    : activeModule === 'training_batches'
+                      ? 'ส่งพนักงานอบรมก่อนเข้างาน'
                     : activeModule === 'activity_logs'
                       ? 'บันทึกกิจกรรมระบบ (Activity Logs)'
                       : config.label}
@@ -3205,7 +3230,7 @@ function MasterDatabaseApp() {
             </div>
           )}
           
-          {activeModule !== 'attendance' && activeModule !== 'overtime' && activeModule !== 'manpower_dashboard' && activeModule !== 'risk_monitoring' && activeModule !== 'project_transfer' && activeModule !== 'evaluation' && activeModule !== 'approval_center' && activeModule !== 'recruitment_intake' && activeModule !== 'employee_documents' && activeModule !== 'activity_logs' && (
+          {activeModule !== 'attendance' && activeModule !== 'overtime' && activeModule !== 'manpower_dashboard' && activeModule !== 'risk_monitoring' && activeModule !== 'project_transfer' && activeModule !== 'evaluation' && activeModule !== 'approval_center' && activeModule !== 'recruitment_intake' && activeModule !== 'employee_documents' && activeModule !== 'training_batches' && activeModule !== 'activity_logs' && (
             <>
               <div className="w-px h-5 bg-gray-200 shrink-0" />
 
@@ -3506,6 +3531,8 @@ function MasterDatabaseApp() {
               <ApprovalCenterPage setActiveModule={setActiveModule} />
             ) : activeModule === 'recruitment_intake' ? (
               <RecruitmentIntakePage projectOptions={projectStatusOptions} />
+            ) : activeModule === 'training_batches' ? (
+              <TrainingBatchPage projectOptions={projectStatusOptions} />
             ) : activeModule === 'employee_documents' ? (
               <EmployeeDocumentsPage />
             ) : activeModule === 'attendance' ? (

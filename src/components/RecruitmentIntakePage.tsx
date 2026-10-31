@@ -80,6 +80,22 @@ interface IntakeFormState {
   โทรศัพท์: string;
   เพศ: string;
   สัญชาติ: string;
+  วันเกิด: string;
+  // ที่อยู่ปัจจุบัน (มาจากแบบฟอร์มเอกสารจ้างงานฝั่ง Recruitment)
+  บ้านเลขที่: string;
+  หมู่: string;
+  แขวงตำบล: string;
+  เขตอำเภอ: string;
+  จังหวัด: string;
+  ไปรษณีย์: string;
+  // ผู้ติดต่อฉุกเฉิน
+  ผู้ติดต่อฉุกเฉิน_ชื่อ: string;
+  ผู้ติดต่อฉุกเฉิน_ความสัมพันธ์: string;
+  ผู้ติดต่อฉุกเฉิน_โทร: string;
+  // การศึกษา
+  วุฒิการศึกษา: string;
+  สถาบันการศึกษา: string;
+  สาขา: string;
 }
 
 export const RecruitmentIntakePage = ({ projectOptions = [] }: { projectOptions?: string[] }) => {
@@ -192,6 +208,19 @@ export const RecruitmentIntakePage = ({ projectOptions = [] }: { projectOptions?
       โทรศัพท์: candidate.โทรศัพท์ || "",
       เพศ: candidate.เพศ || "",
       สัญชาติ: candidate.สัญชาติ || "",
+      วันเกิด: candidate.วันเกิด || "",
+      บ้านเลขที่: candidate.บ้านเลขที่ || "",
+      หมู่: candidate.หมู่ || "",
+      แขวงตำบล: candidate.แขวงตำบล || "",
+      เขตอำเภอ: candidate.เขตอำเภอ || "",
+      จังหวัด: candidate.จังหวัด || "",
+      ไปรษณีย์: candidate.ไปรษณีย์ || "",
+      ผู้ติดต่อฉุกเฉิน_ชื่อ: candidate.ผู้ติดต่อฉุกเฉิน_ชื่อ || "",
+      ผู้ติดต่อฉุกเฉิน_ความสัมพันธ์: candidate.ผู้ติดต่อฉุกเฉิน_ความสัมพันธ์ || "",
+      ผู้ติดต่อฉุกเฉิน_โทร: candidate.ผู้ติดต่อฉุกเฉิน_โทร || "",
+      วุฒิการศึกษา: candidate.วุฒิการศึกษา || "",
+      สถาบันการศึกษา: candidate.สถาบันการศึกษา || "",
+      สาขา: candidate.สาขา || "",
     });
     if (candidate.รหัสพนักงานเดิม) {
       setDuplicateWarning("ℹ️ มีรหัสพนักงานเดิม (เคยเป็นพนักงานมาก่อน) ระบบ prefill รหัสเดิมไว้ให้แล้ว ตรวจสอบก่อนบันทึก");
@@ -252,6 +281,38 @@ export const RecruitmentIntakePage = ({ projectOptions = [] }: { projectOptions?
         โทรศัพท์: form.โทรศัพท์.trim(),
         เพศ: form.เพศ.trim(),
         สัญชาติ: form.สัญชาติ.trim(),
+        วันเกิด: form.วันเกิด.trim(),
+        // ที่อยู่ปัจจุบัน — ใช้รูปแบบเดียวกับข้อมูลพนักงานเดิมในระบบ (มี "ต./อ./จ." นำหน้า)
+        ที่อยู่บรรทัด_1: form.บ้านเลขที่.trim(),
+        ที่อยู่บรรทัด_2: form.หมู่.trim() ? `หมู่ ${form.หมู่.trim()}` : "",
+        แขวงตำบล: form.แขวงตำบล.trim() ? `ต.${form.แขวงตำบล.trim()}` : "",
+        เขตอำเภอ: form.เขตอำเภอ.trim() ? `อ.${form.เขตอำเภอ.trim()}` : "",
+        จังหวัด: form.จังหวัด.trim() ? `จ.${form.จังหวัด.trim()}` : "",
+        ไปรษณีย์: form.ไปรษณีย์.trim(),
+        // ผู้ติดต่อฉุกเฉิน
+        ผู้ติดต่อฉุกเฉิน_ชื่อ: form.ผู้ติดต่อฉุกเฉิน_ชื่อ.trim(),
+        ผู้ติดต่อฉุกเฉิน_ความสัมพันธ์: form.ผู้ติดต่อฉุกเฉิน_ความสัมพันธ์.trim(),
+        ผู้ติดต่อฉุกเฉิน_โทร: form.ผู้ติดต่อฉุกเฉิน_โทร.trim(),
+        // การศึกษา
+        วุฒิการศึกษา: form.วุฒิการศึกษา.trim(),
+        สถาบันการศึกษา: form.สถาบันการศึกษา.trim(),
+        สาขา: form.สาขา.trim(),
+        // ฟิลด์อื่น ๆ ที่ผู้สมัครกรอกตอนทำเอกสารจ้างงาน ไม่มีช่องแก้ในฟอร์มนี้ (ข้อมูลมาครบจาก Recruitment
+        // อยู่แล้ว) จึงคัดลอกมาจาก record ต้นทางตรง ๆ ไม่ให้ตกหล่น
+        อีเมล: formTarget.อีเมล || "",
+        สถานภาพสมรส: formTarget.สถานภาพสมรส || "",
+        สถานะทางทหาร: formTarget.สถานะทางทหาร || "",
+        ระดับภาษาอังกฤษ: formTarget.ระดับภาษาอังกฤษ || "",
+        ผู้ติดต่อฉุกเฉิน_ที่อยู่: formTarget.ผู้ติดต่อฉุกเฉิน_ที่อยู่ || "",
+        เคยถูกให้ออกจากงาน: formTarget.เคยถูกให้ออกจากงาน || "",
+        รายละเอียดการถูกให้ออกจากงาน: formTarget.รายละเอียดการถูกให้ออกจากงาน || "",
+        ญาติหรือเพื่อนในบริษัท: formTarget.ญาติหรือเพื่อนในบริษัท || "",
+        บันทึกเพิ่มเติม: formTarget.บันทึกเพิ่มเติม || "",
+        ประสบการณ์ทำงาน: formTarget.ประสบการณ์ทำงาน || "",
+        ไม่มีประสบการณ์ทำงาน: formTarget.ไม่มีประสบการณ์ทำงาน ?? false,
+        ลักษณะงานที่เคยทำ: formTarget.ลักษณะงานที่เคยทำ || "",
+        ประวัติการทำงาน: formTarget.ประวัติการทำงาน || [],
+        fullPacketPdfUrl: formTarget.fullPacketPdfUrl || "",
         // เก็บลิงก์ย้อนกลับไปหา record ต้นทาง ไว้ตรวจสอบ/แนบเอกสารเพิ่มได้ภายหลัง
         recruitmentSourceId: formTarget.id,
       };
@@ -574,6 +635,14 @@ export const RecruitmentIntakePage = ({ projectOptions = [] }: { projectOptions?
               <Field label="เลขบัตรประชาชน">
                 <input value={form.เลขบัตรประชาชน} onChange={(e) => setForm((f) => (f ? { ...f, เลขบัตรประชาชน: e.target.value } : f))} className="input" />
               </Field>
+              <Field label="วันเกิด">
+                <input
+                  type="date"
+                  value={form.วันเกิด}
+                  onChange={(e) => setForm((f) => (f ? { ...f, วันเกิด: e.target.value } : f))}
+                  className="input"
+                />
+              </Field>
               <Field label="โทรศัพท์">
                 <input value={form.โทรศัพท์} onChange={(e) => setForm((f) => (f ? { ...f, โทรศัพท์: e.target.value } : f))} className="input" />
               </Field>
@@ -583,6 +652,76 @@ export const RecruitmentIntakePage = ({ projectOptions = [] }: { projectOptions?
               <Field label="สัญชาติ">
                 <input value={form.สัญชาติ} onChange={(e) => setForm((f) => (f ? { ...f, สัญชาติ: e.target.value } : f))} className="input" />
               </Field>
+
+              <div className="sm:col-span-2 pt-2 mt-1 border-t text-xs font-semibold text-gray-500 uppercase tracking-wide">
+                ที่อยู่ปัจจุบัน (จากแบบฟอร์มเอกสารจ้างงาน)
+              </div>
+              <Field label="บ้านเลขที่ / หมู่บ้าน">
+                <input value={form.บ้านเลขที่} onChange={(e) => setForm((f) => (f ? { ...f, บ้านเลขที่: e.target.value } : f))} className="input" />
+              </Field>
+              <Field label="หมู่">
+                <input value={form.หมู่} onChange={(e) => setForm((f) => (f ? { ...f, หมู่: e.target.value } : f))} className="input" />
+              </Field>
+              <Field label="ตำบล/แขวง">
+                <input value={form.แขวงตำบล} onChange={(e) => setForm((f) => (f ? { ...f, แขวงตำบล: e.target.value } : f))} className="input" />
+              </Field>
+              <Field label="อำเภอ/เขต">
+                <input value={form.เขตอำเภอ} onChange={(e) => setForm((f) => (f ? { ...f, เขตอำเภอ: e.target.value } : f))} className="input" />
+              </Field>
+              <Field label="จังหวัด">
+                <input value={form.จังหวัด} onChange={(e) => setForm((f) => (f ? { ...f, จังหวัด: e.target.value } : f))} className="input" />
+              </Field>
+              <Field label="รหัสไปรษณีย์">
+                <input value={form.ไปรษณีย์} onChange={(e) => setForm((f) => (f ? { ...f, ไปรษณีย์: e.target.value } : f))} className="input" />
+              </Field>
+
+              <div className="sm:col-span-2 pt-2 mt-1 border-t text-xs font-semibold text-gray-500 uppercase tracking-wide">
+                ผู้ติดต่อฉุกเฉิน
+              </div>
+              <Field label="ชื่อ-สกุล">
+                <input value={form.ผู้ติดต่อฉุกเฉิน_ชื่อ} onChange={(e) => setForm((f) => (f ? { ...f, ผู้ติดต่อฉุกเฉิน_ชื่อ: e.target.value } : f))} className="input" />
+              </Field>
+              <Field label="เกี่ยวข้องเป็น">
+                <input value={form.ผู้ติดต่อฉุกเฉิน_ความสัมพันธ์} onChange={(e) => setForm((f) => (f ? { ...f, ผู้ติดต่อฉุกเฉิน_ความสัมพันธ์: e.target.value } : f))} className="input" />
+              </Field>
+              <Field label="เบอร์โทร">
+                <input value={form.ผู้ติดต่อฉุกเฉิน_โทร} onChange={(e) => setForm((f) => (f ? { ...f, ผู้ติดต่อฉุกเฉิน_โทร: e.target.value } : f))} className="input" />
+              </Field>
+
+              <div className="sm:col-span-2 pt-2 mt-1 border-t text-xs font-semibold text-gray-500 uppercase tracking-wide">
+                การศึกษา
+              </div>
+              <Field label="วุฒิการศึกษา">
+                <input value={form.วุฒิการศึกษา} onChange={(e) => setForm((f) => (f ? { ...f, วุฒิการศึกษา: e.target.value } : f))} className="input" />
+              </Field>
+              <Field label="สถาบันการศึกษา">
+                <input value={form.สถาบันการศึกษา} onChange={(e) => setForm((f) => (f ? { ...f, สถาบันการศึกษา: e.target.value } : f))} className="input" />
+              </Field>
+              <Field label="สาขา">
+                <input value={form.สาขา} onChange={(e) => setForm((f) => (f ? { ...f, สาขา: e.target.value } : f))} className="input" />
+              </Field>
+
+              {(formTarget.ประวัติการทำงาน?.length || formTarget.ลักษณะงานที่เคยทำ) && (
+                <div className="sm:col-span-2 pt-2 mt-1 border-t">
+                  <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">
+                    ประสบการณ์ทำงาน (จากเอกสารจ้างงาน — อ่านอย่างเดียว ย้ายเข้าระบบอัตโนมัติ)
+                  </div>
+                  {formTarget.ประสบการณ์ทำงาน && (
+                    <div className="text-xs text-gray-600 mb-1">ระยะเวลารวม: {formTarget.ประสบการณ์ทำงาน}</div>
+                  )}
+                  {formTarget.ลักษณะงานที่เคยทำ && (
+                    <div className="text-xs text-gray-600 whitespace-pre-line mb-1">{formTarget.ลักษณะงานที่เคยทำ}</div>
+                  )}
+                  {formTarget.ประวัติการทำงาน?.map((job, idx) => (
+                    <div key={idx} className="text-xs text-gray-600 border rounded p-2 mb-1 bg-gray-50">
+                      <span className="font-medium">{job.company || "-"}</span>
+                      {job.position ? ` · ${job.position}` : ""}
+                      {job.duration ? ` (${job.duration})` : ""}
+                      {job.notes ? <div className="text-gray-500 mt-0.5">{job.notes}</div> : null}
+                    </div>
+                  ))}
+                </div>
+              )}
 
               {duplicateWarning && (
                 <div className="sm:col-span-2 text-xs font-medium text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-2">
