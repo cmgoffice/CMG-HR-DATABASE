@@ -775,7 +775,9 @@ export const RecruitmentIntakePage = ({ projectOptions = [] }: { projectOptions?
                       <li key={`${a.url}-${idx}`} className="flex items-center justify-between gap-2 text-sm bg-gray-50 rounded-lg px-3 py-2">
                         <div className="min-w-0">
                           <div className="font-medium text-gray-700 truncate">{a.name}</div>
-                          <div className="text-[11px] text-gray-400">{a.docType}</div>
+                          <div className="text-[11px] text-gray-400">
+                            {documentTypeOptions.find((o) => o.value === a.docType)?.label || a.docType}
+                          </div>
                         </div>
                         <a
                           href={a.url}

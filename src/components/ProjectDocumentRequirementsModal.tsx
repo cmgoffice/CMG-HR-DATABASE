@@ -13,11 +13,15 @@ import {
 import {
   normalizeProjectDocumentRequirements,
   PROJECT_DOCUMENT_APPLIES_TO_OPTIONS,
+  PROJECT_ISSUES_OWN_ACCESS_BADGE_FIELD,
   PROJECT_REQUIRED_DOCUMENTS_FIELD,
   ProjectDocumentAppliesTo,
   ProjectDocumentRequirement,
   resolveDocumentTemplate,
 } from "./projectDocumentConfig";
+
+/** สร้าง id กลุ่มทางเลือกแบบสุ่ม (ใช้แค่จับคู่รายการที่เลือกแทนกันได้ในโครงการเดียวกัน ไม่ต้อง unique ข้ามระบบ) */
+const generateAltGroupId = () => `grp_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 import {
   removeProjectDocumentTemplate,
   uploadProjectDocumentTemplate,
@@ -42,6 +46,9 @@ export const ProjectDocumentRequirementsModal = ({
   const [requirements, setRequirements] = useState<ProjectDocumentRequirement[]>(() =>
     normalizeProjectDocumentRequirements(project[PROJECT_REQUIRED_DOCUMENTS_FIELD])
   );
+  const [issuesOwnAccessBadge, setIssuesOwnAccessBadge] = useState<boolean>(
+    !!project[PROJECT_ISSUES_OWN_ACCESS_BADGE_FIELD]
+  );
   const [newTypeLabel, setNewTypeLabel] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -49,8 +56,43 @@ export const ProjectDocumentRequirementsModal = ({
   const [editingLabel, setEditingLabel] = useState("");
   const [busyValue, setBusyValue] = useState<string | null>(null);
   const [templateBusyValue, setTemplateBusyValue] = useState<string | null>(null);
+  const [groupPanelOpen, setGroupPanelOpen] = useState(false);
+  const [groupSelection, setGroupSelection] = useState<Set<string>>(new Set());
 
   const selectedDocTypes = useMemo(() => new Set(requirements.map((r) => r.docType)), [requirements]);
+
+  // กลุ่มทางเลือกที่ตั้งไว้แล้ว (altGroupId เดียวกัน = เลือกอย่างใดอย่างหนึ่งก็พอ เช่น ประกันสังคม/ประกันอุบัติเหตุ/ประกันกลุ่ม)
+  const existingGroups = useMemo(() => {
+    const map = new Map<string, ProjectDocumentRequirement[]>();
+    requirements.forEach((r) => {
+      if (!r.altGroupId) return;
+      const arr = map.get(r.altGroupId) || [];
+      arr.push(r);
+      map.set(r.altGroupId, arr);
+    });
+    return Array.from(map.entries());
+  }, [requirements]);
+
+  const toggleGroupSelection = (docType: string) => {
+    setGroupSelection((prev) => {
+      const next = new Set(prev);
+      if (next.has(docType)) next.delete(docType);
+      else next.add(docType);
+      return next;
+    });
+  };
+
+  const handleCreateGroup = () => {
+    if (groupSelection.size < 2) return;
+    const groupId = generateAltGroupId();
+    setRequirements((prev) => prev.map((r) => (groupSelection.has(r.docType) ? { ...r, altGroupId: groupId } : r)));
+    setGroupSelection(new Set());
+    setGroupPanelOpen(false);
+  };
+
+  const handleUngroup = (groupId: string) => {
+    setRequirements((prev) => prev.map((r) => (r.altGroupId === groupId ? { ...r, altGroupId: undefined } : r)));
+  };
 
   const toggleType = (docType: string, label: string) => {
     setRequirements((prev) => {
@@ -63,6 +105,16 @@ export const ProjectDocumentRequirementsModal = ({
 
   const updateAppliesTo = (docType: string, appliesTo: ProjectDocumentAppliesTo) => {
     setRequirements((prev) => prev.map((r) => (r.docType === docType ? { ...r, appliesTo } : r)));
+  };
+
+  const toggleFulfillmentType = (docType: string) => {
+    setRequirements((prev) =>
+      prev.map((r) =>
+        r.docType === docType
+          ? { ...r, fulfillmentType: r.fulfillmentType === "generated_by_system" ? "employee_upload" : "generated_by_system" }
+          : r
+      )
+    );
   };
 
   const removeRequirement = (docType: string) => {
@@ -221,6 +273,7 @@ export const ProjectDocumentRequirementsModal = ({
       const db = getFirestore();
       await updateDoc(doc(db, "CMG-HR-Database", "root", "projects", project.id), {
         [PROJECT_REQUIRED_DOCUMENTS_FIELD]: requirements,
+        [PROJECT_ISSUES_OWN_ACCESS_BADGE_FIELD]: issuesOwnAccessBadge,
       });
       onClose();
     } catch (err) {
@@ -257,6 +310,23 @@ export const ProjectDocumentRequirementsModal = ({
           </button>
         </div>
 
+        <div className="px-5 pt-4 pb-1">
+          <label className="flex items-start gap-2.5 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2.5 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={issuesOwnAccessBadge}
+              onChange={(e) => setIssuesOwnAccessBadge(e.target.checked)}
+              className="w-4 h-4 mt-0.5 rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer shrink-0"
+            />
+            <span className="text-xs text-gray-700">
+              <span className="font-semibold text-gray-800">CMG เป็นคนออกบัตรผ่านเข้าโครงการนี้เอง</span> (ไม่ติ๊ก = โครงการ/
+              ผู้ว่าจ้างเป็นคนทำบัตรให้ หลังอบรมผ่านแล้วรอรับบัตรจริงกลับมา ระบบจะให้ Safety/Admin แนบรูปบัตร
+              หรือกรอกเลขบัตรที่ได้รับรายคน เพื่อปิดรอบอบรมของคนนั้น — ไม่เกี่ยวกับปุ่ม "ใบขอออกบัตร" ที่มีอยู่แล้ว
+              ซึ่งเป็นแค่เอกสารขอ ใช้ได้ไม่ว่าใครเป็นคนออกบัตรจริง)
+            </span>
+          </label>
+        </div>
+
         <div className="p-5 flex-1 overflow-y-auto flex flex-col gap-2">
           {catalog.map((opt) => {
             const checked = selectedDocTypes.has(opt.value);
@@ -289,7 +359,12 @@ export const ProjectDocumentRequirementsModal = ({
                       className="flex-1 border rounded-lg px-2 py-1 text-sm outline-none focus:ring-2 focus:ring-blue-100"
                     />
                   ) : (
-                    <span className="flex-1 text-sm text-gray-800">{checked ? current?.label || opt.label : opt.label}</span>
+                    <span className="flex-1 text-sm text-gray-800">
+                    {checked ? current?.label || opt.label : opt.label}
+                    {checked && current?.altGroupId && (
+                      <span className="ml-1.5 text-[10px] font-normal text-indigo-600 align-middle">(กลุ่มทางเลือก)</span>
+                    )}
+                  </span>
                   )}
                   {checked && !isEditing && (
                     <select
@@ -353,6 +428,20 @@ export const ProjectDocumentRequirementsModal = ({
                     </>
                   )}
                 </div>
+
+                {checked && (
+                  <div className="ml-7 mt-1.5 flex items-center gap-1.5">
+                    <label className="flex items-center gap-1.5 text-xs text-gray-600 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={current?.fulfillmentType === "generated_by_system"}
+                        onChange={() => toggleFulfillmentType(opt.value)}
+                        className="w-3.5 h-3.5 rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
+                      />
+                      เป็นแบบฟอร์มที่ระบบ/HR สร้างให้เองตอนจบ (ไม่ต้องรอพนักงานอัปโหลด ไม่นับเป็นเอกสารขาด)
+                    </label>
+                  </div>
+                )}
 
                 {checked && (
                   <div className="ml-7 mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
@@ -425,6 +514,87 @@ export const ProjectDocumentRequirementsModal = ({
               </div>
             );
           })}
+
+          <div className="border-t pt-3 mt-2">
+            <p className="text-xs font-semibold text-gray-600 mb-1.5">
+              กลุ่มเอกสารทางเลือก (เลือกอย่างใดอย่างหนึ่งก็พอ)
+            </p>
+            <p className="text-[11px] text-gray-400 mb-2">
+              ใช้กรณีเอกสารหลายรายการใช้แทนกันได้ เช่น "ประกันสังคม ม.33/ม.40" หรือ "ประกันอุบัติเหตุ" หรือ
+              "ประกันกลุ่ม" อย่างใดอย่างหนึ่งก็ถือว่าครบ — ไม่ต้องมีให้ครบทุกข้อ
+            </p>
+            {existingGroups.map(([groupId, items]) => (
+              <div
+                key={groupId}
+                className="flex items-center gap-2 flex-wrap bg-indigo-50 border border-indigo-200 rounded-lg px-3 py-2 mb-2 text-xs"
+              >
+                <span className="text-indigo-700 font-medium whitespace-nowrap">เลือก 1 ใน:</span>
+                {items.map((it) => (
+                  <span key={it.docType} className="px-2 py-0.5 bg-white border border-indigo-200 rounded-full text-indigo-700">
+                    {it.label}
+                  </span>
+                ))}
+                <button
+                  onClick={() => handleUngroup(groupId)}
+                  title="ยกเลิกกลุ่มนี้ (กลับไปเป็นรายการเดี่ยว ๆ)"
+                  className="ml-auto text-gray-400 hover:text-red-500 p-0.5"
+                >
+                  <X size={12} />
+                </button>
+              </div>
+            ))}
+            {!groupPanelOpen ? (
+              <button
+                onClick={() => setGroupPanelOpen(true)}
+                disabled={requirements.filter((r) => !r.altGroupId).length < 2}
+                className="inline-flex items-center gap-1 text-xs font-medium text-indigo-600 hover:underline disabled:opacity-40 disabled:no-underline"
+              >
+                <Plus size={12} /> สร้างกลุ่มทางเลือกใหม่
+              </button>
+            ) : (
+              <div className="border border-indigo-200 bg-indigo-50/40 rounded-lg p-3 flex flex-col gap-2">
+                <p className="text-xs text-gray-600">
+                  เลือกอย่างน้อย 2 รายการ (เฉพาะรายการที่ติ๊กไว้ด้านบนแล้ว และยังไม่อยู่ในกลุ่มอื่น) ที่ใช้แทนกันได้:
+                </p>
+                <div className="flex flex-col gap-1 max-h-36 overflow-y-auto">
+                  {requirements
+                    .filter((r) => !r.altGroupId)
+                    .map((r) => (
+                      <label key={r.docType} className="flex items-center gap-2 text-xs text-gray-700 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={groupSelection.has(r.docType)}
+                          onChange={() => toggleGroupSelection(r.docType)}
+                          className="w-3.5 h-3.5 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                        />
+                        {r.label}
+                      </label>
+                    ))}
+                  {requirements.filter((r) => !r.altGroupId).length === 0 && (
+                    <p className="text-[11px] text-gray-400">ไม่มีรายการที่ยังไม่ได้จัดกลุ่ม</p>
+                  )}
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    onClick={handleCreateGroup}
+                    disabled={groupSelection.size < 2}
+                    className="px-3 py-1.5 bg-indigo-600 text-white rounded-lg text-xs font-semibold hover:bg-indigo-700 disabled:opacity-40"
+                  >
+                    สร้างกลุ่ม ({groupSelection.size})
+                  </button>
+                  <button
+                    onClick={() => {
+                      setGroupPanelOpen(false);
+                      setGroupSelection(new Set());
+                    }}
+                    className="px-3 py-1.5 text-gray-500 text-xs hover:bg-gray-100 rounded-lg"
+                  >
+                    ยกเลิก
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
 
           <div className="border-t pt-3 mt-2 flex items-center gap-2">
             <input

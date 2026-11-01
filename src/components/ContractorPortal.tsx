@@ -15,6 +15,7 @@ import {
   X,
 } from "lucide-react";
 import { HIRING_DOC_TYPE_OPTIONS, HiringAttachment } from "./recruitmentIntakeConfig";
+import { useDocumentTypeCatalog } from "./documentTypeCatalog";
 import { uploadHiringDocumentFile, appendAttachmentToEmployee } from "../utils/hiringDocsAttachments";
 import {
   buildEmployeeFullName,
@@ -322,6 +323,9 @@ const ContractorEmployeeRow = ({
   requirements: ProjectDocumentRequirement[];
 }) => {
   const db = getFirestore();
+  // ใช้ catalog กลาง (ไม่ใช่แค่ HIRING_DOC_TYPE_OPTIONS คงที่) เพื่อให้เลือก/แสดงชื่อเอกสารที่ HR เพิ่มเองได้ด้วย
+  // (เช่น "ใบคำร้องขอมีบัตรผ่านบุคคล" ที่บางโครงการกำหนดเพิ่ม) และแปลโค้ด docType เป็นชื่อไทยให้ถูกต้องเสมอ
+  const documentTypeOptions = useDocumentTypeCatalog();
   const [expanded, setExpanded] = useState(false);
   const [docType, setDocType] = useState<string>(HIRING_DOC_TYPE_OPTIONS[0]?.value || "");
   const [file, setFile] = useState<File | null>(null);
@@ -422,7 +426,10 @@ const ContractorEmployeeRow = ({
             <ul className="flex flex-col gap-1">
               {(employee.attachments || []).map((a, idx) => (
                 <li key={`${a.url}-${idx}`} className="flex items-center justify-between gap-2 text-xs bg-white rounded-lg px-2.5 py-1.5 border border-gray-200">
-                  <span className="flex items-center gap-1.5 text-gray-600 truncate"><Paperclip size={12} /> {a.name} <span className="text-gray-400">({a.docType})</span></span>
+                  <span className="flex items-center gap-1.5 text-gray-600 truncate">
+                    <Paperclip size={12} /> {a.name}{" "}
+                    <span className="text-gray-400">({documentTypeOptions.find((o) => o.value === a.docType)?.label || a.docType})</span>
+                  </span>
                   <a href={a.url} target="_blank" rel="noreferrer" className="text-blue-600 hover:underline shrink-0">เปิดไฟล์</a>
                 </li>
               ))}
@@ -431,7 +438,7 @@ const ContractorEmployeeRow = ({
 
           <div className="flex flex-wrap items-center gap-2">
             <select value={docType} onChange={(e) => setDocType(e.target.value)} className="input !w-auto">
-              {HIRING_DOC_TYPE_OPTIONS.map((o) => (
+              {documentTypeOptions.map((o) => (
                 <option key={o.value} value={o.value}>{o.label}</option>
               ))}
             </select>
@@ -479,6 +486,7 @@ const AddNewMemberForm = ({
   onSubmitted: () => void;
 }) => {
   const db = getFirestore();
+  const documentTypeOptions = useDocumentTypeCatalog();
   const [pendingKey] = useState<string>(() => `contractor-pending-${createLocalId()}`);
   const [fullName, setFullName] = useState("");
   const [position, setPosition] = useState("");
@@ -569,7 +577,10 @@ const AddNewMemberForm = ({
         <ul className="flex flex-col gap-1">
           {attachments.map((a, idx) => (
             <li key={`${a.url}-${idx}`} className="flex items-center justify-between gap-2 text-xs bg-white rounded-lg px-2.5 py-1.5 border border-gray-200">
-              <span className="flex items-center gap-1.5 text-gray-600 truncate"><Paperclip size={12} /> {a.name} <span className="text-gray-400">({a.docType})</span></span>
+              <span className="flex items-center gap-1.5 text-gray-600 truncate">
+                <Paperclip size={12} /> {a.name}{" "}
+                <span className="text-gray-400">({documentTypeOptions.find((o) => o.value === a.docType)?.label || a.docType})</span>
+              </span>
               <button onClick={() => handleRemoveAttachment(idx)} className="text-gray-300 hover:text-red-500 shrink-0"><X size={13} /></button>
             </li>
           ))}
@@ -578,7 +589,7 @@ const AddNewMemberForm = ({
 
       <div className="flex flex-wrap items-center gap-2">
         <select value={docType} onChange={(e) => setDocType(e.target.value)} className="input !w-auto">
-          {HIRING_DOC_TYPE_OPTIONS.map((o) => (
+          {documentTypeOptions.map((o) => (
             <option key={o.value} value={o.value}>{o.label}</option>
           ))}
         </select>

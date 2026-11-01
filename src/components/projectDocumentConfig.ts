@@ -18,6 +18,15 @@ export const PROJECT_DOCUMENT_APPLIES_TO_OPTIONS: Array<{ value: ProjectDocument
   { value: "migrant", label: "เฉพาะแรงงานต่างด้าว" },
 ];
 
+/**
+ * วิธีที่เอกสารรายการนี้จะ "ครบ" ได้:
+ * - "employee_upload" (ค่าเริ่มต้น): พนักงาน/HR ต้องสแกน/ถ่ายรูปเอกสารจริงแล้วอัปโหลดเข้าระบบ
+ * - "generated_by_system": เป็นแค่แบบฟอร์มเปล่า (template) ที่ระบบ/HR กรอก-สร้างให้เองตอนจบขั้นตอน
+ *   (เช่น "ใบคำร้องขอมีบัตรผ่านบุคคล" ที่สร้างจากปุ่ม "ใบขอออกบัตร" ในหน้ารอบอบรม) — ไม่ต้องรอพนักงานอัปโหลด
+ *   และไม่นับเป็น "เอกสารขาด" ในการแจ้งเตือน
+ */
+export type ProjectDocumentFulfillmentType = "employee_upload" | "generated_by_system";
+
 export interface ProjectDocumentRequirement {
   docType: string; // ตรงกับ value ใน documentTypeCatalog
   label: string; // snapshot ชื่อไว้แสดงผล เผื่อ catalog เปลี่ยนชื่อภายหลัง
@@ -26,9 +35,25 @@ export interface ProjectDocumentRequirement {
   templateUrl?: string;
   templateFileName?: string;
   templateUploadedAt?: number;
+  /** ดูคำอธิบาย ProjectDocumentFulfillmentType — ไม่ระบุ = ถือเป็น "employee_upload" (ของเดิม) */
+  fulfillmentType?: ProjectDocumentFulfillmentType;
+  /**
+   * รายการที่มี altGroupId เดียวกัน = เป็น "ทางเลือก" ของกันและกัน (เลือกอย่างใดอย่างหนึ่งก็พอ ไม่ต้องมีครบทุกข้อ)
+   * เช่น "ประกันสังคม ม.33/ม.40" หรือ "ประกันอุบัติเหตุ (กรณีไม่มีประกันสังคม)" หรือ "ประกันกลุ่ม (กรณีไม่มีประกันสังคม)"
+   * มีไฟล์แนบของข้อใดข้อหนึ่งในกลุ่มนี้ก็ถือว่า "ครบ" ทั้งกลุ่มแล้ว ไม่ถูกนับเป็นเอกสารขาดอีก 2 รายการที่เหลือ
+   */
+  altGroupId?: string;
 }
 
 export const PROJECT_REQUIRED_DOCUMENTS_FIELD = "required_documents";
+
+/**
+ * true = CMG เป็นคนออกบัตรผ่านเข้าโครงการนี้เอง (เรื่องการ "ทำบัตรจริง" เท่านั้น — ไม่เกี่ยวกับปุ่ม
+ * "ใบขอออกบัตร"/accessBadgeRequestPdf.ts ซึ่งเป็นแค่เอกสารขอที่ใช้ได้ทุกโครงการไม่ว่าใครเป็นคนออกบัตรจริง)
+ * false/ไม่ระบุ = โครงการ/ผู้ว่าจ้างเป็นคนทำบัตรให้เอง หลังอบรมผ่านแล้วรอรับบัตรจริงกลับมา ให้ Safety/Admin
+ * แนบรูปบัตร/กรอกเลขบัตรรายคนเพื่อปิดรอบอบรมนั้น ๆ แทน (ดู TrainingBatchPage.tsx)
+ */
+export const PROJECT_ISSUES_OWN_ACCESS_BADGE_FIELD = "issues_own_access_badge";
 
 export const normalizeProjectDocumentRequirements = (value: unknown): ProjectDocumentRequirement[] => {
   if (!Array.isArray(value)) return [];
@@ -45,10 +70,15 @@ export const normalizeProjectDocumentRequirements = (value: unknown): ProjectDoc
       const templateUrl = String(source.templateUrl || "").trim();
       const templateFileName = String(source.templateFileName || "").trim();
       const templateUploadedAt = Number(source.templateUploadedAt || 0);
+      const fulfillmentType: ProjectDocumentFulfillmentType =
+        source.fulfillmentType === "generated_by_system" ? "generated_by_system" : "employee_upload";
+      const altGroupId = String(source.altGroupId || "").trim();
       return {
         docType,
         label: label || docType,
         appliesTo,
+        fulfillmentType,
+        ...(altGroupId ? { altGroupId } : {}),
         ...(templateUrl ? { templateUrl, templateFileName, templateUploadedAt } : {}),
       };
     })
@@ -84,24 +114,64 @@ export const getApplicableRequirements = (
 ): ProjectDocumentRequirement[] =>
   requirements.filter((req) => req.appliesTo === "all" || (isMigrant ? req.appliesTo === "migrant" : req.appliesTo === "thai"));
 
-export interface DocumentCompletenessResult {
-  complete: boolean;
-  missing: ProjectDocumentRequirement[];
+/**
+ * "หน่วย" เอกสาร 1 รายการที่ใช้ตรวจความครบ — ปกติคือรายการเดี่ยว ๆ (options มี 1 ตัว)
+ * แต่ถ้าเป็นกลุ่มทางเลือก (altGroupId เดียวกัน) จะรวมเป็นหน่วยเดียว options มีหลายตัว
+ * ให้เลือก "อย่างใดอย่างหนึ่ง" ในนั้นก็ถือว่าครบทั้งหน่วย — ไม่นับว่าขาดอีก options ที่เหลือ
+ */
+export interface RequirementUnit {
+  key: string; // altGroupId หรือ docType (ถ้าเป็นรายการเดี่ยว)
+  label: string; // ชื่อเดี่ยว หรือรวมชื่อทุกทางเลือกด้วย " หรือ " ถ้าเป็นกลุ่ม
+  options: ProjectDocumentRequirement[];
 }
 
-/** ตรวจว่าพนักงานมีเอกสารตามที่โครงการกำหนดครบหรือไม่ (เทียบ attachments[].docType) */
+/** รวมรายการที่มี altGroupId เดียวกันเข้าเป็นหน่วยเดียว ส่วนรายการเดี่ยว ๆ ก็เป็นหน่วยของตัวเอง */
+export const groupRequirements = (requirements: ProjectDocumentRequirement[]): RequirementUnit[] => {
+  const groups = new Map<string, ProjectDocumentRequirement[]>();
+  const units: RequirementUnit[] = [];
+  requirements.forEach((req) => {
+    if (req.altGroupId) {
+      const arr = groups.get(req.altGroupId) || [];
+      arr.push(req);
+      groups.set(req.altGroupId, arr);
+    } else {
+      units.push({ key: req.docType, label: req.label, options: [req] });
+    }
+  });
+  groups.forEach((options, groupId) => {
+    units.push({ key: groupId, label: options.map((o) => o.label).join(" หรือ "), options });
+  });
+  return units;
+};
+
+export interface DocumentCompletenessResult {
+  complete: boolean;
+  missing: RequirementUnit[];
+}
+
+/** ตรวจว่าพนักงานมีเอกสารตามที่โครงการกำหนดครบหรือไม่ (เทียบ attachments[].docType)
+ * กลุ่มทางเลือก (altGroupId เดียวกัน) ถือว่าครบถ้ามีไฟล์ของข้อใดข้อหนึ่งในกลุ่มนั้น */
 export const checkProjectDocumentCompleteness = (
   attachments: Array<{ docType?: string }> | undefined,
   requirements: ProjectDocumentRequirement[],
   isMigrant: boolean
 ): DocumentCompletenessResult => {
-  const applicable = getApplicableRequirements(requirements, isMigrant);
-  if (applicable.length === 0) {
-    // ไม่มีการตั้งค่าเอกสารบังคับของโครงการนี้ — ใช้กติกาเดิม (มีไฟล์แนบอย่างน้อย 1 ไฟล์)
+  if (requirements.length === 0) {
+    // ไม่มีการตั้งค่าเอกสารบังคับของโครงการนี้เลย — ใช้กติกาเดิม (มีไฟล์แนบอย่างน้อย 1 ไฟล์)
     return { complete: (attachments || []).length > 0, missing: [] };
   }
+  // รายการแบบ "generated_by_system" (เช่น ใบคำร้องขอมีบัตรผ่านบุคคล ที่สร้างจากระบบตอนจบ ไม่ใช่เอกสารที่
+  // พนักงานต้องอัปโหลด) ไม่ถูกนับเป็น "เอกสารขาด" — ตัดออกจากการตรวจความครบ
+  const applicable = getApplicableRequirements(requirements, isMigrant).filter(
+    (req) => req.fulfillmentType !== "generated_by_system"
+  );
+  if (applicable.length === 0) {
+    // ทุกรายการที่บังคับใช้กับคนนี้เป็นแบบ generated_by_system (หรือไม่มีรายการที่บังคับใช้กับคนนี้เลย) — ถือว่าครบ
+    return { complete: true, missing: [] };
+  }
   const haveTypes = new Set((attachments || []).map((a) => String(a?.docType || "").trim()));
-  const missing = applicable.filter((req) => !haveTypes.has(req.docType));
+  const units = groupRequirements(applicable);
+  const missing = units.filter((unit) => !unit.options.some((opt) => haveTypes.has(opt.docType)));
   return { complete: missing.length === 0, missing };
 };
 

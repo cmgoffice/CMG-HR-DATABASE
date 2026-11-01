@@ -146,6 +146,20 @@ export interface TrainingDocumentSnapshot {
   checkedAt: number;
 }
 
+/**
+ * บัตรผ่านเข้าโครงการที่ได้รับจริง — ใช้กรณีโครงการ "ไม่ได้ออกบัตรเอง" (ผู้ว่าจ้าง/โครงการทำบัตรให้แล้ว
+ * ส่งกลับมา) Safety/Admin แนบรูปบัตรหรือกรอกเลขบัตรอย่างใดอย่างหนึ่งก็ได้เพื่อปิดรอบอบรมของคนนั้น
+ * (ดู PROJECT_ISSUES_OWN_ACCESS_BADGE_FIELD ใน projectDocumentConfig.ts)
+ */
+export interface TrainingAccessBadgeReceived {
+  cardNumber?: string;
+  cardImageUrl?: string;
+  cardImageName?: string;
+  receivedAt: number;
+  recordedByUid?: string;
+  recordedByName?: string;
+}
+
 export interface TrainingEnrollment {
   id: string;
   batchId: string;
@@ -164,6 +178,7 @@ export interface TrainingEnrollment {
   healthCheckRecordId?: string; // อ้างอิงไปยัง health_check_records (ประวัติถาวร) รายการล่าสุดของรอบนี้
   documentSnapshot?: TrainingDocumentSnapshot;
   badgeRequestFileUrl?: string; // ไฟล์สแกนใบขอออกบัตรที่เซ็นแล้ว (print_sign_scan)
+  accessBadgeReceived?: TrainingAccessBadgeReceived; // บัตรที่ได้รับจริง (โครงการที่ไม่ได้ออกบัตรเอง)
   status: TrainingEnrollmentStatus;
   resultNote?: string;
   enrolledByUid?: string;

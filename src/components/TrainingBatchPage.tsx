@@ -9,6 +9,7 @@ import {
   ChevronUp,
   Copy,
   Download,
+  Eye,
   FileSpreadsheet,
   GraduationCap,
   Inbox,
@@ -18,6 +19,7 @@ import {
   Search,
   Stethoscope,
   Trash2,
+  Upload as UploadIcon,
   UserPlus,
   Users,
   X,
@@ -58,9 +60,13 @@ import {
   buildProjectAliasGroups,
   buildProjectDisplayKeys,
   checkProjectDocumentCompleteness,
+  getApplicableRequirements,
+  groupRequirements,
   isSameProjectName,
   normalizeProjectDocumentRequirements,
+  PROJECT_ISSUES_OWN_ACCESS_BADGE_FIELD,
   ProjectDocumentRequirement,
+  RequirementUnit,
 } from "./projectDocumentConfig";
 import {
   buildContractorPortalUrl,
@@ -73,6 +79,9 @@ import {
   TrainingContractorLink,
   TrainingPendingMember,
 } from "./contractorPortalConfig";
+import { useDocumentTypeCatalog } from "./documentTypeCatalog";
+import { HiringAttachment } from "./recruitmentIntakeConfig";
+import { appendAttachmentToEmployee, uploadHiringDocumentFile } from "../utils/hiringDocsAttachments";
 
 export interface EmployeeRow {
   id: string;
@@ -197,20 +206,28 @@ export const TrainingBatchPage = ({ projectOptions = [] }: { projectOptions?: st
   const [projectDocRequirements, setProjectDocRequirements] = useState<Map<string, ProjectDocumentRequirement[]>>(new Map());
   // alias ของชื่อโครงการ (เช่น "J74" <-> "PRJ-2026-J-074 - Building GMTP") สำหรับจับคู่ข้อมูลพนักงานเก่าที่กรอกโครงการเป็นรหัสสั้น
   const [projectAliasGroups, setProjectAliasGroups] = useState<string[][]>([]);
+  // true = CMG เป็นคนออกบัตรผ่านเข้าโครงการนี้เอง (เรื่องทำบัตรจริง ไม่เกี่ยวกับปุ่ม "ใบขอออกบัตร" ที่มีอยู่แล้ว
+  // ซึ่งเป็นแค่เอกสารขอ ใช้ได้ทุกโครงการ) / false หรือไม่พบ = โครงการ/ผู้ว่าจ้างทำบัตรให้เอง — ให้ Safety/Admin
+  // แนบรูปบัตร/กรอกเลขบัตรที่ได้รับกลับมาแทน เพื่อปิดรอบอบรมรายคน
+  const [projectIssuesOwnBadge, setProjectIssuesOwnBadge] = useState<Map<string, boolean>>(new Map());
   useEffect(() => {
     const unsub = onSnapshot(collection(db, "CMG-HR-Database", "root", "projects"), (snap) => {
       const map = new Map<string, ProjectDocumentRequirement[]>();
+      const badgeMap = new Map<string, boolean>();
       const rawProjects: Array<{ project_no?: unknown; project_name?: unknown }> = [];
       snap.docs.forEach((d) => {
         const data = d.data() as Record<string, unknown>;
         rawProjects.push({ project_no: data.project_no, project_name: data.project_name });
+        const displayKeys = buildProjectDisplayKeys({ project_no: data.project_no, project_name: data.project_name });
         const requirements = normalizeProjectDocumentRequirements(data.required_documents);
-        if (requirements.length === 0) return;
-        buildProjectDisplayKeys({ project_no: data.project_no, project_name: data.project_name }).forEach((key) => {
-          map.set(key, requirements);
-        });
+        if (requirements.length > 0) {
+          displayKeys.forEach((key) => map.set(key, requirements));
+        }
+        const issuesOwnBadge = !!data[PROJECT_ISSUES_OWN_ACCESS_BADGE_FIELD];
+        displayKeys.forEach((key) => badgeMap.set(key, issuesOwnBadge));
       });
       setProjectDocRequirements(map);
+      setProjectIssuesOwnBadge(badgeMap);
       setProjectAliasGroups(buildProjectAliasGroups(rawProjects));
     });
     return () => unsub();
@@ -336,6 +353,7 @@ export const TrainingBatchPage = ({ projectOptions = [] }: { projectOptions?: st
         employees={employees}
         canManage={canManage}
         documentRequirements={projectDocRequirements.get(activeBatch.project) || []}
+        issuesOwnAccessBadge={projectIssuesOwnBadge.get(activeBatch.project) ?? false}
         projectAliasGroups={projectAliasGroups}
         alreadyTrainedEmployeeIds={projectEnrolledEmployeeIds}
         onBack={() => setActiveBatchId(null)}
@@ -617,6 +635,7 @@ const TrainingBatchDetail = ({
   employees,
   canManage,
   documentRequirements,
+  issuesOwnAccessBadge,
   projectAliasGroups,
   alreadyTrainedEmployeeIds,
   onBack,
@@ -627,6 +646,7 @@ const TrainingBatchDetail = ({
   employees: EmployeeRow[];
   canManage: boolean;
   documentRequirements: ProjectDocumentRequirement[];
+  issuesOwnAccessBadge: boolean;
   projectAliasGroups: string[][];
   alreadyTrainedEmployeeIds: Set<string>;
   onBack: () => void;
@@ -638,7 +658,9 @@ const TrainingBatchDetail = ({
   const [healthRecords, setHealthRecords] = useState<HealthCheckRecord[]>([]);
   const [clinicLinkCopied, setClinicLinkCopied] = useState(false);
   const [generatingLink, setGeneratingLink] = useState(false);
-  const [expandedHealthRow, setExpandedHealthRow] = useState<string | null>(null);
+  // รายละเอียดรายคน (เอกสาร + ผลตรวจสุขภาพ + โรคประจำตัว) รวมอยู่ในป็อบอัพเดียว แทนการขยายแถวตาราง
+  // (ตารางแคบเกินไปสำหรับฟอร์มอัปโหลดเอกสาร)
+  const [detailsEnrollmentId, setDetailsEnrollmentId] = useState<string | null>(null);
   const [showSharedUpload, setShowSharedUpload] = useState(false);
   const [scheduleDate, setScheduleDate] = useState(batch.healthCheckDate || "");
   const [scheduleTimeSlot, setScheduleTimeSlot] = useState(batch.healthCheckTimeSlot || "");
@@ -666,6 +688,13 @@ const TrainingBatchDetail = ({
     !!(batch.healthCheckTimeSlot || "").trim() &&
     !!(batch.healthCheckLocation || "").trim();
   const enrolledIds = useMemo(() => new Set(enrollments.map((e) => e.employeeId)), [enrollments]);
+  // ใช้ join สดกับข้อมูลพนักงานล่าสุด (employee_data) แทนการพึ่ง documentSnapshot ที่ freeze ไว้ตอนเพิ่มเข้ารอบ
+  // เพื่อให้เอกสารที่อัปโหลดเพิ่มทีหลัง (ไม่ว่าจะอัปจากหน้าเอกสารพนักงาน หรือจากหน้านี้เอง) อัปเดตสถานะทันที
+  const employeeById = useMemo(() => {
+    const map = new Map<string, EmployeeRow>();
+    employees.forEach((e) => map.set(e.id, e));
+    return map;
+  }, [employees]);
 
   useEffect(() => {
     const q = query(
@@ -1386,6 +1415,10 @@ const TrainingBatchDetail = ({
                 <th className="p-3 text-left font-semibold text-gray-600 border-b whitespace-nowrap">เอกสาร</th>
                 <th className="p-3 text-left font-semibold text-gray-600 border-b whitespace-nowrap">ผลตรวจสุขภาพ</th>
                 <th className="p-3 text-left font-semibold text-gray-600 border-b whitespace-nowrap">ผลอบรม</th>
+                {!issuesOwnAccessBadge && (
+                  <th className="p-3 text-left font-semibold text-gray-600 border-b whitespace-nowrap">บัตรพนักงาน</th>
+                )}
+                <th className="p-3 text-center font-semibold text-gray-600 border-b whitespace-nowrap">รายละเอียด</th>
                 {canManage && <th className="p-3 text-center font-semibold text-gray-600 border-b whitespace-nowrap">จัดการ</th>}
               </tr>
             </thead>
@@ -1394,10 +1427,12 @@ const TrainingBatchDetail = ({
                 <EnrollmentRow
                   key={en.id}
                   enrollment={en}
+                  employee={employeeById.get(en.employeeId)}
+                  documentRequirements={documentRequirements}
+                  issuesOwnAccessBadge={issuesOwnAccessBadge}
                   canManage={canManage}
                   latestHealthRecord={recordByEmployee.get(en.employeeId)}
-                  isHealthExpanded={expandedHealthRow === en.id}
-                  onToggleHealthExpand={() => setExpandedHealthRow((prev) => (prev === en.id ? null : en.id))}
+                  onOpenDetails={() => setDetailsEnrollmentId(en.id)}
                   onRemove={() => handleRemove(en)}
                   onUpdate={(patch) => handleUpdateEnrollment(en, patch)}
                 />
@@ -1406,6 +1441,23 @@ const TrainingBatchDetail = ({
           </table>
         )}
       </div>
+
+      {detailsEnrollmentId && (() => {
+        const detailEnrollment = enrollments.find((e) => e.id === detailsEnrollmentId);
+        if (!detailEnrollment) return null;
+        return (
+          <EnrollmentDetailModal
+            enrollment={detailEnrollment}
+            employee={employeeById.get(detailEnrollment.employeeId)}
+            documentRequirements={documentRequirements}
+            issuesOwnAccessBadge={issuesOwnAccessBadge}
+            latestHealthRecord={recordByEmployee.get(detailEnrollment.employeeId)}
+            canManage={canManage}
+            onClose={() => setDetailsEnrollmentId(null)}
+            onUpdate={(patch) => handleUpdateEnrollment(detailEnrollment, patch)}
+          />
+        );
+      })()}
 
       {canManage && enrollments.length > 0 && (
         <div>
@@ -1451,37 +1503,51 @@ const TrainingBatchDetail = ({
 
 const EnrollmentRow = ({
   enrollment,
+  employee,
+  documentRequirements,
+  issuesOwnAccessBadge,
   canManage,
   latestHealthRecord,
-  isHealthExpanded,
-  onToggleHealthExpand,
+  onOpenDetails,
   onRemove,
   onUpdate,
 }: {
   enrollment: TrainingEnrollment;
+  employee?: EmployeeRow;
+  documentRequirements: ProjectDocumentRequirement[];
+  issuesOwnAccessBadge: boolean;
   canManage: boolean;
   latestHealthRecord?: HealthCheckRecord;
-  isHealthExpanded: boolean;
-  onToggleHealthExpand: () => void;
+  onOpenDetails: () => void;
   onRemove: () => void;
   onUpdate: (patch: Partial<TrainingEnrollment>) => void;
 }) => {
-  const { firebaseUser, userProfile } = useAuth();
   const statusMeta = TRAINING_ENROLLMENT_STATUS_META[enrollment.status] || TRAINING_ENROLLMENT_STATUS_META.registered;
-  const snapshot = enrollment.documentSnapshot;
-  const missingDocs = snapshot?.missingDocuments || [];
-  const docBadge = !snapshot
-    ? { label: "ไม่ได้ตรวจสอบ", cls: "bg-gray-100 text-gray-500 border border-gray-200", title: undefined as string | undefined }
-    : snapshot.documentsComplete
-      ? { label: "ครบ", cls: "bg-emerald-50 text-emerald-700 border border-emerald-200", title: undefined as string | undefined }
-      : missingDocs.length > 0
-        ? { label: `ขาด ${missingDocs.length} รายการ`, cls: "bg-amber-50 text-amber-700 border border-amber-200", title: `ยังขาด: ${missingDocs.join(", ")}` }
-        : { label: snapshot.isMigrant ? "แรงงานต่างด้าว: ตรวจที่หน้าเอกสาร" : "ยังไม่มีเอกสารแนบ", cls: "bg-amber-50 text-amber-700 border border-amber-200", title: undefined as string | undefined };
 
-  const columnCount = canManage ? 9 : 8;
+  // ตรวจเอกสารแบบสด ๆ จากข้อมูลพนักงานล่าสุด (employee_data) แทนการพึ่ง documentSnapshot
+  // ที่ freeze ไว้ตั้งแต่ตอนเพิ่มเข้ารอบ — กันปัญหา "เอกสารที่อยู่ในระบบแล้วไม่ตามมาด้วย"
+  // เมื่ออัปโหลดเอกสารเพิ่มทีหลัง (ไม่ว่าจะอัปจากหน้านี้หรือหน้าเอกสารพนักงานก็ตาม)
+  const isMigrant = employee ? isMigrantNationality(employee.สัญชาติ) : !!enrollment.documentSnapshot?.isMigrant;
+  const liveDocCheck = employee
+    ? checkProjectDocumentCompleteness(employee.attachments, documentRequirements, isMigrant)
+    : null;
+  const hasRequirements = documentRequirements.length > 0;
+
+  const docBadge = !employee
+    ? { label: "ไม่พบข้อมูลพนักงาน", cls: "bg-gray-100 text-gray-500 border border-gray-200", title: undefined as string | undefined }
+    : !hasRequirements
+      ? (employee.attachments || []).length > 0
+        ? { label: "มีเอกสารแนบแล้ว", cls: "bg-emerald-50 text-emerald-700 border border-emerald-200", title: undefined as string | undefined }
+        : { label: "ยังไม่มีเอกสารแนบ", cls: "bg-amber-50 text-amber-700 border border-amber-200", title: undefined as string | undefined }
+      : liveDocCheck!.complete
+        ? { label: "ครบ", cls: "bg-emerald-50 text-emerald-700 border border-emerald-200", title: undefined as string | undefined }
+        : {
+            label: `ขาด ${liveDocCheck!.missing.length} รายการ`,
+            cls: "bg-amber-50 text-amber-700 border border-amber-200",
+            title: `ยังขาด: ${liveDocCheck!.missing.map((m) => m.label).join(", ")}`,
+          };
 
   return (
-    <>
     <tr className="hover:bg-gray-50 align-top">
       <td className="p-3 text-gray-800 font-medium whitespace-nowrap">{enrollment.employeeName}</td>
       <td className="p-3 text-gray-600 whitespace-nowrap">{enrollment.employeeCode || "-"}</td>
@@ -1505,20 +1571,8 @@ const EnrollmentRow = ({
       <td className="p-3 whitespace-nowrap">
         <span title={docBadge.title} className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold ${docBadge.cls}`}>{docBadge.label}</span>
       </td>
-      <td className="p-3 min-w-[160px]">
-        <div className="flex flex-col gap-1.5 items-start">
-          <HealthCheckBadge latest={latestHealthRecord} />
-          {canManage && (
-            <button
-              type="button"
-              onClick={onToggleHealthExpand}
-              className="flex items-center gap-1 text-[11px] text-blue-600 hover:underline"
-            >
-              {isHealthExpanded ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
-              {isHealthExpanded ? "ปิด" : "กรอกผลตรวจแทนคลินิก"}
-            </button>
-          )}
-        </div>
+      <td className="p-3 whitespace-nowrap">
+        <HealthCheckBadge latest={latestHealthRecord} />
       </td>
       <td className="p-3 whitespace-nowrap">
         {canManage ? (
@@ -1535,6 +1589,32 @@ const EnrollmentRow = ({
           <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold ${statusMeta.badge}`}>{statusMeta.label}</span>
         )}
       </td>
+      {!issuesOwnAccessBadge && (
+        <td className="p-3 whitespace-nowrap">
+          {enrollment.accessBadgeReceived?.cardNumber || enrollment.accessBadgeReceived?.cardImageUrl ? (
+            <span
+              className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200"
+              title={enrollment.accessBadgeReceived?.cardNumber ? `เลขบัตร: ${enrollment.accessBadgeReceived.cardNumber}` : undefined}
+            >
+              ได้รับบัตรแล้ว
+            </span>
+          ) : (
+            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-gray-100 text-gray-500 border border-gray-200">
+              รอรับบัตร
+            </span>
+          )}
+        </td>
+      )}
+      <td className="p-3 text-center">
+        <button
+          type="button"
+          onClick={onOpenDetails}
+          className="inline-flex items-center justify-center p-1.5 rounded-lg text-gray-500 hover:text-blue-600 hover:bg-blue-50"
+          title="ดูรายละเอียด / เพิ่มเอกสาร / กรอกผลตรวจสุขภาพ"
+        >
+          <Eye size={16} />
+        </button>
+      </td>
       {canManage && (
         <td className="p-3 text-center">
           <button onClick={onRemove} className="text-gray-400 hover:text-red-500 p-1" title="เอาออกจากรอบ">
@@ -1543,25 +1623,603 @@ const EnrollmentRow = ({
         </td>
       )}
     </tr>
-    {isHealthExpanded && canManage && (
-      <tr className="bg-sky-50/50">
-        <td colSpan={columnCount} className="p-3 flex flex-col gap-3">
-          <HealthCheckRowEditor
-            enrollment={enrollment}
-            latestRecord={latestHealthRecord}
-            source="hr_manual"
-            actorName={`${userProfile?.firstName || ""} ${userProfile?.lastName || ""}`.trim()}
-            actorUid={firebaseUser?.uid}
-          />
-          <CongenitalDiseaseEditor enrollment={enrollment} onUpdate={onUpdate} />
-        </td>
-      </tr>
-    )}
-    </>
+  );
+};
+
+/**
+ * ป็อบอัพรายละเอียดรายคน — รวมสถานะเอกสาร (+ ปุ่มเพิ่มเอกสารที่ขาด), ผลตรวจสุขภาพ, และโรคประจำตัว
+ * ไว้ที่เดียว แทนการขยายแถวในตาราง (พื้นที่ไม่พอสำหรับฟอร์มอัปโหลด)
+ */
+const EnrollmentDetailModal = ({
+  enrollment,
+  employee,
+  documentRequirements,
+  issuesOwnAccessBadge,
+  latestHealthRecord,
+  canManage,
+  onClose,
+  onUpdate,
+}: {
+  enrollment: TrainingEnrollment;
+  employee?: EmployeeRow;
+  documentRequirements: ProjectDocumentRequirement[];
+  issuesOwnAccessBadge: boolean;
+  latestHealthRecord?: HealthCheckRecord;
+  canManage: boolean;
+  onClose: () => void;
+  onUpdate: (patch: Partial<TrainingEnrollment>) => void;
+}) => {
+  const { firebaseUser, userProfile } = useAuth();
+  const isMigrant = employee ? isMigrantNationality(employee.สัญชาติ) : !!enrollment.documentSnapshot?.isMigrant;
+  const liveDocCheck = employee
+    ? checkProjectDocumentCompleteness(employee.attachments, documentRequirements, isMigrant)
+    : null;
+  const hasRequirements = documentRequirements.length > 0;
+  // แสดงเอกสารที่โครงการนี้ "ต้องการทั้งหมด" (ไม่ใช่แค่รายการที่ขาด) เพื่อให้กดดูไฟล์ที่อัปโหลดไว้แล้วได้ว่าถูกต้องมั้ย
+  // ถ้าไม่ถูกต้องก็กด "เปลี่ยนไฟล์" อัปโหลดใหม่ทับได้เลยในที่เดียวกัน — รายการที่เป็นกลุ่มทางเลือก (เช่น ประกันสังคม/
+  // ประกันอุบัติเหตุ/ประกันกลุ่ม อย่างใดอย่างหนึ่งก็พอ) จะถูกรวมแสดงเป็นหน่วยเดียว ไม่แยกถามทีละข้อ
+  const applicableUnits = employee ? groupRequirements(getApplicableRequirements(documentRequirements, isMigrant)) : [];
+
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-xl shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+        <div className="flex items-center justify-between p-4 border-b sticky top-0 bg-white z-10">
+          <div>
+            <h3 className="font-bold text-gray-800">{enrollment.employeeName}</h3>
+            <p className="text-xs text-gray-500">{enrollment.employeeCode || "-"} • {enrollment.position || "-"}</p>
+          </div>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-700 p-1">
+            <X size={20} />
+          </button>
+        </div>
+
+        <div className="p-4 flex flex-col gap-5">
+          <div>
+            <p className="text-xs font-semibold text-gray-600 mb-2">เอกสาร</p>
+            {!employee ? (
+              <p className="text-xs text-gray-400">ไม่พบข้อมูลพนักงานนี้ในระบบ</p>
+            ) : (
+              <div className="flex flex-col gap-2">
+                {hasRequirements && (
+                  <span
+                    className={`self-start inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold ${
+                      liveDocCheck!.complete
+                        ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
+                        : "bg-amber-50 text-amber-700 border border-amber-200"
+                    }`}
+                  >
+                    {liveDocCheck!.complete ? "เอกสารครบตามที่โครงการกำหนด" : `ยังขาด ${liveDocCheck!.missing.length} รายการ`}
+                  </span>
+                )}
+                {applicableUnits.length > 0 ? (
+                  <div className="flex flex-col gap-1.5 mt-1">
+                    {applicableUnits.map((unit) =>
+                      unit.options.length > 1 ? (
+                        <RequirementGroupRow key={unit.key} employee={employee} unit={unit} canManage={canManage} />
+                      ) : (
+                        <RequirementDocumentRow
+                          key={unit.key}
+                          employee={employee}
+                          requirement={unit.options[0]}
+                          attachment={(employee.attachments || []).find((a) => a.docType === unit.options[0].docType)}
+                          canManage={canManage}
+                        />
+                      )
+                    )}
+                  </div>
+                ) : (
+                  <p className="text-[11px] text-gray-400">
+                    โครงการนี้ยังไม่ได้ตั้งค่ารายการเอกสารที่ต้องใช้ (ตั้งค่าได้ที่หน้า "โครงการ")
+                  </p>
+                )}
+                {canManage && (
+                  <OtherDocumentUploader employee={employee} />
+                )}
+              </div>
+            )}
+          </div>
+
+          {!issuesOwnAccessBadge && employee && (
+            <div className="border-t pt-4">
+              <p className="text-xs font-semibold text-gray-600 mb-2">บัตรผ่านเข้าโครงการ</p>
+              <p className="text-[11px] text-gray-400 mb-2">
+                โครงการนี้ผู้ว่าจ้าง/โครงการทำบัตรให้เอง — หลังได้รับบัตรจริงแล้ว แนบรูปบัตรหรือกรอกเลขบัตร
+                อย่างใดอย่างหนึ่งก็ได้ เพื่อปิดรอบอบรมของคนนี้
+              </p>
+              <AccessBadgeReceivedEditor enrollment={enrollment} canManage={canManage} onUpdate={onUpdate} />
+            </div>
+          )}
+
+          {canManage && (
+            <div className="border-t pt-4">
+              <p className="text-xs font-semibold text-gray-600 mb-2">ผลตรวจสุขภาพ</p>
+              <div className="flex flex-col gap-3">
+                <HealthCheckRowEditor
+                  enrollment={enrollment}
+                  latestRecord={latestHealthRecord}
+                  source="hr_manual"
+                  actorName={`${userProfile?.firstName || ""} ${userProfile?.lastName || ""}`.trim()}
+                  actorUid={firebaseUser?.uid}
+                />
+                <CongenitalDiseaseEditor enrollment={enrollment} onUpdate={onUpdate} />
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+/**
+ * แกนกลางอัปโหลด 1 ไฟล์ ให้ docType ที่กำหนด — ใช้ร่วมกันทั้ง RequirementDocumentRow (รายการที่โครงการกำหนด)
+ * และ OtherDocumentUploader (เพิ่มเอกสารประเภทอื่น) บันทึกกลับไปที่ employee_data/{employeeId}.attachments
+ * จุดเดียวกับหน้า "เอกสารพนักงาน" (แยกเก็บรายคนตามเดิม ไม่สร้างที่เก็บใหม่)
+ *
+ * replaceExisting = true: ใช้ตอน "เปลี่ยนไฟล์" ของรายการที่มีไฟล์เดิมอยู่แล้ว — ลบของเดิมประเภทเดียวกันออกก่อน
+ * แล้วค่อยใส่ไฟล์ใหม่เข้าไป (เขียนทับทั้ง array) กันไม่ให้มีไฟล์ประเภทเดียวกันซ้ำซ้อนเรื่อยๆ
+ */
+const useDocumentUpload = (employee: EmployeeRow) => {
+  const [uploading, setUploading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const employeeCode = employee.รหัสพนักงาน || employee.id;
+  const employeeName = buildEmployeeFullName(employee);
+
+  const upload = async (file: File, docType: string, replaceExisting = false): Promise<boolean> => {
+    setUploading(true);
+    setError(null);
+    try {
+      const uploadResult = await uploadHiringDocumentFile(file, {
+        candidateName: employeeName,
+        position: employee.ตำแหน่ง || "",
+        candidateKey: employeeCode,
+        docType: docType || "other",
+      });
+      const attachment: HiringAttachment = {
+        docType: docType || "other",
+        name: uploadResult.fileName || file.name,
+        url: uploadResult.url,
+        uploadedAt: new Date().toISOString(),
+      };
+      if (replaceExisting) {
+        const nextAttachments = [...(employee.attachments || []).filter((a) => a.docType !== docType), attachment];
+        await updateDoc(doc(getFirestore(), "CMG-HR-Database", "root", "employee_data", employeeCode), {
+          attachments: nextAttachments,
+        });
+      } else {
+        await appendAttachmentToEmployee(employeeCode, attachment);
+      }
+      return true;
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "เกิดข้อผิดพลาดที่ไม่คาดคิด");
+      return false;
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  return { upload, uploading, error };
+};
+
+/**
+ * แถวเอกสาร 1 รายการตามที่โครงการกำหนด — แสดงทั้งรายการที่มีไฟล์แล้ว (กดดูไฟล์ได้ + เปลี่ยนไฟล์ได้ถ้าไม่ถูกต้อง)
+ * และรายการที่ยังไม่มีไฟล์ (อัปโหลดได้เลย ประเภทเอกสารคงที่ตามรายการนั้น ไม่ต้องเลือกเอง)
+ * ยกเว้นรายการแบบ "generated_by_system" (เช่น แบบฟอร์มที่ระบบ/HR สร้างให้ตอนจบ) ไม่ต้องให้อัปโหลด
+ */
+const RequirementDocumentRow = ({
+  employee,
+  requirement,
+  attachment,
+  canManage,
+}: {
+  employee: EmployeeRow;
+  requirement: ProjectDocumentRequirement;
+  attachment?: { docType?: string; name?: string; url?: string };
+  canManage: boolean;
+}) => {
+  const { upload, uploading, error } = useDocumentUpload(employee);
+  const [file, setFile] = useState<File | null>(null);
+  const [replacing, setReplacing] = useState(false);
+
+  if (requirement.fulfillmentType === "generated_by_system") {
+    return (
+      <div className="flex flex-wrap items-center gap-1.5 bg-sky-50/60 border border-sky-200 rounded-lg px-2.5 py-1.5">
+        <span className="text-xs font-medium text-sky-800 flex-1 min-w-[140px]">{requirement.label}</span>
+        <span className="text-[11px] text-sky-600 whitespace-nowrap">ระบบ/HR สร้างให้ตอนจบ — ไม่ต้องอัปโหลด</span>
+      </div>
+    );
+  }
+
+  const handleUpload = async () => {
+    if (!file) return;
+    const ok = await upload(file, requirement.docType, !!attachment);
+    if (ok) {
+      setFile(null);
+      setReplacing(false);
+    }
+  };
+
+  const showUploadControls = canManage && (!attachment || replacing);
+
+  return (
+    <div className="flex flex-col gap-1">
+      <div
+        className={`flex flex-wrap items-center gap-1.5 rounded-lg px-2.5 py-1.5 border ${
+          attachment ? "bg-emerald-50/50 border-emerald-200" : "bg-amber-50/60 border-amber-200"
+        }`}
+      >
+        <span className={`text-xs font-medium flex-1 min-w-[140px] ${attachment ? "text-emerald-800" : "text-amber-800"}`}>
+          {requirement.label}
+        </span>
+        {attachment && !replacing && (
+          <>
+            <a
+              href={attachment.url}
+              target="_blank"
+              rel="noreferrer"
+              className="flex items-center gap-1 text-xs text-blue-600 hover:underline whitespace-nowrap"
+              title={attachment.name}
+            >
+              <Eye size={12} /> ดูไฟล์
+            </a>
+            {canManage && (
+              <button
+                type="button"
+                onClick={() => setReplacing(true)}
+                className="text-xs text-gray-500 hover:text-blue-600 hover:underline whitespace-nowrap"
+              >
+                เปลี่ยนไฟล์
+              </button>
+            )}
+          </>
+        )}
+        {showUploadControls && (
+          <>
+            <label className="flex items-center gap-1 text-xs text-gray-600 border border-gray-200 bg-white rounded-lg px-2 py-1 cursor-pointer hover:bg-gray-50 max-w-[150px]">
+              <span className="truncate">{file ? file.name : "เลือกไฟล์"}</span>
+              <input type="file" onChange={(e) => setFile(e.target.files?.[0] || null)} className="hidden" />
+            </label>
+            <button
+              type="button"
+              onClick={handleUpload}
+              disabled={!file || uploading}
+              className="flex items-center gap-1 px-2.5 py-1 bg-blue-600 text-white rounded-lg text-xs font-semibold hover:bg-blue-700 disabled:opacity-50 whitespace-nowrap"
+            >
+              {uploading ? <Loader2 className="animate-spin" size={12} /> : <UploadIcon size={12} />}
+              อัปโหลด
+            </button>
+            {attachment && replacing && (
+              <button
+                type="button"
+                onClick={() => {
+                  setReplacing(false);
+                  setFile(null);
+                }}
+                className="text-[11px] text-gray-400 hover:text-gray-600 whitespace-nowrap"
+              >
+                ยกเลิก
+              </button>
+            )}
+          </>
+        )}
+      </div>
+      {error && <p className="text-[11px] text-rose-600">{error}</p>}
+    </div>
+  );
+};
+
+/**
+ * แถวเอกสาร "กลุ่มทางเลือก" — มีไฟล์ของข้อใดข้อหนึ่งในกลุ่มก็ถือว่าครบ ไม่ต้องมีครบทุกข้อ
+ * เช่น "ประกันสังคม ม.33/ม.40" หรือ "ประกันอุบัติเหตุ" หรือ "ประกันกลุ่ม" อย่างใดอย่างหนึ่งก็พอ
+ * ถ้ายังไม่มีไฟล์ของข้อไหนเลย ให้เลือกว่าจะอัปโหลดแบบไหน แล้วอัปโหลดได้เลย
+ */
+const RequirementGroupRow = ({
+  employee,
+  unit,
+  canManage,
+}: {
+  employee: EmployeeRow;
+  unit: RequirementUnit;
+  canManage: boolean;
+}) => {
+  const { upload, uploading, error } = useDocumentUpload(employee);
+  const attachments = (employee.attachments || []) as Array<{ docType?: string; url?: string; name?: string }>;
+  const satisfiedOption = unit.options.find((opt) => attachments.some((a) => a.docType === opt.docType));
+  const satisfiedAttachment = satisfiedOption
+    ? attachments.find((a) => a.docType === satisfiedOption.docType)
+    : undefined;
+
+  const [selectedDocType, setSelectedDocType] = useState<string>(unit.options[0]?.docType || "");
+  const [file, setFile] = useState<File | null>(null);
+  const [replacing, setReplacing] = useState(false);
+
+  const handleUpload = async () => {
+    if (!file || !selectedDocType) return;
+    const ok = await upload(file, selectedDocType, true);
+    if (ok) {
+      setFile(null);
+      setReplacing(false);
+    }
+  };
+
+  const showUploadControls = canManage && (!satisfiedOption || replacing);
+
+  return (
+    <div className="flex flex-col gap-1">
+      <div
+        className={`flex flex-wrap items-center gap-1.5 rounded-lg px-2.5 py-1.5 border ${
+          satisfiedOption ? "bg-emerald-50/50 border-emerald-200" : "bg-amber-50/60 border-amber-200"
+        }`}
+      >
+        <span className={`text-xs font-medium flex-1 min-w-[180px] ${satisfiedOption ? "text-emerald-800" : "text-amber-800"}`}>
+          เลือก 1 ใน: {unit.label}
+        </span>
+        {satisfiedOption && !replacing && (
+          <>
+            <a
+              href={satisfiedAttachment?.url}
+              target="_blank"
+              rel="noreferrer"
+              className="flex items-center gap-1 text-xs text-blue-600 hover:underline whitespace-nowrap"
+              title={`${satisfiedOption.label} — ${satisfiedAttachment?.name || ""}`}
+            >
+              <Eye size={12} /> ดูไฟล์ ({satisfiedOption.label})
+            </a>
+            {canManage && (
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedDocType(satisfiedOption.docType);
+                  setReplacing(true);
+                }}
+                className="text-xs text-gray-500 hover:text-blue-600 hover:underline whitespace-nowrap"
+              >
+                เปลี่ยนไฟล์
+              </button>
+            )}
+          </>
+        )}
+        {showUploadControls && (
+          <>
+            <select
+              value={selectedDocType}
+              onChange={(e) => setSelectedDocType(e.target.value)}
+              className="input !py-1 !text-xs !w-auto max-w-[170px]"
+            >
+              {unit.options.map((opt) => (
+                <option key={opt.docType} value={opt.docType}>{opt.label}</option>
+              ))}
+            </select>
+            <label className="flex items-center gap-1 text-xs text-gray-600 border border-gray-200 bg-white rounded-lg px-2 py-1 cursor-pointer hover:bg-gray-50 max-w-[140px]">
+              <span className="truncate">{file ? file.name : "เลือกไฟล์"}</span>
+              <input type="file" onChange={(e) => setFile(e.target.files?.[0] || null)} className="hidden" />
+            </label>
+            <button
+              type="button"
+              onClick={handleUpload}
+              disabled={!file || uploading}
+              className="flex items-center gap-1 px-2.5 py-1 bg-blue-600 text-white rounded-lg text-xs font-semibold hover:bg-blue-700 disabled:opacity-50 whitespace-nowrap"
+            >
+              {uploading ? <Loader2 className="animate-spin" size={12} /> : <UploadIcon size={12} />}
+              อัปโหลด
+            </button>
+            {satisfiedOption && replacing && (
+              <button
+                type="button"
+                onClick={() => {
+                  setReplacing(false);
+                  setFile(null);
+                }}
+                className="text-[11px] text-gray-400 hover:text-gray-600 whitespace-nowrap"
+              >
+                ยกเลิก
+              </button>
+            )}
+          </>
+        )}
+      </div>
+      {error && <p className="text-[11px] text-rose-600">{error}</p>}
+    </div>
+  );
+};
+
+/** เผื่อกรณีต้องเพิ่มเอกสารประเภทอื่นนอกเหนือจากรายการที่โครงการกำหนด — พับไว้เป็นค่าเริ่มต้น */
+const OtherDocumentUploader = ({ employee }: { employee: EmployeeRow }) => {
+  const documentTypeOptions = useDocumentTypeCatalog();
+  const { upload, uploading, error } = useDocumentUpload(employee);
+  const [expanded, setExpanded] = useState(false);
+  const [selectedDocType, setSelectedDocType] = useState<string>(documentTypeOptions[0]?.value || "");
+  const [file, setFile] = useState<File | null>(null);
+
+  const handleUpload = async () => {
+    if (!file) return;
+    const ok = await upload(file, selectedDocType);
+    if (ok) setFile(null);
+  };
+
+  if (!expanded) {
+    return (
+      <button
+        type="button"
+        onClick={() => setExpanded(true)}
+        className="self-start flex items-center gap-1 text-[11px] text-blue-600 hover:underline mt-0.5"
+      >
+        + เพิ่มเอกสารประเภทอื่น
+      </button>
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-1 mt-0.5">
+      <div className="flex flex-wrap items-center gap-1.5">
+        <select
+          value={selectedDocType}
+          onChange={(e) => setSelectedDocType(e.target.value)}
+          className="input !py-1 !text-xs !w-auto max-w-[170px]"
+        >
+          {documentTypeOptions.map((o) => (
+            <option key={o.value} value={o.value}>{o.label}</option>
+          ))}
+        </select>
+        <label className="flex items-center gap-1 text-xs text-gray-600 border border-gray-200 rounded-lg px-2 py-1 cursor-pointer hover:bg-gray-50 max-w-[140px]">
+          <span className="truncate">{file ? file.name : "เลือกไฟล์"}</span>
+          <input type="file" onChange={(e) => setFile(e.target.files?.[0] || null)} className="hidden" />
+        </label>
+        <button
+          type="button"
+          onClick={handleUpload}
+          disabled={!file || uploading}
+          className="flex items-center gap-1 px-2.5 py-1 bg-blue-600 text-white rounded-lg text-xs font-semibold hover:bg-blue-700 disabled:opacity-50 whitespace-nowrap"
+        >
+          {uploading ? <Loader2 className="animate-spin" size={12} /> : <UploadIcon size={12} />}
+          อัปโหลด
+        </button>
+      </div>
+      {error && <p className="text-[11px] text-rose-600">{error}</p>}
+    </div>
   );
 };
 
 /** ติ๊กเลือกโรคประจำตัว (ใช้กับใบรายคน/ใบขอออกบัตร — Access Badge Request) เก็บไว้ที่ enrollment.healthCheck.congenitalDiseases */
+/**
+ * บันทึกบัตรผ่านเข้าโครงการที่ได้รับจริง (กรณีโครงการไม่ได้ออกบัตรเอง) — แนบรูปบัตรหรือกรอกเลขบัตร
+ * อย่างใดอย่างหนึ่งก็พอ เขียนตรงเข้า enrollment doc (training_enrollments/{id}.accessBadgeReceived)
+ */
+const AccessBadgeReceivedEditor = ({
+  enrollment,
+  canManage,
+  onUpdate,
+}: {
+  enrollment: TrainingEnrollment;
+  canManage: boolean;
+  onUpdate: (patch: Partial<TrainingEnrollment>) => void;
+}) => {
+  const { firebaseUser, userProfile } = useAuth();
+  const existing = enrollment.accessBadgeReceived;
+  const [editing, setEditing] = useState(!existing);
+  const [cardNumber, setCardNumber] = useState(existing?.cardNumber || "");
+  const [file, setFile] = useState<File | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleSave = async () => {
+    const trimmedNumber = cardNumber.trim();
+    if (!trimmedNumber && !file && !existing?.cardImageUrl) {
+      setError("กรอกเลขบัตร หรือแนบรูปบัตรอย่างน้อย 1 อย่าง");
+      return;
+    }
+    setUploading(true);
+    setError(null);
+    try {
+      let cardImageUrl = existing?.cardImageUrl;
+      let cardImageName = existing?.cardImageName;
+      if (file) {
+        const uploadResult = await uploadHiringDocumentFile(file, {
+          candidateName: enrollment.employeeName,
+          position: enrollment.position || "",
+          candidateKey: enrollment.employeeCode || enrollment.employeeId,
+          docType: "access_badge_card",
+        });
+        cardImageUrl = uploadResult.url;
+        cardImageName = uploadResult.fileName || file.name;
+      }
+      onUpdate({
+        accessBadgeReceived: {
+          ...(trimmedNumber ? { cardNumber: trimmedNumber } : {}),
+          ...(cardImageUrl ? { cardImageUrl, cardImageName } : {}),
+          receivedAt: existing?.receivedAt || Date.now(),
+          recordedByUid: firebaseUser?.uid || "",
+          recordedByName: `${userProfile?.firstName || ""} ${userProfile?.lastName || ""}`.trim(),
+        },
+      });
+      setEditing(false);
+      setFile(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "บันทึกไม่สำเร็จ");
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  if (!editing && existing) {
+    return (
+      <div className="flex flex-wrap items-center gap-2 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2">
+        <span className="text-xs font-medium text-emerald-800">ได้รับบัตรแล้ว</span>
+        {existing.cardNumber && <span className="text-xs text-gray-600">เลขบัตร: {existing.cardNumber}</span>}
+        {existing.cardImageUrl && (
+          <a
+            href={existing.cardImageUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="flex items-center gap-1 text-xs text-blue-600 hover:underline"
+          >
+            <Eye size={12} /> ดูรูปบัตร
+          </a>
+        )}
+        {canManage && (
+          <button
+            type="button"
+            onClick={() => setEditing(true)}
+            className="ml-auto text-xs text-gray-500 hover:text-blue-600 hover:underline"
+          >
+            แก้ไข
+          </button>
+        )}
+      </div>
+    );
+  }
+
+  if (!canManage) {
+    return <p className="text-xs text-gray-400">ยังไม่ได้รับบัตร</p>;
+  }
+
+  return (
+    <div className="flex flex-col gap-1.5">
+      <div className="flex flex-wrap items-center gap-1.5">
+        <input
+          type="text"
+          value={cardNumber}
+          onChange={(e) => setCardNumber(e.target.value)}
+          placeholder="เลขบัตร (ถ้ามี)"
+          className="input !py-1 !text-xs !w-auto max-w-[150px]"
+        />
+        <label className="flex items-center gap-1 text-xs text-gray-600 border border-gray-200 bg-white rounded-lg px-2 py-1 cursor-pointer hover:bg-gray-50 max-w-[150px]">
+          <span className="truncate">{file ? file.name : existing?.cardImageUrl ? "เปลี่ยนรูปบัตร" : "แนบรูปบัตร"}</span>
+          <input
+            type="file"
+            accept="image/*,.pdf"
+            onChange={(e) => setFile(e.target.files?.[0] || null)}
+            className="hidden"
+          />
+        </label>
+        <button
+          type="button"
+          onClick={handleSave}
+          disabled={uploading}
+          className="flex items-center gap-1 px-2.5 py-1 bg-blue-600 text-white rounded-lg text-xs font-semibold hover:bg-blue-700 disabled:opacity-50 whitespace-nowrap"
+        >
+          {uploading ? <Loader2 className="animate-spin" size={12} /> : <UploadIcon size={12} />}
+          บันทึก
+        </button>
+        {existing && (
+          <button
+            type="button"
+            onClick={() => {
+              setEditing(false);
+              setFile(null);
+              setError(null);
+            }}
+            className="text-xs text-gray-400 hover:text-gray-600 whitespace-nowrap"
+          >
+            ยกเลิก
+          </button>
+        )}
+      </div>
+      {error && <p className="text-[11px] text-rose-600">{error}</p>}
+    </div>
+  );
+};
+
 const CongenitalDiseaseEditor = ({
   enrollment,
   onUpdate,
