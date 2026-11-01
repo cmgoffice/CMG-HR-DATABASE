@@ -48,9 +48,9 @@ export const ClinicCheckupPortal = () => {
         const d = snap.docs[0];
         const data = { id: d.id, ...(d.data() as object) } as TrainingBatch;
         setBatch(data);
-        setEditLocation((prev) => prev || data.location || "");
-        setEditDate((prev) => prev || data.date || "");
-        setEditTimeSlot((prev) => prev || data.timeSlot || "");
+        setEditLocation((prev) => prev || data.healthCheckLocation || "");
+        setEditDate((prev) => prev || data.healthCheckDate || "");
+        setEditTimeSlot((prev) => prev || data.healthCheckTimeSlot || "");
       },
       () => setBatch(null)
     );
@@ -90,9 +90,9 @@ export const ClinicCheckupPortal = () => {
     setScheduleSaved(false);
     try {
       await updateDoc(doc(db, "CMG-HR-Database", "root", TRAINING_BATCHES_COLLECTION, batch.id), {
-        location: editLocation.trim(),
-        date: editDate,
-        timeSlot: editTimeSlot.trim(),
+        healthCheckLocation: editLocation.trim(),
+        healthCheckDate: editDate,
+        healthCheckTimeSlot: editTimeSlot.trim(),
         updatedAt: Date.now(),
       });
       setScheduleSaved(true);
@@ -132,10 +132,13 @@ export const ClinicCheckupPortal = () => {
           <p className="text-sm text-gray-500 mt-1 flex items-center gap-1.5">
             <Building2 size={14} /> โครงการ: {batch.project}
           </p>
+          <p className="text-xs text-gray-400 mt-1">
+            (สำหรับอ้างอิง — วันอบรมจริงคือ {batch.date || "-"} {batch.timeSlot ? `(${batch.timeSlot})` : ""} ที่ {batch.location || "-"} ซึ่งอาจเป็นคนละวัน/สถานที่กับวันนัดตรวจสุขภาพด้านล่าง)
+          </p>
 
           <div className="mt-4 grid grid-cols-1 sm:grid-cols-3 gap-3">
             <label className="flex flex-col gap-1">
-              <span className="text-xs font-semibold text-gray-600 flex items-center gap-1"><Calendar size={13} /> วันที่นัดตรวจ</span>
+              <span className="text-xs font-semibold text-gray-600 flex items-center gap-1"><Calendar size={13} /> วันที่นัดตรวจสุขภาพ</span>
               <input type="date" value={editDate} onChange={(e) => setEditDate(e.target.value)} className="input" />
             </label>
             <label className="flex flex-col gap-1">

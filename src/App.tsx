@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo, useRef } from "react";
 import type { User } from "firebase/auth";
 import type { CollectionReference, DocumentData, Query } from "firebase/firestore";
 import { ThaiAddressGroupFields, THAI_ADDRESS_FIELD_IDS } from "./components/ThaiAddressFields";
+import * as XLSX from "xlsx";
 
 // --- TYPE DEFINITIONS ---
 interface SchemaField {
@@ -214,6 +215,7 @@ import {
   ListChecks,
   Globe2,
   GraduationCap,
+  FileCheck2,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
@@ -396,6 +398,7 @@ const DEFAULT_SCHEMAS = {
     { id: "start_date", label: "วันที่เริ่มงาน", type: "date" },
     { id: "ตำแหน่ง", label: "ตำแหน่ง", type: "select", options: [] },
     { id: "แผนก", label: "แผนก", type: "text" },
+    { id: "บริษัทผู้รับเหมา", label: "บริษัทผู้รับเหมา / Supply (เฉพาะกลุ่ม Supply manpower, Sub contractor)", type: "text" },
     {
       id: "employee_type",
       label: "Employee Type",
@@ -499,8 +502,10 @@ import { ProjectTransferPage } from './components/ProjectTransferPage';
 import { MigrantWorkerPage } from './components/MigrantWorkerPage';
 import { RecruitmentIntakePage } from './components/RecruitmentIntakePage';
 import { TrainingBatchPage } from './components/TrainingBatchPage';
+import { ProjectDocumentRequirementsModal } from './components/ProjectDocumentRequirementsModal';
 import { TRAINING_MANAGE_ROLES } from './components/trainingBatchConfig';
 import { ClinicCheckupPortal } from './components/ClinicCheckupPortal';
+import { ContractorPortal } from './components/ContractorPortal';
 import { EmployeeDocumentsPage, OPEN_EMPLOYEE_DOCUMENTS_STORAGE_KEY } from './components/EmployeeDocumentsPage';
 import { ApprovalCenterPage } from './components/ApprovalCenterPage';
 import { InfoTooltip } from './components/InfoTooltip';
@@ -1311,6 +1316,7 @@ function MasterDatabaseApp() {
   const [editingItem, setEditingItem] = useState<DataRecord | null>(null);
   const [formData, setFormData] = useState<Record<string, unknown>>({});
   const [projectFormTab, setProjectFormTab] = useState<"general" | "plan">("general");
+  const [projectDocsTarget, setProjectDocsTarget] = useState<DataRecord | null>(null);
   const [newColumn, setNewColumn] = useState({
     label: "",
     type: "text",
@@ -1690,6 +1696,9 @@ function MasterDatabaseApp() {
             type: "select",
             options: ["A", "B", "AB", "O", "ไม่ทราบ"],
           },
+          // ชื่อบริษัทจริงของพนักงานกลุ่ม Supply manpower / Sub contractor (แยกจาก "แผนก" ซึ่งเป็นแผนกภายใน)
+          // ใช้คัดกรองว่าพนักงานคนนี้เป็นทีมของบริษัทไหน ตอนสร้างลิงก์ให้ผู้รับเหมากรอกเอกสารเอง
+          { id: "บริษัทผู้รับเหมา", label: "บริษัทผู้รับเหมา / Supply (เฉพาะกลุ่ม Supply manpower, Sub contractor)", type: "text" },
         ];
         const isEmployeeSchemaModule = schemaModuleId === "emp_indirect" || schemaModuleId === "emp_direct_leader";
 
@@ -2350,27 +2359,26 @@ function MasterDatabaseApp() {
     return new Blob([withBom], { type: "text/csv;charset=utf-8;" });
   };
 
+  // Export เป็นไฟล์ Excel (.xlsx) เก็บลงเครื่อง — แก้ปัญหาภาษาไทยเพี้ยนจาก CSV และเปิดแก้ไขใน Excel ได้ทันที
+  // เอาไฟล์ที่ export ได้นี้ไปกรอกข้อมูล (เช่น คอลัมน์ใหม่ "บริษัทผู้รับเหมา") แล้วกด Import กลับเข้าระบบได้เลย
   const downloadCSV = () => {
     if (currentData.length === 0)
       return showNotification("info", "ไม่มีข้อมูล", "ไม่มีข้อมูลให้ Export");
-    const headers = ["ลำดับ", ...currentSchema.map((col) => col.label)].join(",");
-    const rows = currentData
-      .map((row, idx) =>
-        [idx + 1, ...currentSchema.map((col) => {
-          const v = row[col.id];
-          // สถานะโครงการ: join array ด้วย | เพื่อ export
-          const strVal = Array.isArray(v) ? (v as string[]).join("|") : (v || "");
-          return `"${strVal}"`;
-        })].join(",")
-      )
-      .join("\n");
-    const blob = createUtf8BomBlob(`${headers}\n${rows}`);
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `${activeModule}_export.csv`;
-    link.click();
-    showNotification("success", "ดาวน์โหลด", "เริ่มการดาวน์โหลดไฟล์ CSV");
+    const headerRow = ["ลำดับ", ...currentSchema.map((col) => col.label)];
+    const dataRows = currentData.map((row, idx) => [
+      idx + 1,
+      ...currentSchema.map((col) => {
+        const v = row[col.id];
+        // สถานะโครงการ: join array ด้วย | เพื่อ export
+        return Array.isArray(v) ? (v as string[]).join("|") : (v ?? "");
+      }),
+    ]);
+    const ws = XLSX.utils.aoa_to_sheet([headerRow, ...dataRows]);
+    ws["!cols"] = headerRow.map(() => ({ wch: 20 }));
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "ข้อมูล");
+    XLSX.writeFile(wb, `${activeModule}_export.xlsx`);
+    showNotification("success", "ดาวน์โหลด", "เริ่มการดาวน์โหลดไฟล์ Excel (.xlsx) ไปที่เครื่องแล้ว — กรอกข้อมูลเพิ่ม/แก้ไข แล้วกด Import กลับเข้าระบบได้เลย");
   };
 
   const downloadTemplate = () => {
@@ -2380,16 +2388,13 @@ function MasterDatabaseApp() {
     } else if (activeModule === "contractors") {
       templateSchema = currentSchema.filter((col) => col.id !== "con_id");
     }
-    const headers = templateSchema
-      .map((col) => col.label)
-      .join(activeModule === "client_list" ? "\t" : ",");
-    const blob = createUtf8BomBlob(headers);
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `${activeModule}_template.csv`;
-    link.click();
-    showNotification("success", "ดาวน์โหลด", "เริ่มการดาวน์โหลด Template");
+    const headerRow = templateSchema.map((col) => col.label);
+    const ws = XLSX.utils.aoa_to_sheet([headerRow]);
+    ws["!cols"] = headerRow.map(() => ({ wch: 20 }));
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Template");
+    XLSX.writeFile(wb, `${activeModule}_template.xlsx`);
+    showNotification("success", "ดาวน์โหลด", "เริ่มการดาวน์โหลด Template (.xlsx) ไปที่เครื่องแล้ว");
   };
 
   // --- SMART IMPORT LOGIC: รองรับทั้ง UTF-8 และ Windows-874 (Excel บน Windows ภาษาไทย) ---
@@ -2426,9 +2431,11 @@ function MasterDatabaseApp() {
     const file = event.target.files?.[0];
     if (!file) return;
     event.target.value = "";
-    
+
     setPendingFile(file);
     setDataLoading(true);
+
+    const isExcelFile = /\.(xlsx|xls)$/i.test(file.name);
 
     const reader = new FileReader();
     reader.onload = async (e) => {
@@ -2438,62 +2445,93 @@ function MasterDatabaseApp() {
           setDataLoading(false);
           return;
         }
-        
-        const text = decodeCSVFile(rawResult);
-        const rows = text.split("\n").filter((r) => r.trim() !== "");
 
-        if (rows.length < 2) {
-          showNotification(
-            "error",
-            "ไฟล์ไม่ถูกต้อง",
-            "ต้องมี Header และข้อมูลอย่างน้อย 1 แถว"
-          );
-          setDataLoading(false);
-          return;
+        let headers: string[] = [];
+        let dataRows: string[][] = [];
+
+        if (isExcelFile) {
+          // ไฟล์ Excel (.xlsx/.xls) — อ่าน sheet แรกตรงๆ ไม่ต้องห่วงเรื่อง encoding ภาษาไทยแบบ CSV
+          const workbook = XLSX.read(rawResult, { type: "array" });
+          const firstSheetName = workbook.SheetNames[0];
+          if (!firstSheetName) {
+            showNotification("error", "ไฟล์ไม่ถูกต้อง", "ไม่พบ Sheet ในไฟล์ Excel นี้");
+            setDataLoading(false);
+            return;
+          }
+          const sheet = workbook.Sheets[firstSheetName];
+          const sheetRows = XLSX.utils.sheet_to_json<string[]>(sheet, {
+            header: 1,
+            raw: false,
+            defval: "",
+          });
+          const nonEmptyRows = sheetRows
+            .map((r) => (r || []).map((cell) => (cell == null ? "" : String(cell).trim())))
+            .filter((r) => r.some((cell) => cell !== ""));
+
+          if (nonEmptyRows.length < 2) {
+            showNotification("error", "ไฟล์ไม่ถูกต้อง", "ต้องมี Header และข้อมูลอย่างน้อย 1 แถว");
+            setDataLoading(false);
+            return;
+          }
+          headers = nonEmptyRows[0];
+          dataRows = nonEmptyRows.slice(1);
+        } else {
+          const text = decodeCSVFile(rawResult);
+          const rows = text.split("\n").filter((r) => r.trim() !== "");
+
+          if (rows.length < 2) {
+            showNotification(
+              "error",
+              "ไฟล์ไม่ถูกต้อง",
+              "ต้องมี Header และข้อมูลอย่างน้อย 1 แถว"
+            );
+            setDataLoading(false);
+            return;
+          }
+
+          const firstLine = rows[0];
+          const tabCount = (firstLine.match(/\t/g) || []).length;
+          const commaCount = (firstLine.match(/,/g) || []).length;
+          const delimiter = tabCount > commaCount ? "\t" : ",";
+
+          const parseCSVRow = (row: string): string[] => {
+            const out: string[] = [];
+            let cur = "";
+            let inQuotes = false;
+            for (let i = 0; i < row.length; i++) {
+              const c = row[i];
+              if (c === '"') {
+                if (inQuotes && row[i + 1] === '"') {
+                  cur += '"';
+                  i++;
+                } else {
+                  inQuotes = !inQuotes;
+                }
+              } else if (!inQuotes && c === delimiter) {
+                out.push(cur.trim().replace(/^"|"$/g, "").replace(/""/g, '"'));
+                cur = "";
+              } else {
+                cur += c;
+              }
+            }
+            out.push(cur.trim().replace(/^"|"$/g, "").replace(/""/g, '"'));
+            return out;
+          };
+
+          headers = parseCSVRow(rows[0]);
+          dataRows = rows.slice(1).map(parseCSVRow);
         }
 
-        const firstLine = rows[0];
-        const tabCount = (firstLine.match(/\t/g) || []).length;
-        const commaCount = (firstLine.match(/,/g) || []).length;
-        const delimiter = tabCount > commaCount ? "\t" : ",";
-
-        const parseCSVRow = (row: string): string[] => {
-          const out: string[] = [];
-          let cur = "";
-          let inQuotes = false;
-          for (let i = 0; i < row.length; i++) {
-            const c = row[i];
-            if (c === '"') {
-              if (inQuotes && row[i + 1] === '"') {
-                cur += '"';
-                i++;
-              } else {
-                inQuotes = !inQuotes;
-              }
-            } else if (!inQuotes && c === delimiter) {
-              out.push(cur.trim().replace(/^"|"$/g, "").replace(/""/g, '"'));
-              cur = "";
-            } else {
-              cur += c;
-            }
-          }
-          out.push(cur.trim().replace(/^"|"$/g, "").replace(/""/g, '"'));
-          return out;
-        };
-
-        const headers = parseCSVRow(rows[0]);
-        const dataRows = rows.slice(1).map(parseCSVRow);
-        
         // Store headers and rows for later use
         setCsvHeaders(headers);
         setCsvRows(dataRows);
-        
+
         // Open column mapping modal
         setIsColumnMappingOpen(true);
         setDataLoading(false);
-        
+
       } catch (error) {
-        console.error("CSV Parse Error:", error);
+        console.error("Import Parse Error:", error);
         showNotification("error", "อ่านไฟล์ล้มเหลว", (error as Error).message);
         setDataLoading(false);
       }
@@ -3424,7 +3462,7 @@ function MasterDatabaseApp() {
                     <FileText size={16} /> Template
                   </button>
                   <div className="absolute left-0 top-full mt-1 w-72 p-2 bg-slate-800 text-white text-xs rounded shadow-lg opacity-0 pointer-events-none group-hover:opacity-100 transition-opacity z-20">
-                    ไฟล์เป็น UTF-8 BOM ถ้าเปิดใน Excel แล้วตัวหนังสือเป็น ??? ให้ใช้: ข้อมูล → จากไฟล์ข้อความ/CSV → เลือกไฟล์ → ตั้ง Encoding เป็น Unicode (UTF-8) แล้วบันทึกเป็น CSV UTF-8
+                    กรอกข้อมูลใน Excel ได้เลยแล้วกด Import เลือกไฟล์ .xlsx ได้โดยตรง (ไม่ต้อง Save As เป็น CSV) — ถ้าจะใช้ไฟล์ CSV แทน และเปิดใน Excel แล้วตัวหนังสือเป็น ??? ให้ใช้: ข้อมูล → จากไฟล์ข้อความ/CSV → เลือกไฟล์ → ตั้ง Encoding เป็น Unicode (UTF-8) แล้วบันทึกเป็น CSV UTF-8
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
@@ -3440,12 +3478,12 @@ function MasterDatabaseApp() {
                     className="w-14 px-2 py-1 border rounded text-sm text-center"
                     title="จำนวนแถวข้อมูลที่ข้าม (หลังหัวตาราง)"
                   />
-                  <label className="flex items-center gap-1.5 px-2.5 py-1.5 text-gray-600 hover:bg-gray-100 rounded border hover:border-gray-200 cursor-pointer bg-blue-50 text-blue-700 font-medium text-xs">
-                    <Upload size={16} /> Import{" "}
+                  <label className="flex items-center gap-1.5 px-2.5 py-1.5 text-gray-600 hover:bg-gray-100 rounded border hover:border-gray-200 cursor-pointer bg-blue-50 text-blue-700 font-medium text-xs" title="นำเข้าได้ทั้งไฟล์ Excel (.xlsx/.xls) และ CSV">
+                    <Upload size={16} /> Import (Excel/CSV){" "}
                     <input
                       type="file"
                       className="hidden"
-                      accept=".csv"
+                      accept=".csv,.xlsx,.xls"
                       onChange={handleImportCSV}
                     />
                   </label>
@@ -3642,6 +3680,14 @@ function MasterDatabaseApp() {
                                     >
                                       <Edit size={14} />
                                       แก้ไข
+                                    </button>
+                                    <button
+                                      onClick={() => setProjectDocsTarget(row)}
+                                      className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm text-emerald-600 hover:bg-emerald-50 rounded-lg border border-emerald-100"
+                                      title="ตั้งค่าเอกสารที่จำเป็นของโครงการนี้"
+                                    >
+                                      <FileCheck2 size={14} />
+                                      เอกสารที่จำเป็น
                                     </button>
                                     <button
                                       onClick={() => handleDeleteItem(row.id)}
@@ -4566,6 +4612,12 @@ function MasterDatabaseApp() {
         rows={importPreviewRows}
         schemaFields={currentSchema}
       />
+      {projectDocsTarget && (
+        <ProjectDocumentRequirementsModal
+          project={projectDocsTarget}
+          onClose={() => setProjectDocsTarget(null)}
+        />
+      )}
     </div>
   );
 }
@@ -4575,6 +4627,7 @@ export default function App() {
     <Routes>
       {/* หน้าสาธารณะสำหรับคลินิก — ไม่ต้อง login เข้าถึงได้ด้วย token ในลิงก์เท่านั้น */}
       <Route path="/clinic/:token" element={<ClinicCheckupPortal />} />
+      <Route path="/contractor/:token" element={<ContractorPortal />} />
       <Route path="/login" element={<LoginPage />} />
       <Route path="/register" element={<RegisterPage />} />
       <Route path="/pending" element={

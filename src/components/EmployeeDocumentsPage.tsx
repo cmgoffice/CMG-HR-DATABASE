@@ -5,7 +5,8 @@ import {
   appendAttachmentToEmployee,
   uploadHiringDocumentFile,
 } from "../utils/hiringDocsAttachments";
-import { HIRING_DOC_TYPE_OPTIONS, HiringAttachment } from "./recruitmentIntakeConfig";
+import { HiringAttachment } from "./recruitmentIntakeConfig";
+import { useDocumentTypeCatalog } from "./documentTypeCatalog";
 
 // path ที่หน้านี้อ่านแบบ realtime: CMG-HR-Database/root/employee_data (ใช้ร่วมกับหน้าพนักงานหลักทุกกลุ่ม)
 const FIRESTORE_PATH = "CMG-HR-Database/root/employee_data";
@@ -45,6 +46,7 @@ const buildFullName = (e: EmployeeRecord): string =>
     .join(" ") || e.id;
 
 export const EmployeeDocumentsPage = () => {
+  const documentTypeOptions = useDocumentTypeCatalog();
   const [employees, setEmployees] = useState<EmployeeRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -53,7 +55,7 @@ export const EmployeeDocumentsPage = () => {
   const [showInactive, setShowInactive] = useState(false);
 
   const [docsTarget, setDocsTarget] = useState<EmployeeRecord | null>(null);
-  const [docType, setDocType] = useState<string>(HIRING_DOC_TYPE_OPTIONS[0]?.value || "");
+  const [docType, setDocType] = useState<string>(documentTypeOptions[0]?.value || "");
   const [docFile, setDocFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
   const [docsError, setDocsError] = useState<string | null>(null);
@@ -90,7 +92,7 @@ export const EmployeeDocumentsPage = () => {
     const target = employees.find((e) => (e.รหัสพนักงาน || e.id) === code);
     if (target) {
       setDocsTarget(target);
-      setDocType(HIRING_DOC_TYPE_OPTIONS[0]?.value || "");
+      setDocType(documentTypeOptions[0]?.value || "");
       setDocFile(null);
       setDocsError(null);
     }
@@ -122,7 +124,7 @@ export const EmployeeDocumentsPage = () => {
 
   const openDocsPanel = (e: EmployeeRecord) => {
     setDocsTarget(e);
-    setDocType(HIRING_DOC_TYPE_OPTIONS[0]?.value || "");
+    setDocType(documentTypeOptions[0]?.value || "");
     setDocFile(null);
     setDocsError(null);
   };
@@ -314,7 +316,7 @@ export const EmployeeDocumentsPage = () => {
                   <label className="flex flex-col gap-1">
                     <span className="text-xs font-semibold text-gray-600">ประเภทเอกสาร</span>
                     <select value={docType} onChange={(e) => setDocType(e.target.value)} className="border rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-100">
-                      {HIRING_DOC_TYPE_OPTIONS.map((o) => (
+                      {documentTypeOptions.map((o) => (
                         <option key={o.value} value={o.value}>{o.label}</option>
                       ))}
                       <option value="other">อื่น ๆ (พิมพ์เอง)</option>

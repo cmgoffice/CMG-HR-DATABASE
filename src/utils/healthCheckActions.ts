@@ -35,7 +35,13 @@ export async function recordHealthCheckResult(input: RecordHealthCheckInput): Pr
   let fileName: string | undefined;
   if (file) {
     const displayName = buildHealthCheckFileName(enrollment.project, employeeFirstName, checkedDate, file.name);
-    const uploaded = await uploadHealthCheckFile(enrollment.employeeId, file, displayName);
+    const uploaded = await uploadHealthCheckFile(
+      enrollment.employeeId,
+      file,
+      displayName,
+      enrollment.employeeName,
+      enrollment.position
+    );
     fileUrl = uploaded.url;
     fileName = uploaded.fileName;
   }
@@ -87,10 +93,17 @@ export async function recordSharedHealthCheckResult(input: RecordSharedHealthChe
   if (enrollments.length === 0) return;
   const db = getFirestore();
 
-  // ใช้ชื่อไฟล์อ้างอิงจากคนแรกเพื่อให้พอสื่อความหมาย (ไฟล์เดียวกันถูกใช้ร่วมกันหลายคน)
+  // ไฟล์รวม 1 ไฟล์ ใช้ร่วมกันหลายคน — เก็บไว้ในโฟลเดอร์แยกของ "รอบอบรม" นั้น (ไม่ใช่โฟลเดอร์รายคน
+  // เพราะไม่ได้เป็นของคนใดคนหนึ่งโดยเฉพาะ) อ้างอิงชื่อไฟล์จากคนแรกเพื่อให้พอสื่อความหมาย
   const firstEnrollment = enrollments[0];
   const sharedDisplayName = buildHealthCheckFileName(firstEnrollment.project, "กลุ่ม", checkedDate, file.name);
-  const uploaded = await uploadHealthCheckFile(`shared/${firstEnrollment.batchId}`, file, sharedDisplayName);
+  const uploaded = await uploadHealthCheckFile(
+    `training-batch-${firstEnrollment.batchId}`,
+    file,
+    sharedDisplayName,
+    `ผลตรวจสุขภาพกลุ่ม (รอบอบรม ${firstEnrollment.batchId})`,
+    "กลุ่ม"
+  );
 
   await Promise.all(
     enrollments.map(async (enrollment) => {

@@ -41,11 +41,17 @@ const findProvince = (storedName: string) => {
   return THAI_PROVINCES.find((p) => p.name === storedName || stripPrefix(p.name) === core);
 };
 
-const findDistrict = (storedName: string, provinceId?: number) => {
+const findDistrict = (storedName: string, provinceId?: number, provinceName?: string) => {
   if (!storedName) return undefined;
   const core = stripPrefix(storedName);
   const pool = provinceId ? getDistrictsByProvince(provinceId) : [];
-  return pool.find((d) => d.name === storedName || stripPrefix(d.name) === core);
+  let found = pool.find((d) => d.name === storedName || stripPrefix(d.name) === core);
+  // เคสพิเศษ: "อ.เมือง" แบบย่อ ฐานข้อมูลจริงเก็บเป็น "เมือง" + ชื่อจังหวัด เช่น "เมืองระยอง"
+  if (!found && core === "เมือง" && provinceName) {
+    const expected = "เมือง" + stripPrefix(provinceName);
+    found = pool.find((d) => stripPrefix(d.name) === expected);
+  }
+  return found;
 };
 
 const findSubDistrict = (storedName: string, districtId?: number) => {
@@ -82,7 +88,7 @@ export function ThaiAddressGroupFields({
     [selectedProvince]
   );
   const selectedDistrict = useMemo(
-    () => findDistrict(districtName, selectedProvince?.id),
+    () => findDistrict(districtName, selectedProvince?.id, selectedProvince?.name),
     [districtName, selectedProvince]
   );
   const subDistrictOptions = useMemo(

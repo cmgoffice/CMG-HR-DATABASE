@@ -1,0 +1,313 @@
+{
+  "name": "projects/cmg-hr-database/databases/(default)/documents/CMG-HR-Database/root/recruitment_pending_employees/giq35RvKQSt8so2H7wWQ",
+  "fields": {
+    "requestId": {
+      "stringValue": "fPIHouW8b0Z3hxnon38y"
+    },
+    "ไม่มีประสบการณ์ทำงาน": {
+      "booleanValue": false
+    },
+    "payType": {
+      "stringValue": "daily"
+    },
+    "บ้านเลขที่": {
+      "stringValue": "5/5"
+    },
+    "ผู้ติดต่อฉุกเฉิน_ชื่อ": {
+      "stringValue": "ณัฐนนท์ มวลกำลา"
+    },
+    "จังหวัด": {
+      "stringValue": "ระยอง"
+    },
+    "importedByName": {
+      "stringValue": "Warin Sripirom"
+    },
+    "ลักษณะงานที่เคยทำ": {
+      "stringValue": "ตัด เบิก จ่าย สต็อก ลงในระบบบริษัท "
+    },
+    "เลขบัตรประชาชน": {
+      "stringValue": "1360401289554"
+    },
+    "ประสบการณ์ทำงาน": {
+      "stringValue": "1 - 3 ปี"
+    },
+    "บันทึกเพิ่มเติม": {
+      "stringValue": "-"
+    },
+    "recruitmentSourceId": {
+      "stringValue": "giq35RvKQSt8so2H7wWQ"
+    },
+    "hiringPacketId": {
+      "stringValue": "giq35RvKQSt8so2H7wWQ"
+    },
+    "benefits": {
+      "arrayValue": {
+        "values": [
+          {
+            "mapValue": {
+              "fields": {
+                "amount": {
+                  "stringValue": "30"
+                },
+                "label": {
+                  "stringValue": "ค่าเดินทาง"
+                },
+                "period": {
+                  "stringValue": "day"
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    "source": {
+      "stringValue": "online"
+    },
+    "ที่อยู่บรรทัด_1": {
+      "stringValue": "บ้านเลขที่ 5/5 หมู่ -"
+    },
+    "สถาบันการศึกษา": {
+      "stringValue": "กรุงเทพธนบุรี"
+    },
+    "ผู้ติดต่อฉุกเฉิน_ความสัมพันธ์": {
+      "stringValue": "คู่สมรส"
+    },
+    "สถานภาพสมรส": {
+      "stringValue": "แต่งงาน"
+    },
+    "วันเริ่มงาน": {
+      "stringValue": "2026-11-02"
+    },
+    "สถานะทางทหาร": {
+      "stringValue": ""
+    },
+    "detailsSyncedAt": {
+      "timestampValue": "2026-10-30T10:54:46.636Z"
+    },
+    "confirmTruthful": {
+      "booleanValue": true
+    },
+    "โครงการ": {
+      "stringValue": ""
+    },
+    "แผนก": {
+      "stringValue": "Store"
+    },
+    "ญาติหรือเพื่อนในบริษัท": {
+      "stringValue": "ไม่มี"
+    },
+    "createdByName": {
+      "stringValue": "Sorraya P."
+    },
+    "ประวัติการศึกษา": {
+      "arrayValue": {}
+    },
+    "ระดับภาษาอังกฤษ": {
+      "stringValue": ""
+    },
+    "อีเมล": {
+      "stringValue": "warapai63954@gmail.com"
+    },
+    "createdAt": {
+      "timestampValue": "2026-10-29T06:26:49.596Z"
+    },
+    "ประวัติการทำงาน": {
+      "arrayValue": {}
+    },
+    "salaryAmount": {
+      "integerValue": "480"
+    },
+    "importedByUid": {
+      "stringValue": "tnY46fzYcyYydwE44HKNLCiazUD3"
+    },
+    "ชื่อตัว": {
+      "stringValue": "วราไพร "
+    },
+    "ชื่อต้น": {
+      "stringValue": "นางสาว"
+    },
+    "ไปรษณีย์": {
+      "stringValue": "21150"
+    },
+    "โทรศัพท์": {
+      "stringValue": "0931157387"
+    },
+    "customDocLabels": {
+      "arrayValue": {}
+    },
+    "รหัสพนักงานเดิม": {
+      "nullValue": null
+    },
+    "importedAt": {
+      "integerValue": "1793336158394"
+    },
+    "fullPacketPdfUrl": {
+      "stringValue": "https://drive.google.com/file/d/1UBIdPCLNtWJd7Hw-EURNeXS2GrwAbrdk/view?usp=drivesdk"
+    },
+    "importedEmployeeId": {
+      "stringValue": "DC3121"
+    },
+    "สถานะกลุ่มงาน": {
+      "stringValue": "Staff"
+    },
+    "ชื่อสกุล": {
+      "stringValue": "อรุณวัน"
+    },
+    "ผู้ติดต่อฉุกเฉิน_โทร": {
+      "stringValue": "0988945911"
+    },
+    "candidateId": {
+      "stringValue": "b4QEZMkbCn9gDvxgESFB"
+    },
+    "attachments": {
+      "arrayValue": {
+        "values": [
+          {
+            "mapValue": {
+              "fields": {
+                "name": {
+                  "stringValue": "นางสาว วราไพร อรุณวัน_Admin Store_สำเนาบัตรประชาชน.jpg"
+                },
+                "docType": {
+                  "stringValue": "id_card"
+                },
+                "url": {
+                  "stringValue": "https://drive.google.com/file/d/1WK8jbeKN2ZBt9I59LdU9QO1Jj10WTrhH/view?usp=drivesdk"
+                }
+              }
+            }
+          },
+          {
+            "mapValue": {
+              "fields": {
+                "name": {
+                  "stringValue": "นางสาว วราไพร อรุณวัน_Admin Store_รูปถ่าย.png"
+                },
+                "url": {
+                  "stringValue": "https://drive.google.com/file/d/1gYnWIhSOYYLvF5LnQ_ykT63AIK9yWm0e/view?usp=drivesdk"
+                },
+                "docType": {
+                  "stringValue": "photo"
+                }
+              }
+            }
+          },
+          {
+            "mapValue": {
+              "fields": {
+                "url": {
+                  "stringValue": "https://drive.google.com/file/d/1IDJBQRbmq2aacfJj44fYnxE18oly15mZ/view?usp=drivesdk"
+                },
+                "docType": {
+                  "stringValue": "house_reg"
+                },
+                "name": {
+                  "stringValue": "นางสาว วราไพร อรุณวัน_Admin Store_สำเนาทะเบียนบ้าน.jpg"
+                }
+              }
+            }
+          },
+          {
+            "mapValue": {
+              "fields": {
+                "docType": {
+                  "stringValue": "education_cert"
+                },
+                "url": {
+                  "stringValue": "https://drive.google.com/file/d/1va0u1bpms8H-k6QGUYWgoQX7Z7_sS-T2/view?usp=drivesdk"
+                },
+                "name": {
+                  "stringValue": "นางสาว วราไพร อรุณวัน_Admin Store_สำเนาวุฒิการศึกษา.jpg"
+                }
+              }
+            }
+          },
+          {
+            "mapValue": {
+              "fields": {
+                "docType": {
+                  "stringValue": "full_packet_pdf"
+                },
+                "name": {
+                  "stringValue": "นางสาว วราไพร อรุณวัน_Admin Store_full_packet_pdf.pdf"
+                },
+                "url": {
+                  "stringValue": "https://drive.google.com/file/d/1UBIdPCLNtWJd7Hw-EURNeXS2GrwAbrdk/view?usp=drivesdk"
+                },
+                "uploadedAt": {
+                  "stringValue": "2026-10-29T04:52:20.244Z"
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    "เคยถูกให้ออกจากงาน": {
+      "stringValue": "yes"
+    },
+    "วันเกิด": {
+      "stringValue": "2000-02-03"
+    },
+    "รายละเอียดการถูกให้ออกจากงาน": {
+      "stringValue": "จบโครงการ"
+    },
+    "เพศ": {
+      "stringValue": "หญิง"
+    },
+    "ผู้ติดต่อฉุกเฉิน_ที่อยู่": {
+      "stringValue": ""
+    },
+    "signatures": {
+      "mapValue": {
+        "fields": {
+          "applicationSignatureUrl": {
+            "stringValue": "https://drive.google.com/file/d/1a4gqOVatTD12Qc8_yjK65I6KytlGou4y/view?usp=drivesdk"
+          },
+          "pdpaConsent": {
+            "booleanValue": false
+          },
+          "applicationSignedAt": {
+            "stringValue": "2026-10-29T04:51:30.764Z"
+          },
+          "rulesAckSignedAt": {
+            "stringValue": "2026-10-29T04:52:13.834Z"
+          },
+          "rulesAckSignatureUrl": {
+            "stringValue": "https://drive.google.com/file/d/1mj2px2depnszBcI_bruNt0qI-THREyNP/view?usp=drivesdk"
+          },
+          "pdpaConsentAt": {
+            "nullValue": null
+          }
+        }
+      }
+    },
+    "แขวงตำบล": {
+      "stringValue": "ห้วยโป่ง"
+    },
+    "สัญชาติ": {
+      "stringValue": "ไทย"
+    },
+    "ตำแหน่ง": {
+      "stringValue": "Admin Store"
+    },
+    "เขตอำเภอ": {
+      "stringValue": "เมืองระยอง"
+    },
+    "สาขา": {
+      "stringValue": "รัฐศาสตร์"
+    },
+    "createdByUid": {
+      "stringValue": "xohnO7uqDqSmwiFzoaOOv1uCBjb2"
+    },
+    "หมู่": {
+      "stringValue": "-"
+    },
+    "วุฒิการศึกษา": {
+      "stringValue": "ระดับปริญญาตรี"
+    }
+  },
+  "createTime": "2026-10-29T07:31:43.160427Z",
+  "updateTime": "2026-10-30T10:54:46.653391Z"
+}

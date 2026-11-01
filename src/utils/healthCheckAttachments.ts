@@ -1,23 +1,29 @@
-import { getStorage, ref, uploadBytes, getDownloadURL } from "firebase/storage";
+import { uploadHiringDocumentFile } from "./hiringDocsAttachments";
 
 /**
- * ไฟล์ใบรับรองแพทย์ (ผลตรวจสุขภาพก่อนเข้างาน) เก็บที่ Firebase Storage ใต้
- * health-check-documents/{employeeId}/{timestamp}-{safeFileName}
- * แยกตามโฟลเดอร์รายคนตามที่ตกลงกันไว้ (หาไฟล์ย้อนหลังของคนๆ นั้นได้ง่าย)
+ * ไฟล์ใบรับรองแพทย์ (ผลตรวจสุขภาพก่อนเข้างาน) — เก็บที่เดียวกับเอกสารพนักงานอื่น ๆ
+ * (Google Drive ผ่าน Apps Script Web App ตัวเดิมที่ระบบ Recruitment/เอกสารพนักงานใช้อยู่
+ * ดู src/utils/hiringDocsAttachments.ts) ห้ามสร้างที่เก็บ/โฟลเดอร์ใหม่แยกต่างหาก
  *
- * fileName ที่ส่งเข้ามาควรผ่าน buildHealthCheckFileName() มาก่อนแล้ว
- * (รูปแบบ: {เลขโครงการ}_{ชื่อ}_{วันที่ตรวจ}.{นามสกุลไฟล์})
+ * โฟลเดอร์ย่อยจะถูกจับคู่ด้วย candidateKey = employeeId (คนเดิม เอกสารประเภทไหนก็ไปลง
+ * โฟลเดอร์เดียวกัน) ส่วนชื่อไฟล์จริงใน Drive จะใช้ displayFileName ที่ผ่าน
+ * buildHealthCheckFileName() มาแล้ว (รูปแบบ: {เลขโครงการ}_{ชื่อ}_{วันที่ตรวจ}.{นามสกุลไฟล์})
+ * เพื่อให้หาไฟล์ย้อนหลังง่ายตามที่ตกลงกันไว้
  */
 export const uploadHealthCheckFile = async (
   employeeId: string,
   file: File,
-  displayFileName: string
+  displayFileName: string,
+  employeeName: string,
+  position?: string
 ): Promise<{ url: string; fileName: string }> => {
-  const storage = getStorage();
-  const safeName = displayFileName.replace(/[^a-zA-Z0-9ก-๙._-]/g, "_");
-  const path = `health-check-documents/${employeeId}/${Date.now()}-${safeName}`;
-  const storageRef = ref(storage, path);
-  await uploadBytes(storageRef, file, { contentType: file.type || "application/octet-stream" });
-  const url = await getDownloadURL(storageRef);
-  return { url, fileName: displayFileName };
+  // เปลี่ยนชื่อไฟล์ก่อนส่งขึ้น Drive ให้ตรงกับ displayFileName ที่ต้องการ (ไม่ใช้ชื่อไฟล์เดิมจากเครื่องคลินิก)
+  const renamed = new File([file], displayFileName, { type: file.type || "application/octet-stream" });
+  const result = await uploadHiringDocumentFile(renamed, {
+    candidateName: employeeName || employeeId,
+    position: position || "",
+    candidateKey: employeeId,
+    docType: "health_check",
+  });
+  return { url: result.url, fileName: result.fileName || displayFileName };
 };

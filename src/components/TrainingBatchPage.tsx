@@ -8,6 +8,8 @@ import {
   ChevronLeft,
   ChevronUp,
   Copy,
+  Download,
+  FileSpreadsheet,
   GraduationCap,
   Inbox,
   Link2,
@@ -45,8 +47,34 @@ import {
   TrainingLanguage,
 } from "./trainingBatchConfig";
 import { HealthCheckBadge, HealthCheckRowEditor, SharedFileUploadPanel } from "./HealthCheckControls";
+import { generateAndDownloadTrainingNameListPdf, generateAndPreviewTrainingNameListPdf } from "../utils/trainingNameListPdf";
+import { generateAndDownloadAccessBadgeRequestPdf, generateAndPreviewAccessBadgeRequestPdf } from "../utils/accessBadgeRequestPdf";
+import {
+  generateAndDownloadHuashiTrainingRequestFormPdf,
+  generateAndPreviewHuashiTrainingRequestFormPdf,
+  isHuashiTrainingRequestProject,
+} from "../utils/huashiTrainingRequestFormPdf";
+import {
+  buildProjectAliasGroups,
+  buildProjectDisplayKeys,
+  checkProjectDocumentCompleteness,
+  isSameProjectName,
+  normalizeProjectDocumentRequirements,
+  ProjectDocumentRequirement,
+} from "./projectDocumentConfig";
+import {
+  buildContractorPortalUrl,
+  CONTRACTOR_EMPLOYEE_TYPES,
+  ContractorEmployeeType,
+  createContractorLinkToken,
+  PENDING_MEMBER_STATUS_META,
+  TRAINING_CONTRACTOR_LINKS_COLLECTION,
+  TRAINING_PENDING_MEMBERS_COLLECTION,
+  TrainingContractorLink,
+  TrainingPendingMember,
+} from "./contractorPortalConfig";
 
-interface EmployeeRow {
+export interface EmployeeRow {
   id: string;
   รหัสพนักงาน?: string;
   คำนำหน้าชื่อ?: string;
@@ -55,6 +83,8 @@ interface EmployeeRow {
   ชื่อสกุล?: string;
   ตำแหน่ง?: string;
   แผนก?: string;
+  บริษัทผู้รับเหมา?: string;
+  ชื่อชุด?: string;
   สัญชาติ?: string;
   เพศ?: string;
   เลขบัตรประชาชน?: string;
@@ -62,7 +92,27 @@ interface EmployeeRow {
   โครงการ?: string;
   โครงการปัจจุบัน?: string;
   สถานะโครงการ?: string | string[];
-  attachments?: unknown[];
+  employee_type?: string;
+  attachments?: Array<{ docType?: string }>;
+  // เอกสารแรงงานต่างด้าว (ใบอนุญาตทำงาน/บัตรอนุญาตทำงาน/พาสปอร์ต/วีซ่า ฯลฯ) — ดู migrantWorkerConfig.ts
+  // ใช้คำนวณช่อง "Identity verification document" ในใบปะหน้าแบบ HUASHI (J-078) อัตโนมัติ
+  migrant_documents?: Record<string, { docNumber?: string; expiryDate?: string } | undefined>;
+  // ฟิลด์เพิ่มเติม — ใช้ตอน export ข้อมูลทั้งชุดเพื่อไปทำใบปะหน้า/ใบรายคน (เช่น ใบขอออกบัตร)
+  ชื่ออังกฤษ?: string;
+  นามสกุลอังกฤษ?: string;
+  วันเกิดปีเดือนวัน_คศ?: string;
+  ศาสนา?: string;
+  กรุ๊ปเลือด?: string;
+  ที่อยู่บรรทัด_1?: string;
+  ที่อยู่บรรทัด_2?: string;
+  ที่อยู่บรรทัด_3?: string;
+  แขวงตำบล?: string;
+  เขตอำเภอ?: string;
+  จังหวัด?: string;
+  ประเทศ?: string;
+  ไปรษณีย์?: string;
+  โทรศัพท์?: string;
+  อีเมล์?: string;
 }
 
 const INACTIVE_STATUSES = ["ลาออก", "เลิกจ้าง"];
@@ -77,6 +127,10 @@ const emptyBatchForm = (defaultProject: string) => ({
   trainer: "",
   capacity: "",
   note: "",
+  // นัดตรวจสุขภาพ — แยกจากวันอบรม ไม่บังคับกรอกตอนสร้างรอบ (มากรอกทีหลังตอนจะสร้างลิงก์คลินิกก็ได้)
+  healthCheckDate: "",
+  healthCheckTimeSlot: "",
+  healthCheckLocation: "",
 });
 
 export const TrainingBatchPage = ({ projectOptions = [] }: { projectOptions?: string[] }) => {
@@ -139,6 +193,29 @@ export const TrainingBatchPage = ({ projectOptions = [] }: { projectOptions?: st
     return () => unsub();
   }, [db]);
 
+  // เอกสารที่จำเป็นของแต่ละโครงการ (ตั้งค่าไว้ที่หน้า "โครงการ") ใช้แจ้งเตือนตอนเลือกพนักงานเข้ารอบ
+  const [projectDocRequirements, setProjectDocRequirements] = useState<Map<string, ProjectDocumentRequirement[]>>(new Map());
+  // alias ของชื่อโครงการ (เช่น "J74" <-> "PRJ-2026-J-074 - Building GMTP") สำหรับจับคู่ข้อมูลพนักงานเก่าที่กรอกโครงการเป็นรหัสสั้น
+  const [projectAliasGroups, setProjectAliasGroups] = useState<string[][]>([]);
+  useEffect(() => {
+    const unsub = onSnapshot(collection(db, "CMG-HR-Database", "root", "projects"), (snap) => {
+      const map = new Map<string, ProjectDocumentRequirement[]>();
+      const rawProjects: Array<{ project_no?: unknown; project_name?: unknown }> = [];
+      snap.docs.forEach((d) => {
+        const data = d.data() as Record<string, unknown>;
+        rawProjects.push({ project_no: data.project_no, project_name: data.project_name });
+        const requirements = normalizeProjectDocumentRequirements(data.required_documents);
+        if (requirements.length === 0) return;
+        buildProjectDisplayKeys({ project_no: data.project_no, project_name: data.project_name }).forEach((key) => {
+          map.set(key, requirements);
+        });
+      });
+      setProjectDocRequirements(map);
+      setProjectAliasGroups(buildProjectAliasGroups(rawProjects));
+    });
+    return () => unsub();
+  }, [db]);
+
   const enrollmentCountByBatch = useMemo(() => {
     const map = new Map<string, number>();
     enrollments.forEach((en) => {
@@ -156,6 +233,17 @@ export const TrainingBatchPage = ({ projectOptions = [] }: { projectOptions?: st
   }, [batches, projectFilter, statusFilter]);
 
   const activeBatch = useMemo(() => batches.find((b) => b.id === activeBatchId) || null, [batches, activeBatchId]);
+
+  // พนักงานที่เคยลงทะเบียนอบรม (รอบไหนก็ได้) ของโครงการเดียวกับ activeBatch มาแล้ว — ใช้ตัดออกจาก
+  // รายชื่อที่ให้ HR เลือกตอนสร้างลิงก์ผู้รับเหมาใหม่ (ไม่ต้องอบรมซ้ำ)
+  const projectEnrolledEmployeeIds = useMemo(() => {
+    const ids = new Set<string>();
+    if (!activeBatch) return ids;
+    enrollments.forEach((en) => {
+      if (isSameProjectName(en.project, activeBatch.project, projectAliasGroups)) ids.add(en.employeeId);
+    });
+    return ids;
+  }, [enrollments, activeBatch, projectAliasGroups]);
 
   // ----- Create batch -----
   const openCreateForm = () => {
@@ -200,6 +288,10 @@ export const TrainingBatchPage = ({ projectOptions = [] }: { projectOptions?: st
       if (batchForm.capacity.trim()) {
         record.capacity = Number(batchForm.capacity);
       }
+      // นัดตรวจสุขภาพ — ไม่บังคับตอนสร้างรอบ ใส่เฉพาะตอนที่กรอกมา (จะมากรอกทีหลังก็ได้)
+      if (batchForm.healthCheckDate) record.healthCheckDate = batchForm.healthCheckDate;
+      if (batchForm.healthCheckTimeSlot.trim()) record.healthCheckTimeSlot = batchForm.healthCheckTimeSlot.trim();
+      if (batchForm.healthCheckLocation.trim()) record.healthCheckLocation = batchForm.healthCheckLocation.trim();
       await setDoc(ref, record);
       setShowCreateForm(false);
       setActiveBatchId(ref.id);
@@ -243,6 +335,9 @@ export const TrainingBatchPage = ({ projectOptions = [] }: { projectOptions?: st
         enrollments={enrollments.filter((en) => en.batchId === activeBatch.id)}
         employees={employees}
         canManage={canManage}
+        documentRequirements={projectDocRequirements.get(activeBatch.project) || []}
+        projectAliasGroups={projectAliasGroups}
+        alreadyTrainedEmployeeIds={projectEnrolledEmployeeIds}
         onBack={() => setActiveBatchId(null)}
         onChangeStatus={(status) => handleChangeBatchStatus(activeBatch, status)}
       />
@@ -385,16 +480,17 @@ export const TrainingBatchPage = ({ projectOptions = [] }: { projectOptions?: st
             </div>
             <div className="p-5 overflow-auto flex-1 grid grid-cols-1 sm:grid-cols-2 gap-3">
               <Field label="โครงการ *">
-                <input
+                <select
                   required
-                  list="training-project-options"
                   value={batchForm.project}
                   onChange={(e) => setBatchForm((f) => ({ ...f, project: e.target.value }))}
                   className="input"
-                />
-                <datalist id="training-project-options">
-                  {projectOptions.map((p) => <option key={p} value={p} />)}
-                </datalist>
+                >
+                  <option value="" disabled>เลือกโครงการ...</option>
+                  {projectOptions.map((p) => (
+                    <option key={p} value={p}>{p}</option>
+                  ))}
+                </select>
               </Field>
               <Field label="วันที่อบรม *">
                 <input
@@ -449,6 +545,37 @@ export const TrainingBatchPage = ({ projectOptions = [] }: { projectOptions?: st
                   className="input"
                 />
               </Field>
+              <div className="sm:col-span-2 border-t pt-3 mt-1">
+                <p className="text-xs font-semibold text-sky-700 mb-2">
+                  นัดตรวจสุขภาพ (ไม่บังคับ — กรอกเฉพาะกรณีตรวจคนละวัน/คนละสถานที่กับวันอบรม ไม่กรอกตอนนี้ก็ได้ มากรอกทีหลังก่อนสร้างลิงก์คลินิกได้)
+                </p>
+              </div>
+              <Field label="วันที่ตรวจสุขภาพ">
+                <input
+                  type="date"
+                  value={batchForm.healthCheckDate}
+                  onChange={(e) => setBatchForm((f) => ({ ...f, healthCheckDate: e.target.value }))}
+                  className="input"
+                />
+              </Field>
+              <Field label="ช่วงเวลาตรวจสุขภาพ">
+                <input
+                  placeholder="เช่น 08:00-12:00"
+                  value={batchForm.healthCheckTimeSlot}
+                  onChange={(e) => setBatchForm((f) => ({ ...f, healthCheckTimeSlot: e.target.value }))}
+                  className="input"
+                />
+              </Field>
+              <div className="sm:col-span-2">
+                <Field label="สถานที่ตรวจสุขภาพ (เช่น ชื่อคลินิก/โรงพยาบาล)">
+                  <input
+                    value={batchForm.healthCheckLocation}
+                    onChange={(e) => setBatchForm((f) => ({ ...f, healthCheckLocation: e.target.value }))}
+                    className="input"
+                  />
+                </Field>
+              </div>
+
               <div className="sm:col-span-2">
                 <Field label="หมายเหตุ">
                   <textarea
@@ -489,6 +616,9 @@ const TrainingBatchDetail = ({
   enrollments,
   employees,
   canManage,
+  documentRequirements,
+  projectAliasGroups,
+  alreadyTrainedEmployeeIds,
   onBack,
   onChangeStatus,
 }: {
@@ -496,6 +626,9 @@ const TrainingBatchDetail = ({
   enrollments: TrainingEnrollment[];
   employees: EmployeeRow[];
   canManage: boolean;
+  documentRequirements: ProjectDocumentRequirement[];
+  projectAliasGroups: string[][];
+  alreadyTrainedEmployeeIds: Set<string>;
   onBack: () => void;
   onChangeStatus: (status: TrainingBatchStatus) => void;
 }) => {
@@ -507,8 +640,31 @@ const TrainingBatchDetail = ({
   const [generatingLink, setGeneratingLink] = useState(false);
   const [expandedHealthRow, setExpandedHealthRow] = useState<string | null>(null);
   const [showSharedUpload, setShowSharedUpload] = useState(false);
+  const [scheduleDate, setScheduleDate] = useState(batch.healthCheckDate || "");
+  const [scheduleTimeSlot, setScheduleTimeSlot] = useState(batch.healthCheckTimeSlot || "");
+  const [scheduleLocation, setScheduleLocation] = useState(batch.healthCheckLocation || "");
+  const [savingSchedule, setSavingSchedule] = useState(false);
+  // พับแผงลิงก์คลินิกเก็บไว้เป็นค่าเริ่มต้นถ้านัดตรวจ+สร้างลิงก์ไว้แล้ว เพื่อให้ตารางรายชื่อมีพื้นที่แสดงผลเยอะขึ้น
+  const [clinicPanelOpen, setClinicPanelOpen] = useState(
+    !((batch.healthCheckDate || "").trim() && (batch.healthCheckTimeSlot || "").trim() && (batch.healthCheckLocation || "").trim() && batch.healthCheckToken)
+  );
 
+  // ลิงก์สำหรับผู้รับเหมา/Supply manpower กรอกรายชื่อ+เอกสารเองต่อบริษัท ภายในรอบนี้
+  const [contractorPanelOpen, setContractorPanelOpen] = useState(false);
+  const [contractorLinks, setContractorLinks] = useState<TrainingContractorLink[]>([]);
+  const [pendingMembers, setPendingMembers] = useState<TrainingPendingMember[]>([]);
+  const [newLinkCompany, setNewLinkCompany] = useState("");
+  const [showContractorPicker, setShowContractorPicker] = useState(false);
+  const [creatingLink, setCreatingLink] = useState(false);
+  const [copiedLinkId, setCopiedLinkId] = useState<string | null>(null);
+  const [reviewingId, setReviewingId] = useState<string | null>(null);
+
+  // นำเข้ารายชื่อใหม่ (ยังไม่มีในระบบ) จากไฟล์ Excel ที่ export แบบฟอร์มให้กรอกแล้วอัปโหลดกลับมา
   const meta = TRAINING_BATCH_STATUS_META[batch.status] || TRAINING_BATCH_STATUS_META.planned;
+  const scheduleComplete =
+    !!(batch.healthCheckDate || "").trim() &&
+    !!(batch.healthCheckTimeSlot || "").trim() &&
+    !!(batch.healthCheckLocation || "").trim();
   const enrolledIds = useMemo(() => new Set(enrollments.map((e) => e.employeeId)), [enrollments]);
 
   useEffect(() => {
@@ -522,6 +678,180 @@ const TrainingBatchDetail = ({
     return () => unsub();
   }, [db, batch.id]);
 
+  useEffect(() => {
+    const q = query(
+      collection(db, "CMG-HR-Database", "root", TRAINING_CONTRACTOR_LINKS_COLLECTION),
+      where("batchId", "==", batch.id)
+    );
+    const unsub = onSnapshot(q, (snap) => {
+      setContractorLinks(snap.docs.map((d) => ({ id: d.id, ...(d.data() as object) } as TrainingContractorLink)));
+    });
+    return () => unsub();
+  }, [db, batch.id]);
+
+  useEffect(() => {
+    const q = query(
+      collection(db, "CMG-HR-Database", "root", TRAINING_PENDING_MEMBERS_COLLECTION),
+      where("batchId", "==", batch.id)
+    );
+    const unsub = onSnapshot(q, (snap) => {
+      setPendingMembers(
+        snap.docs
+          .map((d) => ({ id: d.id, ...(d.data() as object) } as TrainingPendingMember))
+          .sort((a, b) => b.submittedAt - a.submittedAt)
+      );
+    });
+    return () => unsub();
+  }, [db, batch.id]);
+
+  // บริษัทผู้รับเหมา/Supply manpower ของโครงการนี้ (สำหรับให้ HR เลือกตอนสร้างลิงก์ใหม่)
+  const contractorCompanies = useMemo(() => {
+    const names = new Set<string>();
+    employees.forEach((e) => {
+      const empType = e.employee_type || "";
+      if (!CONTRACTOR_EMPLOYEE_TYPES.includes(empType as ContractorEmployeeType)) return;
+      if (!employeeProjectNames(e).some((p) => isSameProjectName(p, batch.project, projectAliasGroups))) return;
+      const company = (e.บริษัทผู้รับเหมา || "").trim();
+      if (company) names.add(company);
+    });
+    return Array.from(names).sort();
+  }, [employees, batch.project, projectAliasGroups]);
+
+  // รายชื่อพนักงานของบริษัทที่เลือก ซึ่งยังไม่เคยลงทะเบียนอบรมในโครงการนี้มาก่อน — ให้ HR เลือกเฉพาะคนที่จะส่งลิงก์ให้ครั้งนี้
+  const contractorLinkCandidates = useMemo(() => {
+    const company = newLinkCompany.trim();
+    if (!company) return [];
+    return employees.filter((e) => {
+      const empType = e.employee_type || "";
+      if (!CONTRACTOR_EMPLOYEE_TYPES.includes(empType as ContractorEmployeeType)) return false;
+      if ((e.บริษัทผู้รับเหมา || "").trim() !== company) return false;
+      if (!employeeProjectNames(e).some((p) => isSameProjectName(p, batch.project, projectAliasGroups))) return false;
+      if (alreadyTrainedEmployeeIds.has(e.id)) return false;
+      return true;
+    });
+  }, [employees, newLinkCompany, batch.project, projectAliasGroups, alreadyTrainedEmployeeIds]);
+
+  const handleCreateContractorLink = async (invitedEmployeeIds: string[]) => {
+    const company = newLinkCompany.trim();
+    if (!company) return;
+    setCreatingLink(true);
+    try {
+      const token = createContractorLinkToken();
+      const matchedEmployee = employees.find((e) => invitedEmployeeIds.includes(e.id));
+      const employeeType = (matchedEmployee?.employee_type as ContractorEmployeeType) || "";
+      const record: Omit<TrainingContractorLink, "id"> = {
+        batchId: batch.id,
+        project: batch.project,
+        company,
+        employeeType,
+        invitedEmployeeIds,
+        createdAt: Date.now(),
+        createdByUid: firebaseUser?.uid || "",
+        createdByName: `${userProfile?.firstName || ""} ${userProfile?.lastName || ""}`.trim(),
+      };
+      await setDoc(doc(db, "CMG-HR-Database", "root", TRAINING_CONTRACTOR_LINKS_COLLECTION, token), record);
+      setNewLinkCompany("");
+      setShowContractorPicker(false);
+    } catch (err) {
+      window.alert(`สร้างลิงก์ไม่สำเร็จ: ${err instanceof Error ? err.message : "เกิดข้อผิดพลาดที่ไม่คาดคิด"}`);
+    } finally {
+      setCreatingLink(false);
+    }
+  };
+
+  const handleCopyContractorLink = async (link: TrainingContractorLink) => {
+    const url = buildContractorPortalUrl(link.id);
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopiedLinkId(link.id);
+      setTimeout(() => setCopiedLinkId(null), 2000);
+    } catch {
+      window.prompt("คัดลอกลิงก์นี้:", url);
+    }
+  };
+
+  const handleApprovePendingMember = async (member: TrainingPendingMember) => {
+    setReviewingId(member.id);
+    try {
+      const empRef = doc(collection(db, "CMG-HR-Database", "root", "employee_data"));
+      const nameParts = member.fullName.trim().split(/\s+/);
+      const docCheckRequirements = documentRequirements;
+      const isMigrant = isMigrantNationality(member.nationality);
+      const docCheck = checkProjectDocumentCompleteness(member.attachments, docCheckRequirements, isMigrant);
+      await setDoc(empRef, {
+        ชื่อตัว: nameParts[0] || member.fullName,
+        ชื่อสกุล: nameParts.slice(1).join(" "),
+        ตำแหน่ง: member.position || "",
+        บริษัทผู้รับเหมา: member.company,
+        สัญชาติ: member.nationality || "",
+        เลขบัตรประชาชน: member.idCardNumber || "",
+        เพศ: member.gender || "",
+        employee_type: member.employeeType || "",
+        โครงการ: member.project,
+        สถานะพนักงาน: "ทำงาน",
+        attachments: member.attachments || [],
+        createdFromContractorPortal: true,
+        createdAt: Date.now(),
+      });
+
+      const enrollRef = doc(collection(db, "CMG-HR-Database", "root", TRAINING_ENROLLMENTS_COLLECTION));
+      await setDoc(enrollRef, {
+        batchId: batch.id,
+        project: member.project,
+        employeeId: empRef.id,
+        employeeCode: empRef.id,
+        employeeName: member.fullName,
+        employeeFirstName: nameParts[0] || member.fullName,
+        position: member.position || "",
+        company: member.company,
+        nationality: member.nationality || "",
+        idCardNumber: member.idCardNumber || "",
+        gender: member.gender || "",
+        language: "th",
+        status: "registered",
+        documentSnapshot: {
+          isMigrant,
+          documentsComplete: docCheck.complete,
+          missingDocuments: docCheck.missing.map((m) => m.label),
+          checkedAt: Date.now(),
+        },
+        enrolledByUid: firebaseUser?.uid || "",
+        enrolledByName: `${userProfile?.firstName || ""} ${userProfile?.lastName || ""}`.trim(),
+        enrolledAt: Date.now(),
+        updatedAt: Date.now(),
+      });
+
+      await updateDoc(doc(db, "CMG-HR-Database", "root", TRAINING_PENDING_MEMBERS_COLLECTION, member.id), {
+        status: "approved",
+        approvedEmployeeId: empRef.id,
+        reviewedByUid: firebaseUser?.uid || "",
+        reviewedByName: `${userProfile?.firstName || ""} ${userProfile?.lastName || ""}`.trim(),
+        reviewedAt: Date.now(),
+      });
+    } catch (err) {
+      window.alert(`อนุมัติไม่สำเร็จ: ${err instanceof Error ? err.message : "เกิดข้อผิดพลาดที่ไม่คาดคิด"}`);
+    } finally {
+      setReviewingId(null);
+    }
+  };
+
+  const handleRejectPendingMember = async (member: TrainingPendingMember) => {
+    if (!window.confirm(`ปฏิเสธรายชื่อ "${member.fullName}"?`)) return;
+    setReviewingId(member.id);
+    try {
+      await updateDoc(doc(db, "CMG-HR-Database", "root", TRAINING_PENDING_MEMBERS_COLLECTION, member.id), {
+        status: "rejected",
+        reviewedByUid: firebaseUser?.uid || "",
+        reviewedByName: `${userProfile?.firstName || ""} ${userProfile?.lastName || ""}`.trim(),
+        reviewedAt: Date.now(),
+      });
+    } catch (err) {
+      window.alert(`ปฏิเสธไม่สำเร็จ: ${err instanceof Error ? err.message : "เกิดข้อผิดพลาดที่ไม่คาดคิด"}`);
+    } finally {
+      setReviewingId(null);
+    }
+  };
+
   const recordByEmployee = useMemo(() => {
     const map = new Map<string, HealthCheckRecord>();
     enrollments.forEach((e) => {
@@ -531,9 +861,35 @@ const TrainingBatchDetail = ({
     return map;
   }, [enrollments, healthRecords]);
 
+  useEffect(() => {
+    setScheduleDate(batch.healthCheckDate || "");
+    setScheduleTimeSlot(batch.healthCheckTimeSlot || "");
+    setScheduleLocation(batch.healthCheckLocation || "");
+  }, [batch.healthCheckDate, batch.healthCheckTimeSlot, batch.healthCheckLocation]);
+
   const clinicLink = batch.healthCheckToken ? buildClinicPortalUrl(batch.healthCheckToken) : null;
 
+  const handleSaveSchedule = async () => {
+    setSavingSchedule(true);
+    try {
+      await updateDoc(doc(db, "CMG-HR-Database", "root", TRAINING_BATCHES_COLLECTION, batch.id), {
+        healthCheckDate: scheduleDate,
+        healthCheckTimeSlot: scheduleTimeSlot.trim(),
+        healthCheckLocation: scheduleLocation.trim(),
+        updatedAt: Date.now(),
+      });
+    } catch (err) {
+      window.alert(`บันทึกไม่สำเร็จ: ${err instanceof Error ? err.message : "เกิดข้อผิดพลาดที่ไม่คาดคิด"}`);
+    } finally {
+      setSavingSchedule(false);
+    }
+  };
+
   const handleGenerateClinicLink = async () => {
+    if (!scheduleComplete) {
+      window.alert("กรุณากรอกและบันทึกช่วงเวลา + สถานที่ก่อนสร้างลิงก์คลินิก");
+      return;
+    }
     setGeneratingLink(true);
     try {
       const token = generatePublicToken();
@@ -585,6 +941,11 @@ const TrainingBatchDetail = ({
         picked.map((emp) => {
           const ref = doc(collection(db, "CMG-HR-Database", "root", TRAINING_ENROLLMENTS_COLLECTION));
           const isMigrant = isMigrantNationality(emp.สัญชาติ);
+          const docCheck = checkProjectDocumentCompleteness(
+            emp.attachments as Array<{ docType?: string }> | undefined,
+            documentRequirements,
+            isMigrant
+          );
           const record: Omit<TrainingEnrollment, "id"> = {
             batchId: batch.id,
             project: batch.project,
@@ -593,7 +954,9 @@ const TrainingBatchDetail = ({
             employeeName: buildEmployeeFullName(emp),
             employeeFirstName: emp.ชื่อตัว || "",
             position: emp.ตำแหน่ง || "",
-            company: emp.แผนก || "",
+            // "Company" ในใบปะหน้า/รายชื่อเข้าอบรม ให้เป็น CMG เสมอ เพราะทุกคน (รวมผู้รับเหมา/Supply manpower)
+            // เข้ามาทำงานผ่าน CMG — ส่วนบริษัทผู้รับเหมาจริงยังเก็บแยกไว้ที่ข้อมูลพนักงาน (employee_data) ตามเดิม
+            company: "CMG Engineering & Construction",
             nationality: emp.สัญชาติ || "",
             idCardNumber: emp.เลขบัตรประชาชน || "",
             gender: emp.เพศ || "",
@@ -601,7 +964,8 @@ const TrainingBatchDetail = ({
             status: "registered",
             documentSnapshot: {
               isMigrant,
-              documentsComplete: !isMigrant ? (emp.attachments || []).length > 0 : false,
+              documentsComplete: docCheck.complete,
+              missingDocuments: docCheck.missing.map((m) => m.label),
               checkedAt: Date.now(),
             },
             enrolledByUid: firebaseUser?.uid || "",
@@ -618,6 +982,80 @@ const TrainingBatchDetail = ({
     }
   };
 
+  const [generatingNameListPdf, setGeneratingNameListPdf] = useState(false);
+
+  const handlePreviewTrainingNameListPdf = async () => {
+    if (enrollments.length === 0) {
+      window.alert("ยังไม่มีรายชื่อในรอบนี้ให้สร้างใบปะหน้า");
+      return;
+    }
+    setGeneratingNameListPdf(true);
+    try {
+      // โครงการ HUASHI Building B (J-078) ต้องใช้แบบฟอร์มของลูกค้าเอง (Training Request Form rev.0)
+      // ซึ่งมีช่องเอกสารยืนยันตัวตนแรงงานต่างด้าวเพิ่มเติม ส่วนโครงการอื่นยังใช้ใบปะหน้าแบบทั่วไปเหมือนเดิม
+      if (isHuashiTrainingRequestProject(batch.project)) {
+        await generateAndPreviewHuashiTrainingRequestFormPdf(batch, enrollments, employees);
+      } else {
+        await generateAndPreviewTrainingNameListPdf(batch, enrollments);
+      }
+    } catch (err) {
+      window.alert(`สร้าง PDF ไม่สำเร็จ: ${err instanceof Error ? err.message : "เกิดข้อผิดพลาดที่ไม่คาดคิด"}`);
+    } finally {
+      setGeneratingNameListPdf(false);
+    }
+  };
+
+  const handleDownloadTrainingNameListPdf = async () => {
+    if (enrollments.length === 0) {
+      window.alert("ยังไม่มีรายชื่อในรอบนี้ให้สร้างใบปะหน้า");
+      return;
+    }
+    setGeneratingNameListPdf(true);
+    try {
+      if (isHuashiTrainingRequestProject(batch.project)) {
+        await generateAndDownloadHuashiTrainingRequestFormPdf(batch, enrollments, employees);
+      } else {
+        await generateAndDownloadTrainingNameListPdf(batch, enrollments);
+      }
+    } catch (err) {
+      window.alert(`สร้าง PDF ไม่สำเร็จ: ${err instanceof Error ? err.message : "เกิดข้อผิดพลาดที่ไม่คาดคิด"}`);
+    } finally {
+      setGeneratingNameListPdf(false);
+    }
+  };
+
+  const [generatingBadgeRequestPdf, setGeneratingBadgeRequestPdf] = useState(false);
+
+  const handlePreviewAccessBadgeRequestPdf = async () => {
+    if (enrollments.length === 0) {
+      window.alert("ยังไม่มีรายชื่อในรอบนี้ให้สร้างใบรายคน");
+      return;
+    }
+    setGeneratingBadgeRequestPdf(true);
+    try {
+      await generateAndPreviewAccessBadgeRequestPdf(batch, enrollments, employees, recordByEmployee);
+    } catch (err) {
+      window.alert(`สร้าง PDF ไม่สำเร็จ: ${err instanceof Error ? err.message : "เกิดข้อผิดพลาดที่ไม่คาดคิด"}`);
+    } finally {
+      setGeneratingBadgeRequestPdf(false);
+    }
+  };
+
+  const handleDownloadAccessBadgeRequestPdf = async () => {
+    if (enrollments.length === 0) {
+      window.alert("ยังไม่มีรายชื่อในรอบนี้ให้สร้างใบรายคน");
+      return;
+    }
+    setGeneratingBadgeRequestPdf(true);
+    try {
+      await generateAndDownloadAccessBadgeRequestPdf(batch, enrollments, employees, recordByEmployee);
+    } catch (err) {
+      window.alert(`สร้าง PDF ไม่สำเร็จ: ${err instanceof Error ? err.message : "เกิดข้อผิดพลาดที่ไม่คาดคิด"}`);
+    } finally {
+      setGeneratingBadgeRequestPdf(false);
+    }
+  };
+
   return (
     <div className="p-4 sm:p-6 flex flex-col gap-4 h-full">
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -630,15 +1068,15 @@ const TrainingBatchDetail = ({
             <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold ${meta.badge}`}>{meta.label}</span>
           </h2>
           <p className="text-sm text-gray-500 mt-0.5">
-            {batch.project} • {batch.date} {batch.timeSlot ? `(${batch.timeSlot})` : ""} • {batch.location || "-"} • วิทยากร: {batch.trainer || "-"}
+            {batch.project} • อบรม: {batch.date} {batch.timeSlot ? `(${batch.timeSlot})` : ""} ที่ {batch.location || "-"} • วิทยากร: {batch.trainer || "-"}
           </p>
         </div>
         {canManage && (
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2 sm:gap-1">
             <select
               value={batch.status}
               onChange={(e) => onChangeStatus(e.target.value as TrainingBatchStatus)}
-              className="input max-w-[160px]"
+              className="input sm:!py-1.5 sm:!px-2 sm:!text-xs max-w-[160px] sm:max-w-[130px] shrink-0"
             >
               {Object.entries(TRAINING_BATCH_STATUS_META).map(([key, m]) => (
                 <option key={key} value={key}>{m.label}</option>
@@ -646,42 +1084,281 @@ const TrainingBatchDetail = ({
             </select>
             <button
               onClick={() => setShowPicker(true)}
-              className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-semibold hover:bg-blue-700 whitespace-nowrap"
+              className="flex items-center gap-1.5 sm:gap-1 px-3 py-2 sm:px-2.5 sm:py-1.5 bg-blue-600 text-white rounded-lg text-sm sm:text-xs font-semibold hover:bg-blue-700 whitespace-nowrap shrink-0"
             >
-              <UserPlus size={16} /> เพิ่มรายชื่อ
+              <UserPlus size={16} className="sm:hidden" /><UserPlus size={14} className="hidden sm:block" /> เพิ่มรายชื่อ
+            </button>
+            <button
+              onClick={handlePreviewTrainingNameListPdf}
+              disabled={enrollments.length === 0 || generatingNameListPdf}
+              title="ดูตัวอย่างใบปะหน้า (Training Name List) ที่กรอกชื่อ/บริษัท/ตำแหน่งให้อัตโนมัติ เหลือแต่เซ็นชื่อหน้างาน"
+              className="flex items-center gap-1.5 sm:gap-1 px-3 py-2 sm:px-2.5 sm:py-1.5 bg-white border border-indigo-300 text-indigo-700 rounded-lg text-sm sm:text-xs font-semibold hover:bg-indigo-50 disabled:opacity-50 whitespace-nowrap shrink-0"
+            >
+              {generatingNameListPdf ? (
+                <Loader2 className="animate-spin" size={16} />
+              ) : (
+                <>
+                  <FileSpreadsheet size={16} className="sm:hidden" /><FileSpreadsheet size={14} className="hidden sm:block" />
+                </>
+              )}
+              ดูตัวอย่างใบปะหน้า
+            </button>
+            <button
+              onClick={handleDownloadTrainingNameListPdf}
+              disabled={enrollments.length === 0 || generatingNameListPdf}
+              title="ดาวน์โหลด PDF ใบปะหน้า (Training Name List) พร้อมพิมพ์ให้คนเซ็นชื่อหน้างาน"
+              className="flex items-center gap-1.5 sm:gap-1 px-3 py-2 sm:px-2.5 sm:py-1.5 bg-indigo-700 text-white rounded-lg text-sm sm:text-xs font-semibold hover:bg-indigo-800 disabled:opacity-50 whitespace-nowrap shrink-0"
+            >
+              <Download size={16} className="sm:hidden" /><Download size={14} className="hidden sm:block" /> ดาวน์โหลดใบปะหน้า (PDF)
+            </button>
+            <button
+              onClick={handlePreviewAccessBadgeRequestPdf}
+              disabled={enrollments.length === 0 || generatingBadgeRequestPdf}
+              title="ดูตัวอย่างใบรายคน (Access Badge Request) — กรอกข้อมูลส่วนตัวแต่ละคนให้อัตโนมัติ เหลือแต่เซ็นชื่อ"
+              className="flex items-center gap-1.5 sm:gap-1 px-3 py-2 sm:px-2.5 sm:py-1.5 bg-white border border-teal-300 text-teal-700 rounded-lg text-sm sm:text-xs font-semibold hover:bg-teal-50 disabled:opacity-50 whitespace-nowrap shrink-0"
+            >
+              {generatingBadgeRequestPdf ? (
+                <Loader2 className="animate-spin" size={16} />
+              ) : (
+                <>
+                  <FileSpreadsheet size={16} className="sm:hidden" /><FileSpreadsheet size={14} className="hidden sm:block" />
+                </>
+              )}
+              ดูตัวอย่างใบรายคน
+            </button>
+            <button
+              onClick={handleDownloadAccessBadgeRequestPdf}
+              disabled={enrollments.length === 0 || generatingBadgeRequestPdf}
+              title="ดาวน์โหลด PDF ใบรายคน (Access Badge Request) ทุกคนในรอบนี้ รวมเป็นไฟล์เดียว คนละ 1 หน้า"
+              className="flex items-center gap-1.5 sm:gap-1 px-3 py-2 sm:px-2.5 sm:py-1.5 bg-teal-700 text-white rounded-lg text-sm sm:text-xs font-semibold hover:bg-teal-800 disabled:opacity-50 whitespace-nowrap shrink-0"
+            >
+              <Download size={16} className="sm:hidden" /><Download size={14} className="hidden sm:block" /> ดาวน์โหลดใบรายคน (PDF)
             </button>
           </div>
         )}
       </div>
 
       {canManage && (
-        <div className="bg-sky-50 border border-sky-200 rounded-xl p-4 flex flex-col gap-2">
-          <h3 className="text-sm font-bold text-sky-800 flex items-center gap-1.5">
-            <Stethoscope size={16} /> ลิงก์สาธารณะสำหรับคลินิกตรวจสุขภาพ
-          </h3>
-          <p className="text-xs text-sky-700">
-            ส่งลิงก์นี้ให้คลินิก — คลินิกเปิดดูรายชื่อ ปรับวันที่/เวลา/สถานที่นัดตรวจ และบันทึกผลตรวจ/แนบใบรับรองแพทย์ได้เอง โดยไม่ต้อง login
-          </p>
-          {clinicLink ? (
-            <div className="flex items-center gap-2 flex-wrap">
-              <code className="text-xs bg-white border border-sky-200 rounded-lg px-2 py-1.5 break-all">{clinicLink}</code>
-              <button
-                onClick={handleCopyClinicLink}
-                className="flex items-center gap-1 px-3 py-1.5 bg-sky-600 text-white rounded-lg text-xs font-semibold hover:bg-sky-700 whitespace-nowrap"
-              >
-                <Copy size={13} /> {clinicLinkCopied ? "คัดลอกแล้ว" : "คัดลอกลิงก์"}
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+          <div className="flex-1 min-w-0 bg-sky-50 border border-sky-200 rounded-xl px-4 py-2.5 flex items-center justify-between gap-2">
+            <span className="text-sm font-bold text-sky-800 flex items-center gap-1.5 flex-wrap min-w-0">
+              <Stethoscope size={16} className="shrink-0" /> ลิงก์สาธารณะสำหรับคลินิกตรวจสุขภาพ
+              {scheduleComplete ? (
+                <span className="text-xs font-normal text-sky-700">
+                  — นัดตรวจ {batch.healthCheckDate} ({batch.healthCheckTimeSlot}) ที่ {batch.healthCheckLocation}
+                  {clinicLink ? " • สร้างลิงก์แล้ว" : ""}
+                </span>
+              ) : (
+                <span className="text-xs font-normal text-amber-700">— ยังไม่ได้กรอกวัน/เวลา/สถานที่ตรวจ</span>
+              )}
+            </span>
+            <button
+              onClick={() => setClinicPanelOpen(true)}
+              className="flex items-center gap-1 px-3 py-1.5 bg-sky-600 text-white rounded-lg text-xs font-semibold hover:bg-sky-700 whitespace-nowrap shrink-0"
+            >
+              <Link2 size={13} /> จัดการลิงก์คลินิก
+            </button>
+          </div>
+
+          <div className="flex-1 min-w-0 bg-violet-50 border border-violet-200 rounded-xl px-4 py-2.5 flex items-center justify-between gap-2">
+            <span className="text-sm font-bold text-violet-800 flex items-center gap-1.5 flex-wrap min-w-0">
+              <UserPlus size={16} className="shrink-0" /> ลิงก์สำหรับผู้รับเหมา / Supply manpower
+              <span className="text-xs font-normal text-violet-700">
+                — {contractorLinks.length} บริษัท{pendingMembers.filter((m) => m.status === "pending").length > 0 ? ` • รออนุมัติ ${pendingMembers.filter((m) => m.status === "pending").length} คน` : ""}
+              </span>
+            </span>
+            <button
+              onClick={() => setContractorPanelOpen(true)}
+              className="flex items-center gap-1 px-3 py-1.5 bg-violet-600 text-white rounded-lg text-xs font-semibold hover:bg-violet-700 whitespace-nowrap shrink-0"
+            >
+              <Link2 size={13} /> จัดการลิงก์ผู้รับเหมา
+            </button>
+          </div>
+        </div>
+      )}
+
+      {clinicPanelOpen && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[90] flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] flex flex-col">
+            <div className="p-5 border-b flex items-start justify-between">
+              <h3 className="text-base font-bold text-sky-800 flex items-center gap-2">
+                <Stethoscope size={18} /> ลิงก์สาธารณะสำหรับคลินิกตรวจสุขภาพ
+              </h3>
+              <button onClick={() => setClinicPanelOpen(false)} className="text-gray-400 hover:text-red-500 p-1">
+                <X size={18} />
               </button>
             </div>
-          ) : (
-            <button
-              onClick={handleGenerateClinicLink}
-              disabled={generatingLink}
-              className="self-start flex items-center gap-2 px-4 py-2 bg-sky-600 text-white rounded-lg text-xs font-semibold hover:bg-sky-700 disabled:opacity-50"
-            >
-              {generatingLink ? <Loader2 className="animate-spin" size={14} /> : <Link2 size={14} />}
-              สร้างลิงก์สำหรับคลินิก
-            </button>
-          )}
+
+            <div className="p-5 overflow-y-auto flex flex-col gap-3">
+              <p className="text-xs text-sky-700">
+                ส่งลิงก์นี้ให้คลินิก — คลินิกเปิดดูรายชื่อ ปรับวันที่/เวลา/สถานที่นัดตรวจ และบันทึกผลตรวจ/แนบใบรับรองแพทย์ได้เอง โดยไม่ต้อง login
+                <br />
+                <span className="text-sky-500">(นัดตรวจสุขภาพแยกจากวันอบรม — อาจเป็นคนละวัน/คนละสถานที่กันก็ได้ เช่น อบรมที่ไซต์งาน แต่ตรวจที่คลินิก)</span>
+              </p>
+
+              {scheduleComplete && (
+                <p className="text-xs text-sky-800">
+                  นัดตรวจ: <strong>{batch.healthCheckDate}</strong> ({batch.healthCheckTimeSlot}) ที่ <strong>{batch.healthCheckLocation}</strong>
+                </p>
+              )}
+
+              {!scheduleComplete && (
+                <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 flex flex-col gap-2">
+                  <p className="text-xs font-semibold text-amber-700">
+                    ยังไม่ได้กรอก "วันที่/เวลา/สถานที่ตรวจสุขภาพ" ของรอบนี้ (คนละส่วนกับวันอบรม) — กรุณากรอกและบันทึกก่อนสร้างลิงก์คลินิก
+                  </p>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                    <input
+                      type="date"
+                      value={scheduleDate}
+                      onChange={(e) => setScheduleDate(e.target.value)}
+                      className="input !bg-white"
+                    />
+                    <input
+                      value={scheduleTimeSlot}
+                      onChange={(e) => setScheduleTimeSlot(e.target.value)}
+                      placeholder="ช่วงเวลา เช่น 08:00-12:00"
+                      className="input !bg-white"
+                    />
+                    <input
+                      value={scheduleLocation}
+                      onChange={(e) => setScheduleLocation(e.target.value)}
+                      placeholder="สถานที่ตรวจ (ชื่อคลินิก/รพ.)"
+                      className="input !bg-white"
+                    />
+                  </div>
+                  <button
+                    onClick={handleSaveSchedule}
+                    disabled={savingSchedule}
+                    className="self-start flex items-center gap-2 px-3 py-1.5 bg-amber-600 text-white rounded-lg text-xs font-semibold hover:bg-amber-700 disabled:opacity-50"
+                  >
+                    {savingSchedule ? <Loader2 className="animate-spin" size={13} /> : <CheckCircle2 size={13} />}
+                    บันทึกวันที่/เวลา/สถานที่ตรวจ
+                  </button>
+                </div>
+              )}
+
+              {clinicLink ? (
+                <div className="flex items-center gap-2 flex-wrap">
+                  <code className="text-xs bg-white border border-sky-200 rounded-lg px-2 py-1.5 break-all">{clinicLink}</code>
+                  <button
+                    onClick={handleCopyClinicLink}
+                    className="flex items-center gap-1 px-3 py-1.5 bg-sky-600 text-white rounded-lg text-xs font-semibold hover:bg-sky-700 whitespace-nowrap"
+                  >
+                    <Copy size={13} /> {clinicLinkCopied ? "คัดลอกแล้ว" : "คัดลอกลิงก์"}
+                  </button>
+                </div>
+              ) : (
+                <button
+                  onClick={handleGenerateClinicLink}
+                  disabled={generatingLink || !scheduleComplete}
+                  title={!scheduleComplete ? "กรุณากรอกและบันทึกช่วงเวลา + สถานที่ก่อน" : undefined}
+                  className="self-start flex items-center gap-2 px-4 py-2 bg-sky-600 text-white rounded-lg text-xs font-semibold hover:bg-sky-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {generatingLink ? <Loader2 className="animate-spin" size={14} /> : <Link2 size={14} />}
+                  สร้างลิงก์สำหรับคลินิก
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {contractorPanelOpen && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[90] flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col">
+            <div className="p-5 border-b flex items-start justify-between">
+              <h3 className="text-base font-bold text-violet-800 flex items-center gap-2">
+                <UserPlus size={18} /> ลิงก์สำหรับผู้รับเหมา / Supply manpower
+              </h3>
+              <button onClick={() => setContractorPanelOpen(false)} className="text-gray-400 hover:text-red-500 p-1">
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="p-5 overflow-y-auto flex flex-col gap-3">
+              <p className="text-xs text-violet-700">
+                สร้างลิงก์แยกต่อบริษัทผู้รับเหมา/Supply manpower — ส่งให้ผู้ประสานงานของบริษัทนั้นกรอกรายชื่อทีมงาน (จากที่ HR กรอกไว้แล้ว) แนบเอกสารตามที่โครงการกำหนด แล้วกดส่งเข้ารอบอบรมได้เอง หรือเพิ่มชื่อใหม่ส่งให้ HR อนุมัติ
+              </p>
+
+              <div className="flex flex-wrap items-center gap-2">
+                <select
+                  value={newLinkCompany}
+                  onChange={(e) => setNewLinkCompany(e.target.value)}
+                  className="input !w-auto !bg-white"
+                >
+                  <option value="">เลือกบริษัทผู้รับเหมา...</option>
+                  {contractorCompanies.map((c) => (
+                    <option key={c} value={c}>{c}</option>
+                  ))}
+                </select>
+                <button
+                  onClick={() => setShowContractorPicker(true)}
+                  disabled={!newLinkCompany.trim() || creatingLink}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-violet-600 text-white rounded-lg text-xs font-semibold hover:bg-violet-700 disabled:opacity-50"
+                >
+                  {creatingLink ? <Loader2 className="animate-spin" size={13} /> : <Plus size={13} />}
+                  เลือกรายชื่อ & สร้างลิงก์
+                </button>
+              </div>
+
+              {contractorCompanies.length === 0 && (
+                <p className="text-xs text-violet-500">ยังไม่มีพนักงานกลุ่ม Supply manpower / Sub contractor ที่กรอก "บริษัทผู้รับเหมา" ในโครงการนี้ (HR ต้องกรอกชื่อพนักงาน + ระบุฟิลด์ "บริษัทผู้รับเหมา" ก่อนอย่างน้อย 1 คน เพื่อให้ระบบรู้จักชื่อบริษัท)</p>
+              )}
+
+              {contractorLinks.length > 0 && (
+                <div className="flex flex-col gap-1.5">
+                  {contractorLinks.map((link) => (
+                    <div key={link.id} className="flex items-center gap-2 flex-wrap bg-white border border-violet-200 rounded-lg px-2.5 py-1.5">
+                      <span className="text-xs font-semibold text-gray-700 whitespace-nowrap">{link.company}</span>
+                      <code className="text-xs text-gray-500 break-all flex-1 min-w-[160px]">{buildContractorPortalUrl(link.id)}</code>
+                      <button
+                        onClick={() => handleCopyContractorLink(link)}
+                        className="flex items-center gap-1 px-2.5 py-1 bg-violet-600 text-white rounded-lg text-xs font-semibold hover:bg-violet-700 whitespace-nowrap"
+                      >
+                        <Copy size={12} /> {copiedLinkId === link.id ? "คัดลอกแล้ว" : "คัดลอก"}
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {pendingMembers.length > 0 && (
+                <div className="border-t border-violet-200 pt-2 mt-1 flex flex-col gap-1.5">
+                  <h4 className="text-xs font-bold text-violet-800">รายชื่อใหม่จากผู้รับเหมา</h4>
+                  {pendingMembers.map((member) => {
+                    const statusMeta = PENDING_MEMBER_STATUS_META[member.status];
+                    return (
+                      <div key={member.id} className="flex items-center gap-2 flex-wrap bg-white border border-violet-200 rounded-lg px-2.5 py-1.5">
+                        <span className="text-xs font-semibold text-gray-700 whitespace-nowrap">{member.fullName}</span>
+                        <span className="text-xs text-gray-400 whitespace-nowrap">{member.company} • {member.position || "-"} • เอกสาร {member.attachments.length} ไฟล์</span>
+                        <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold ${statusMeta.cls}`}>{statusMeta.label}</span>
+                        {member.status === "pending" && (
+                          <div className="flex items-center gap-1.5 ml-auto">
+                            <button
+                              onClick={() => handleApprovePendingMember(member)}
+                              disabled={reviewingId === member.id}
+                              className="flex items-center gap-1 px-2.5 py-1 bg-emerald-600 text-white rounded-lg text-xs font-semibold hover:bg-emerald-700 disabled:opacity-50"
+                            >
+                              {reviewingId === member.id ? <Loader2 className="animate-spin" size={12} /> : <CheckCircle2 size={12} />}
+                              อนุมัติ
+                            </button>
+                            <button
+                              onClick={() => handleRejectPendingMember(member)}
+                              disabled={reviewingId === member.id}
+                              className="flex items-center gap-1 px-2.5 py-1 bg-rose-100 text-rose-700 rounded-lg text-xs font-semibold hover:bg-rose-200 disabled:opacity-50"
+                            >
+                              ปฏิเสธ
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
         </div>
       )}
 
@@ -750,8 +1427,20 @@ const TrainingBatchDetail = ({
           batch={batch}
           employees={employees}
           enrolledIds={enrolledIds}
+          documentRequirements={documentRequirements}
+          projectAliasGroups={projectAliasGroups}
           onClose={() => setShowPicker(false)}
           onConfirm={handleAddEmployees}
+        />
+      )}
+
+      {showContractorPicker && (
+        <ContractorLinkPickerModal
+          company={newLinkCompany.trim()}
+          candidates={contractorLinkCandidates}
+          creating={creatingLink}
+          onClose={() => setShowContractorPicker(false)}
+          onConfirm={handleCreateContractorLink}
         />
       )}
 
@@ -780,11 +1469,14 @@ const EnrollmentRow = ({
   const { firebaseUser, userProfile } = useAuth();
   const statusMeta = TRAINING_ENROLLMENT_STATUS_META[enrollment.status] || TRAINING_ENROLLMENT_STATUS_META.registered;
   const snapshot = enrollment.documentSnapshot;
+  const missingDocs = snapshot?.missingDocuments || [];
   const docBadge = !snapshot
-    ? { label: "ไม่ได้ตรวจสอบ", cls: "bg-gray-100 text-gray-500 border border-gray-200" }
+    ? { label: "ไม่ได้ตรวจสอบ", cls: "bg-gray-100 text-gray-500 border border-gray-200", title: undefined as string | undefined }
     : snapshot.documentsComplete
-      ? { label: "ครบ", cls: "bg-emerald-50 text-emerald-700 border border-emerald-200" }
-      : { label: snapshot.isMigrant ? "แรงงานต่างด้าว: ตรวจที่หน้าเอกสาร" : "ยังไม่มีเอกสารแนบ", cls: "bg-amber-50 text-amber-700 border border-amber-200" };
+      ? { label: "ครบ", cls: "bg-emerald-50 text-emerald-700 border border-emerald-200", title: undefined as string | undefined }
+      : missingDocs.length > 0
+        ? { label: `ขาด ${missingDocs.length} รายการ`, cls: "bg-amber-50 text-amber-700 border border-amber-200", title: `ยังขาด: ${missingDocs.join(", ")}` }
+        : { label: snapshot.isMigrant ? "แรงงานต่างด้าว: ตรวจที่หน้าเอกสาร" : "ยังไม่มีเอกสารแนบ", cls: "bg-amber-50 text-amber-700 border border-amber-200", title: undefined as string | undefined };
 
   const columnCount = canManage ? 9 : 8;
 
@@ -811,7 +1503,7 @@ const EnrollmentRow = ({
         )}
       </td>
       <td className="p-3 whitespace-nowrap">
-        <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold ${docBadge.cls}`}>{docBadge.label}</span>
+        <span title={docBadge.title} className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold ${docBadge.cls}`}>{docBadge.label}</span>
       </td>
       <td className="p-3 min-w-[160px]">
         <div className="flex flex-col gap-1.5 items-start">
@@ -853,7 +1545,7 @@ const EnrollmentRow = ({
     </tr>
     {isHealthExpanded && canManage && (
       <tr className="bg-sky-50/50">
-        <td colSpan={columnCount} className="p-3">
+        <td colSpan={columnCount} className="p-3 flex flex-col gap-3">
           <HealthCheckRowEditor
             enrollment={enrollment}
             latestRecord={latestHealthRecord}
@@ -861,6 +1553,7 @@ const EnrollmentRow = ({
             actorName={`${userProfile?.firstName || ""} ${userProfile?.lastName || ""}`.trim()}
             actorUid={firebaseUser?.uid}
           />
+          <CongenitalDiseaseEditor enrollment={enrollment} onUpdate={onUpdate} />
         </td>
       </tr>
     )}
@@ -868,16 +1561,64 @@ const EnrollmentRow = ({
   );
 };
 
+/** ติ๊กเลือกโรคประจำตัว (ใช้กับใบรายคน/ใบขอออกบัตร — Access Badge Request) เก็บไว้ที่ enrollment.healthCheck.congenitalDiseases */
+const CongenitalDiseaseEditor = ({
+  enrollment,
+  onUpdate,
+}: {
+  enrollment: TrainingEnrollment;
+  onUpdate: (patch: Partial<TrainingEnrollment>) => void;
+}) => {
+  const selected = enrollment.healthCheck?.congenitalDiseases || [];
+  const otherDetail = enrollment.healthCheck?.otherDetail || "";
+
+  const toggleDisease = (disease: string) => {
+    const next = selected.includes(disease) ? selected.filter((d) => d !== disease) : [...selected, disease];
+    onUpdate({ healthCheck: { status: enrollment.healthCheck?.status || "not_checked", congenitalDiseases: next, otherDetail } });
+  };
+
+  const updateOtherDetail = (value: string) => {
+    onUpdate({ healthCheck: { status: enrollment.healthCheck?.status || "not_checked", congenitalDiseases: selected, otherDetail: value } });
+  };
+
+  return (
+    <div className="bg-white border border-gray-200 rounded-lg p-3">
+      <p className="text-xs font-semibold text-gray-600 mb-2">โรคประจำตัว (สำหรับใบรายคน/ใบขอออกบัตร)</p>
+      <div className="flex flex-wrap gap-x-4 gap-y-1.5">
+        {CONGENITAL_DISEASE_OPTIONS.map((disease) => (
+          <label key={disease} className="flex items-center gap-1.5 text-xs text-gray-700">
+            <input type="checkbox" checked={selected.includes(disease)} onChange={() => toggleDisease(disease)} />
+            {disease}
+          </label>
+        ))}
+      </div>
+      {selected.includes("อื่นๆ") && (
+        <input
+          type="text"
+          value={otherDetail}
+          onChange={(e) => updateOtherDetail(e.target.value)}
+          placeholder="ระบุรายละเอียดโรคอื่นๆ"
+          className="input mt-2 !py-1 text-xs max-w-xs"
+        />
+      )}
+    </div>
+  );
+};
+
 const EmployeePickerModal = ({
   batch,
   employees,
   enrolledIds,
+  documentRequirements,
+  projectAliasGroups,
   onClose,
   onConfirm,
 }: {
   batch: TrainingBatch;
   employees: EmployeeRow[];
   enrolledIds: Set<string>;
+  documentRequirements: ProjectDocumentRequirement[];
+  projectAliasGroups: string[][];
   onClose: () => void;
   onConfirm: (picked: EmployeeRow[], language: TrainingLanguage) => void;
 }) => {
@@ -890,13 +1631,15 @@ const EmployeePickerModal = ({
     const kw = search.trim().toLowerCase();
     return employees
       .filter((e) => !enrolledIds.has(e.id))
-      .filter((e) => (onlySameProject ? employeeProjectNames(e).includes(batch.project) : true))
+      .filter((e) =>
+        onlySameProject ? employeeProjectNames(e).some((p) => isSameProjectName(p, batch.project, projectAliasGroups)) : true
+      )
       .filter((e) => {
         if (!kw) return true;
         const name = buildEmployeeFullName(e).toLowerCase();
         return name.includes(kw) || (e.รหัสพนักงาน || "").toLowerCase().includes(kw) || (e.ตำแหน่ง || "").toLowerCase().includes(kw);
       });
-  }, [employees, enrolledIds, onlySameProject, batch.project, search]);
+  }, [employees, enrolledIds, onlySameProject, batch.project, search, projectAliasGroups]);
 
   const toggle = (id: string) => {
     setSelected((prev) => {
@@ -983,7 +1726,12 @@ const EmployeePickerModal = ({
               <tbody className="divide-y divide-gray-100">
                 {filtered.map((e) => {
                   const isMigrant = isMigrantNationality(e.สัญชาติ);
-                  const docOk = !isMigrant && (e.attachments || []).length > 0;
+                  const docCheck = checkProjectDocumentCompleteness(
+                    e.attachments as Array<{ docType?: string }> | undefined,
+                    documentRequirements,
+                    isMigrant
+                  );
+                  const hasAnyRequirement = documentRequirements.length > 0;
                   return (
                     <tr key={e.id} className="hover:bg-gray-50 cursor-pointer" onClick={() => toggle(e.id)}>
                       <td className="p-3 text-center" onClick={(ev) => ev.stopPropagation()}>
@@ -994,17 +1742,20 @@ const EmployeePickerModal = ({
                       <td className="p-3 text-gray-600 whitespace-nowrap">{e.ตำแหน่ง || "-"}</td>
                       <td className="p-3 text-gray-600 whitespace-nowrap">{e.สัญชาติ || "-"}</td>
                       <td className="p-3 whitespace-nowrap">
-                        {isMigrant ? (
+                        {isMigrant && !hasAnyRequirement ? (
                           <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-sky-50 text-sky-700 border border-sky-200">
                             แรงงานต่างด้าว — ตรวจที่หน้าเอกสาร
                           </span>
-                        ) : docOk ? (
+                        ) : docCheck.complete ? (
                           <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
-                            มีเอกสารแนบแล้ว
+                            {hasAnyRequirement ? "เอกสารครบตามที่โครงการกำหนด" : "มีเอกสารแนบแล้ว"}
                           </span>
                         ) : (
-                          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-amber-50 text-amber-700 border border-amber-200">
-                            ยังไม่มีเอกสารแนบ
+                          <span
+                            title={docCheck.missing.length > 0 ? `ยังขาด: ${docCheck.missing.map((m) => m.label).join(", ")}` : undefined}
+                            className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-amber-50 text-amber-700 border border-amber-200"
+                          >
+                            {docCheck.missing.length > 0 ? `ขาดเอกสาร ${docCheck.missing.length} รายการ` : "ยังไม่มีเอกสารแนบ"}
                           </span>
                         )}
                       </td>
@@ -1032,6 +1783,237 @@ const EmployeePickerModal = ({
         </div>
       </div>
       <style>{`.input { border: 1px solid #e5e7eb; border-radius: 0.5rem; padding: 0.5rem 0.75rem; font-size: 0.875rem; width: 100%; outline: none; } .input:focus { box-shadow: 0 0 0 2px #dbeafe; }`}</style>
+    </div>
+  );
+};
+
+// ---------------------------------------------------------------------------
+// เลือกรายชื่อพนักงานของบริษัทผู้รับเหมาที่ HR จะส่งลิงก์ให้ — เฉพาะคนที่ติ๊กเลือกไว้เท่านั้น
+// ที่ผู้รับเหมาจะเห็นในลิงก์ (ชื่ออื่นที่ไม่ได้เลือกต้องส่งผ่านฟอร์ม "เพิ่มชื่อใหม่" ให้ HR อนุมัติ)
+// ---------------------------------------------------------------------------
+const UNGROUPED_TEAM_KEY = "__no_team__";
+
+const ContractorLinkPickerModal = ({
+  company,
+  candidates,
+  creating,
+  onClose,
+  onConfirm,
+}: {
+  company: string;
+  candidates: EmployeeRow[];
+  creating: boolean;
+  onClose: () => void;
+  onConfirm: (selectedIds: string[]) => void;
+}) => {
+  const [search, setSearch] = useState("");
+  const [selected, setSelected] = useState<Set<string>>(new Set(candidates.map((e) => e.id)));
+
+  const filtered = useMemo(() => {
+    const kw = search.trim().toLowerCase();
+    if (!kw) return candidates;
+    return candidates.filter((e) => {
+      const name = buildEmployeeFullName(e).toLowerCase();
+      const team = (e.ชื่อชุด || "").toLowerCase();
+      return (
+        name.includes(kw) ||
+        (e.รหัสพนักงาน || "").toLowerCase().includes(kw) ||
+        (e.ตำแหน่ง || "").toLowerCase().includes(kw) ||
+        team.includes(kw)
+      );
+    });
+  }, [candidates, search]);
+
+  // จัดกลุ่มตาม "ชื่อชุด" (ทีมงานย่อยภายในบริษัทเดียวกัน) เพื่อให้เลือกทีมทั้งชุดได้ในคลิกเดียว
+  const teamGroups = useMemo(() => {
+    const map = new Map<string, EmployeeRow[]>();
+    filtered.forEach((e) => {
+      const team = (e.ชื่อชุด || "").trim() || UNGROUPED_TEAM_KEY;
+      if (!map.has(team)) map.set(team, []);
+      map.get(team)!.push(e);
+    });
+    return Array.from(map.entries()).sort(([a], [b]) => {
+      if (a === UNGROUPED_TEAM_KEY) return 1;
+      if (b === UNGROUPED_TEAM_KEY) return -1;
+      return a.localeCompare(b, "th");
+    });
+  }, [filtered]);
+
+  const hasTeamGrouping = teamGroups.some(([team]) => team !== UNGROUPED_TEAM_KEY);
+
+  // พับทุกชุดไว้เป็นค่าเริ่มต้นเพื่อให้ดูง่าย (กดที่หัวชุดเพื่อขยายดูรายชื่อข้างในทีละชุด)
+  const [collapsedTeams, setCollapsedTeams] = useState<Set<string>>(new Set());
+  useEffect(() => {
+    if (hasTeamGrouping) setCollapsedTeams(new Set(teamGroups.map(([team]) => team)));
+  }, [hasTeamGrouping, candidates]);
+
+  const toggleTeamCollapse = (team: string) => {
+    setCollapsedTeams((prev) => {
+      const next = new Set(prev);
+      if (next.has(team)) next.delete(team);
+      else next.add(team);
+      return next;
+    });
+  };
+
+  const toggle = (id: string) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleAll = () => {
+    const allFilteredSelected = filtered.length > 0 && filtered.every((e) => selected.has(e.id));
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (allFilteredSelected) filtered.forEach((e) => next.delete(e.id));
+      else filtered.forEach((e) => next.add(e.id));
+      return next;
+    });
+  };
+
+  const toggleTeam = (members: EmployeeRow[]) => {
+    const allSelected = members.every((e) => selected.has(e.id));
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (allSelected) members.forEach((e) => next.delete(e.id));
+      else members.forEach((e) => next.add(e.id));
+      return next;
+    });
+  };
+
+  const handleConfirm = () => {
+    if (selected.size === 0) {
+      window.alert("กรุณาเลือกพนักงานอย่างน้อย 1 คน");
+      return;
+    }
+    onConfirm(Array.from(selected));
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[95] flex items-center justify-center p-4">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col">
+        <div className="p-5 border-b flex items-start justify-between">
+          <div>
+            <h3 className="text-lg font-bold text-gray-800 flex items-center gap-2">
+              <UserPlus className="text-violet-600" size={20} />
+              เลือกรายชื่อ — {company}
+            </h3>
+            <p className="text-xs text-gray-500 mt-1">
+              เลือกเฉพาะคนที่จะส่งเข้ารอบนี้ (ตัดคนที่เคยอบรมโครงการนี้แล้วออกให้อัตโนมัติ) — ผู้รับเหมาจะเห็นเฉพาะชื่อที่เลือกไว้ตรงนี้เท่านั้น
+              ชื่ออื่นต้องให้ผู้รับเหมาส่งผ่านฟอร์ม "เพิ่มชื่อใหม่" ในลิงก์แล้ว HR ค่อยอนุมัติ
+            </p>
+          </div>
+          <button onClick={onClose} className="text-gray-400 hover:text-red-500 p-1 shrink-0">
+            <X size={18} />
+          </button>
+        </div>
+
+        <div className="p-4 border-b flex items-center gap-2">
+          <div className="relative flex-1">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
+            <input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="ค้นหาชื่อ / รหัสพนักงาน / ตำแหน่ง..."
+              className="w-full pl-9 pr-3 py-1.5 border rounded-lg text-sm outline-none focus:ring-2 focus:ring-violet-100"
+            />
+          </div>
+        </div>
+
+        <div className="flex-1 overflow-auto">
+          {candidates.length === 0 ? (
+            <div className="flex flex-col items-center justify-center h-40 text-gray-400 gap-2 p-4 text-center">
+              <Inbox size={28} />
+              <p className="text-sm">ไม่พบพนักงานของบริษัทนี้ที่ยังไม่เคยอบรมโครงการนี้มาก่อน</p>
+              <p className="text-xs">(ถ้ามีคนใหม่ที่ยังไม่มีในระบบ ให้สร้างลิงก์แบบไม่เลือกใครก่อน แล้วให้ผู้รับเหมาส่งชื่อผ่านฟอร์ม "เพิ่มชื่อใหม่")</p>
+            </div>
+          ) : filtered.length === 0 ? (
+            <div className="flex flex-col items-center justify-center h-32 text-gray-400 gap-2">
+              <Inbox size={24} />
+              <p className="text-sm">ไม่พบชื่อที่ตรงกับคำค้นหา</p>
+            </div>
+          ) : (
+            <table className="w-full text-sm border-collapse">
+              <thead className="bg-gray-50 sticky top-0 z-10">
+                <tr>
+                  <th className="p-3 text-center w-10">
+                    <input
+                      type="checkbox"
+                      checked={filtered.length > 0 && filtered.every((e) => selected.has(e.id))}
+                      onChange={toggleAll}
+                    />
+                  </th>
+                  <th className="p-3 text-left font-semibold text-gray-600 border-b whitespace-nowrap">ชื่อ-สกุล</th>
+                  <th className="p-3 text-left font-semibold text-gray-600 border-b whitespace-nowrap">รหัส</th>
+                  <th className="p-3 text-left font-semibold text-gray-600 border-b whitespace-nowrap">ตำแหน่ง</th>
+                </tr>
+              </thead>
+              {teamGroups.map(([team, members]) => {
+                const teamAllSelected = members.every((e) => selected.has(e.id));
+                const teamSomeSelected = !teamAllSelected && members.some((e) => selected.has(e.id));
+                const isExpanded = search.trim() !== "" || !collapsedTeams.has(team);
+                const selectedInTeam = members.filter((e) => selected.has(e.id)).length;
+                return (
+                  <tbody key={team} className="divide-y divide-gray-100">
+                    {hasTeamGrouping && (
+                      <tr className="bg-violet-50/70 cursor-pointer" onClick={() => toggleTeamCollapse(team)}>
+                        <td className="p-2.5 text-center" onClick={(ev) => ev.stopPropagation()}>
+                          <input
+                            type="checkbox"
+                            checked={teamAllSelected}
+                            ref={(el) => {
+                              if (el) el.indeterminate = teamSomeSelected;
+                            }}
+                            onChange={() => toggleTeam(members)}
+                          />
+                        </td>
+                        <td colSpan={3} className="p-2.5 text-xs font-bold text-violet-800 flex items-center gap-1.5">
+                          {isExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                          {team === UNGROUPED_TEAM_KEY ? "ไม่ระบุชุด" : team}
+                          <span className="font-normal text-violet-600">
+                            ({selectedInTeam > 0 ? `เลือก ${selectedInTeam}/${members.length}` : `${members.length} คน`})
+                          </span>
+                        </td>
+                      </tr>
+                    )}
+                    {isExpanded &&
+                      members.map((e) => (
+                        <tr key={e.id} className="hover:bg-gray-50 cursor-pointer" onClick={() => toggle(e.id)}>
+                          <td className="p-3 text-center" onClick={(ev) => ev.stopPropagation()}>
+                            <input type="checkbox" checked={selected.has(e.id)} onChange={() => toggle(e.id)} />
+                          </td>
+                          <td className="p-3 text-gray-800 font-medium whitespace-nowrap">{buildEmployeeFullName(e)}</td>
+                          <td className="p-3 text-gray-600 whitespace-nowrap">{e.รหัสพนักงาน || "-"}</td>
+                          <td className="p-3 text-gray-600 whitespace-nowrap">{e.ตำแหน่ง || "-"}</td>
+                        </tr>
+                      ))}
+                  </tbody>
+                );
+              })}
+            </table>
+          )}
+        </div>
+
+        <div className="p-5 border-t bg-gray-50 flex justify-between items-center">
+          <p className="text-xs text-gray-500">เลือกแล้ว {selected.size} คน</p>
+          <div className="flex items-center gap-2">
+            <button onClick={onClose} className="px-5 py-2 text-gray-600 hover:bg-gray-200 rounded-lg text-sm">
+              ยกเลิก
+            </button>
+            <button
+              onClick={handleConfirm}
+              disabled={creating}
+              className="px-6 py-2 rounded-lg font-semibold flex items-center gap-2 bg-violet-600 text-white hover:bg-violet-700 text-sm disabled:opacity-50"
+            >
+              {creating ? <Loader2 className="animate-spin" size={16} /> : <CheckCircle2 size={16} />} สร้างลิงก์
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
   );
 };

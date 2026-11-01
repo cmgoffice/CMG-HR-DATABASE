@@ -61,6 +61,7 @@ export interface TrainingBatch {
   id: string;
   project: string;
   courseName: string;
+  // กำหนดการ "อบรม" (training) — วันที่/เวลา/สถานที่จัดอบรมจริง
   date: string; // yyyy-mm-dd
   timeSlot: string; // เช่น "08:00-12:00"
   location: string;
@@ -72,6 +73,11 @@ export interface TrainingBatch {
   createdByName?: string;
   createdAt?: number;
   updatedAt?: number;
+  // กำหนดการ "ตรวจสุขภาพ" (health check) — แยกจากวันอบรมโดยสิ้นเชิง เพราะมักตรวจคนละวัน/
+  // คนละสถานที่กับวันอบรมจริง (เช่น อบรมที่ไซต์งาน แต่ตรวจที่คลินิก/โรงพยาบาลอีกที่หนึ่ง)
+  healthCheckDate?: string; // yyyy-mm-dd
+  healthCheckTimeSlot?: string;
+  healthCheckLocation?: string;
   // token สุ่มสำหรับลิงก์สาธารณะที่ส่งให้คลินิกตรวจสุขภาพก่อนอบรม — รู้ token เท่ากับเข้าดู/แก้ไขได้
   // (ไม่ต้อง login) ตามแบบ "ใครมีลิงก์ก็เข้าดูได้" จึงต้องเป็นสตริงสุ่มที่เดาไม่ได้เท่านั้น
   healthCheckToken?: string;
@@ -135,6 +141,7 @@ export interface TrainingHealthCheck {
 export interface TrainingDocumentSnapshot {
   isMigrant: boolean;
   documentsComplete: boolean;
+  missingDocuments?: string[]; // ชื่อเอกสารที่ยังขาด (ตามเอกสารที่จำเป็นของโครงการ ณ ตอนเพิ่มเข้ารอบ)
   note?: string;
   checkedAt: number;
 }

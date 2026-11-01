@@ -24,7 +24,6 @@ import {
   EMPLOYEE_TYPE_OPTIONS,
   getSourceGroup,
   GROUP_STATUS_BY_EMPLOYEE_TYPE,
-  HIRING_DOC_TYPE_OPTIONS,
   HiringAttachment,
   RecruitmentPendingEmployee,
   RECRUITMENT_PENDING_EMPLOYEES_COLLECTION,
@@ -32,6 +31,7 @@ import {
   SOURCE_GROUP_META,
   toDateSafe,
 } from "./recruitmentIntakeConfig";
+import { useDocumentTypeCatalog } from "./documentTypeCatalog";
 
 // path ที่หน้านี้อ่านแบบ realtime เสมอ: CMG-HR-Database/root/recruitment_pending_employees
 const FIRESTORE_PATH = "CMG-HR-Database/root/recruitment_pending_employees";
@@ -102,6 +102,7 @@ export const RecruitmentIntakePage = ({ projectOptions = [] }: { projectOptions?
   const { firebaseUser, userProfile } = useAuth();
   const canViewSalary = canViewSalaryInfo(userProfile?.role);
   const canManage = canManageRecruitmentIntake(userProfile?.role);
+  const documentTypeOptions = useDocumentTypeCatalog();
 
   const [items, setItems] = useState<RecruitmentPendingEmployee[]>([]);
   const [loading, setLoading] = useState(true);
@@ -120,7 +121,7 @@ export const RecruitmentIntakePage = ({ projectOptions = [] }: { projectOptions?
 
   // แผงเอกสารแนบ
   const [docsTarget, setDocsTarget] = useState<RecruitmentPendingEmployee | null>(null);
-  const [docType, setDocType] = useState<string>(HIRING_DOC_TYPE_OPTIONS[0]?.value || "");
+  const [docType, setDocType] = useState<string>(documentTypeOptions[0]?.value || "");
   const [docFile, setDocFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
   const [docsError, setDocsError] = useState<string | null>(null);
@@ -327,6 +328,15 @@ export const RecruitmentIntakePage = ({ projectOptions = [] }: { projectOptions?
         recruitmentSourceId: formTarget.id,
       };
 
+      // เอกสารแนบที่ฝั่ง Recruitment อัปโหลดไว้ (บัตร ปชช., ทะเบียนบ้าน, วุฒิการศึกษา, รูปถ่าย ฯลฯ)
+      // ต้องคัดลอกมาที่ employee_data ตอนนำเข้าด้วย ไม่งั้นจะไม่โผล่ในหน้า "เอกสารแนบ" ของพนักงาน
+      // (ใช้ setDoc({ merge: true }) ด้านล่าง ครั้งแรกที่นำเข้าจึงปลอดภัย ไม่ต้องกลัวทับของเดิมเพราะพนักงาน
+      // ใหม่ยังไม่มี attachments ของตัวเองในระบบ HR มาก่อน)
+      const sourceAttachments = (formTarget.attachments as HiringAttachment[] | undefined) || [];
+      if (sourceAttachments.length > 0) {
+        employeeRecord["attachments"] = sourceAttachments;
+      }
+
       // ฟิลด์คำนำหน้าชื่อ: โมดูล Indirect ใช้ "ชื่อต้น" ส่วนโมดูล Direct_* ใช้ "คำนำหน้าชื่อ"
       // (ดู src/components/MigrantWorkerPage.tsx) ห้ามเขียนผิดฟิลด์เพราะจะไม่ขึ้นในหน้านั้น ๆ
       if (form.employee_type === "Indirect") {
@@ -359,7 +369,7 @@ export const RecruitmentIntakePage = ({ projectOptions = [] }: { projectOptions?
 
   const openDocsPanel = (candidate: RecruitmentPendingEmployee) => {
     setDocsTarget(candidate);
-    setDocType(HIRING_DOC_TYPE_OPTIONS[0]?.value || "");
+    setDocType(documentTypeOptions[0]?.value || "");
     setDocFile(null);
     setDocsError(null);
   };
@@ -786,7 +796,7 @@ export const RecruitmentIntakePage = ({ projectOptions = [] }: { projectOptions?
                 <div className="flex flex-col gap-2">
                   <Field label="ประเภทเอกสาร">
                     <select value={docType} onChange={(e) => setDocType(e.target.value)} className="input">
-                      {HIRING_DOC_TYPE_OPTIONS.map((o) => (
+                      {documentTypeOptions.map((o) => (
                         <option key={o.value} value={o.value}>{o.label}</option>
                       ))}
                       <option value="other">อื่น ๆ (พิมพ์เอง)</option>
