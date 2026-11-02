@@ -1,0 +1,207 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8" />
+<title>คู่มือกระบวนการเอกสารฝึกอบรมพนักงาน</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    width: 1040px;
+    font-family: "Leelawadee UI", "Tahoma", "Segoe UI", sans-serif;
+    background: #0f2a4a;
+    color: #0f2a4a;
+  }
+  .sheet {
+    background: linear-gradient(180deg, #0f2a4a 0%, #0f2a4a 170px, #f4f7fb 170px, #f4f7fb 100%);
+    padding: 0 0 40px 0;
+  }
+  .header {
+    padding: 28px 48px 18px 48px;
+    color: #ffffff;
+  }
+  .header .eyebrow {
+    font-size: 15px;
+    letter-spacing: 2px;
+    opacity: 0.8;
+    margin: 0 0 6px 0;
+    font-weight: 500;
+  }
+  .header h1 {
+    font-size: 34px;
+    margin: 0 0 6px 0;
+    font-weight: 700;
+  }
+  .header .sub {
+    font-size: 16px;
+    opacity: 0.85;
+    margin: 0;
+  }
+  .flow {
+    padding: 36px 48px 10px 48px;
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+  }
+  .step {
+    display: flex;
+    gap: 20px;
+    background: #ffffff;
+    border-radius: 16px;
+    box-shadow: 0 2px 10px rgba(15,42,74,0.08);
+    padding: 20px 24px;
+    align-items: flex-start;
+  }
+  .badge {
+    flex: 0 0 56px;
+    height: 56px;
+    border-radius: 50%;
+    background: #1f6feb;
+    color: #fff;
+    font-size: 24px;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .step.alt .badge { background: #e8740c; }
+  .step .content { flex: 1; }
+  .step h3 {
+    margin: 2px 0 6px 0;
+    font-size: 19px;
+    color: #0f2a4a;
+  }
+  .step p {
+    margin: 0;
+    font-size: 14.5px;
+    line-height: 1.55;
+    color: #334155;
+  }
+  .step .who {
+    display: inline-block;
+    margin-top: 8px;
+    font-size: 12.5px;
+    font-weight: 600;
+    background: #eef3fb;
+    color: #1f6feb;
+    padding: 3px 10px;
+    border-radius: 999px;
+  }
+  .arrow {
+    align-self: center;
+    font-size: 26px;
+    color: #94a3b8;
+    padding: 4px 0;
+    text-align: center;
+  }
+  .branch {
+    display: flex;
+    gap: 16px;
+  }
+  .branch .step { flex: 1; }
+  .footer {
+    margin: 26px 48px 0 48px;
+    padding: 18px 24px;
+    background: #fff7ed;
+    border: 1px solid #fed7aa;
+    border-radius: 14px;
+    font-size: 13.5px;
+    color: #7c2d12;
+    line-height: 1.6;
+  }
+  .footer b { color: #9a3412; }
+</style>
+</head>
+<body>
+  <div class="sheet">
+    <div class="header">
+      <p class="eyebrow">CMG HR &middot; คู่มือสำหรับทีมงาน</p>
+      <h1>กระบวนการเอกสารฝึกอบรมพนักงาน</h1>
+      <p class="sub">ตั้งแต่ตั้งค่าโครงการ ไปจนถึงส่งอบรมและปิดรอบ &mdash; แบบภาพเดียวจบ</p>
+    </div>
+
+    <div class="flow">
+      <div class="step">
+        <div class="badge">1</div>
+        <div class="content">
+          <h3>ตั้งค่าโครงการ</h3>
+          <p>กำหนดรายการเอกสารที่โครงการต้องใช้ ติ๊กเอกสารที่ "ระบบสร้างให้ตอนจบ" และจัดกลุ่ม "เอกสารทางเลือก" (เช่น กลุ่มประกัน) พร้อมตั้งค่าใครเป็นคนออกบัตรผ่านโครงการ</p>
+          <span class="who">ทำครั้งเดียว &middot; HR ผู้ดูแลโครงการ</span>
+        </div>
+      </div>
+      <div class="arrow">&#8595;</div>
+
+      <div class="step">
+        <div class="badge">2</div>
+        <div class="content">
+          <h3>รวบรวมเอกสารพนักงาน</h3>
+          <p>อัปโหลดเอกสารแต่ละคนเก็บไว้ที่โปรไฟล์พนักงาน เป็นศูนย์กลางข้อมูลจุดเดียว ใช้ร่วมกันได้ทุกหน้า ไม่ต้องอัปโหลดซ้ำ</p>
+          <span class="who">HR / Recruitment</span>
+        </div>
+      </div>
+      <div class="arrow">&#8595;</div>
+
+      <div class="step">
+        <div class="badge">3</div>
+        <div class="content">
+          <h3>สร้างรอบอบรม &amp; เลือกพนักงาน</h3>
+          <p>เลือกโครงการและพนักงานที่มีอยู่ในระบบเข้ารอบอบรม ระบบจะแสดงสถานะเอกสารของแต่ละคนแบบเรียลไทม์ในตารางรายชื่อ</p>
+          <span class="who">Training Coordinator</span>
+        </div>
+      </div>
+      <div class="arrow">&#8595;</div>
+
+      <div class="step">
+        <div class="badge">4</div>
+        <div class="content">
+          <h3>ตรวจเอกสารรายคน (กดไอคอน 👁)</h3>
+          <p>เปิดป็อบอัพรายละเอียดรายคน ดูเอกสารที่มี/ที่ขาดครบในที่เดียว อัปโหลดหรือเปลี่ยนไฟล์ได้ทันที บันทึกกลับศูนย์กลางข้อมูลอัตโนมัติ</p>
+          <span class="who">Training Coordinator</span>
+        </div>
+      </div>
+      <div class="arrow">&#8595;</div>
+
+      <div class="step">
+        <div class="badge">5</div>
+        <div class="content">
+          <h3>ตรวจสุขภาพที่คลินิก</h3>
+          <p>สร้างลิงก์คลินิกจากหน้ารอบอบรม ส่งให้คลินิกกรอกผลตรวจและแนบใบรับรองแพทย์เอง (อายุใบรับรอง 6 เดือน) ระบบอัปเดตสถานะอัตโนมัติ</p>
+          <span class="who">HR &rarr; คลินิก</span>
+        </div>
+      </div>
+      <div class="arrow">&#8595;</div>
+
+      <div class="step">
+        <div class="badge">6</div>
+        <div class="content">
+          <h3>ส่งออกเอกสาร</h3>
+          <p>เมื่อครบทุกคนแล้ว กด Export ใบปะหน้า (Training Request Form ของลูกค้า) และใบรายชื่อ พร้อมส่งเข้าอบรม</p>
+          <span class="who">HR ผู้ดูแลโครงการ</span>
+        </div>
+      </div>
+      <div class="arrow">&#8595;</div>
+
+      <div class="branch">
+        <div class="step alt">
+          <div class="badge">7a</div>
+          <div class="content">
+            <h3>CMG ออกบัตรเอง</h3>
+            <p>ดำเนินการทำบัตรผ่านโครงการตามขั้นตอนของโครงการนั้นต่อ</p>
+          </div>
+        </div>
+        <div class="step alt">
+          <div class="badge">7b</div>
+          <div class="content">
+            <h3>ลูกค้า/ไซต์ออกบัตรให้</h3>
+            <p>Safety/Admin บันทึกเลขบัตรหรือแนบรูปบัตรที่ได้รับในป็อบอัพรายคน &rarr; ระบบมาร์กว่า "ได้รับบัตรแล้ว"</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="footer">
+      <b>จำไว้:</b> "ใบคำร้องขอมีบัตรผ่านบุคคล" เป็นแค่แบบฟอร์มที่ระบบสร้างให้ตอนจบ ไม่ได้แปลว่า CMG ต้องเป็นคนทำบัตรเอง &mdash; ขึ้นอยู่กับการตั้งค่าของแต่ละโครงการในขั้นตอนที่ 1
+    </div>
+  </div>
+</body>
+</html>

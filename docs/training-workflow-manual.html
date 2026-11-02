@@ -1,0 +1,203 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8" />
+<title>คู่มือกระบวนการเอกสารฝึกอบรมพนักงาน</title>
+<style>
+  * { box-sizing: border-box; }
+  @page { size: A4; margin: 16mm 14mm; }
+  body {
+    margin: 0;
+    font-family: "Leelawadee UI", "Tahoma", "Segoe UI", sans-serif;
+    color: #1e293b;
+    font-size: 12.5px;
+    line-height: 1.6;
+  }
+  .cover {
+    background: #0f2a4a;
+    color: #fff;
+    padding: 70px 48px;
+    border-radius: 18px;
+    margin-bottom: 28px;
+  }
+  .cover .eyebrow { letter-spacing: 2px; opacity: .8; font-size: 13px; margin: 0 0 10px; font-weight: 600;}
+  .cover h1 { font-size: 30px; margin: 0 0 12px; }
+  .cover p { font-size: 14px; opacity: .9; margin: 0; max-width: 560px; }
+
+  h2.section-title {
+    font-size: 19px;
+    color: #0f2a4a;
+    border-bottom: 3px solid #1f6feb;
+    padding-bottom: 6px;
+    margin: 34px 0 14px;
+    page-break-after: avoid;
+  }
+  h3 { font-size: 15px; color: #0f2a4a; margin: 18px 0 6px; page-break-after: avoid; }
+  p { margin: 6px 0; }
+  .meta-row { font-size: 12px; color: #475569; margin-bottom: 10px; }
+  .meta-row b { color: #0f2a4a; }
+
+  ol, ul { margin: 6px 0 10px 18px; padding: 0; }
+  li { margin: 3px 0; }
+
+  table { border-collapse: collapse; width: 100%; margin: 10px 0 16px; font-size: 11.5px; }
+  th, td { border: 1px solid #d7dfe9; padding: 7px 9px; text-align: left; vertical-align: top; }
+  th { background: #eef3fb; color: #0f2a4a; }
+
+  .callout {
+    background: #fff7ed;
+    border: 1px solid #fed7aa;
+    border-radius: 10px;
+    padding: 10px 14px;
+    color: #7c2d12;
+    font-size: 11.5px;
+    margin: 10px 0 16px;
+  }
+  .callout b { color: #9a3412; }
+
+  .flow { display: flex; flex-direction: column; gap: 0; margin: 10px 0 18px; }
+  .fstep {
+    display: flex; gap: 12px; align-items: flex-start;
+    background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px;
+    padding: 10px 14px;
+  }
+  .fstep .n {
+    flex: 0 0 26px; height: 26px; border-radius: 50%; background: #1f6feb; color: #fff;
+    font-size: 12px; font-weight: 700; display: flex; align-items: center; justify-content: center;
+  }
+  .fstep.alt .n { background: #e8740c; }
+  .fstep .t { font-weight: 600; color: #0f2a4a; }
+  .farrow { text-align: center; color: #94a3b8; font-size: 14px; padding: 2px 0; }
+  .fbranch { display: flex; gap: 10px; }
+  .fbranch .fstep { flex: 1; }
+
+  .role-badge {
+    display: inline-block; font-size: 10.5px; font-weight: 600; background: #eef3fb; color: #1f6feb;
+    padding: 2px 8px; border-radius: 999px;
+  }
+  .page-break { page-break-before: always; }
+</style>
+</head>
+<body>
+
+  <div class="cover">
+    <p class="eyebrow">CMG HR &middot; คู่มือสำหรับทีมงาน</p>
+    <h1>คู่มือกระบวนการเอกสารฝึกอบรมพนักงาน</h1>
+    <p>ตั้งแต่ตั้งค่าโครงการ รวบรวมเอกสาร ส่งเข้าอบรม จนถึงปิดรอบและจัดการบัตรผ่านโครงการ &mdash; ฉบับใช้สอนงานทีม</p>
+  </div>
+
+  <h2 class="section-title">1) ภาพรวมกระบวนการทั้งหมด</h2>
+  <div class="flow">
+    <div class="fstep"><div class="n">1</div><div><span class="t">ตั้งค่าโครงการ</span> &mdash; กำหนดเอกสารที่ต้องใช้</div></div>
+    <div class="farrow">&#8595;</div>
+    <div class="fstep"><div class="n">2</div><div><span class="t">รวบรวมเอกสารพนักงาน</span> &mdash; อัปโหลดเข้าระบบรายคน</div></div>
+    <div class="farrow">&#8595;</div>
+    <div class="fstep"><div class="n">3</div><div><span class="t">สร้างรอบอบรม</span> &mdash; เลือกพนักงานเข้ารอบ</div></div>
+    <div class="farrow">&#8595;</div>
+    <div class="fstep"><div class="n">4</div><div><span class="t">ตรวจสอบเอกสารรายคน</span> &mdash; ระบบเช็กอัตโนมัติว่าขาดอะไร (ถ้าขาด เพิ่ม/อัปโหลดจากหน้ารายคนได้เลย แล้ววนกลับมาตรวจใหม่)</div></div>
+    <div class="farrow">&#8595;</div>
+    <div class="fstep"><div class="n">5</div><div><span class="t">ส่งออกเอกสาร</span> &mdash; ใบปะหน้า + รายชื่อ</div></div>
+    <div class="farrow">&#8595;</div>
+    <div class="fstep"><div class="n">6</div><div><span class="t">ส่งอบรม / ตรวจสุขภาพที่คลินิก</span> &mdash; รอผลผ่าน</div></div>
+    <div class="farrow">&#8595;</div>
+    <div class="fstep"><div class="n">7</div><div><span class="t">ปิดรอบอบรม</span></div></div>
+    <div class="farrow">&#8595;</div>
+    <div class="fbranch">
+      <div class="fstep alt"><div class="n">8a</div><div><span class="t">CMG ออกบัตรเอง</span> &mdash; ทำบัตรตามขั้นตอนโครงการ</div></div>
+      <div class="fstep alt"><div class="n">8b</div><div><span class="t">ลูกค้า/ไซต์ออกบัตรให้</span> &mdash; Safety/Admin บันทึกเลข/แนบรูปบัตร</div></div>
+    </div>
+  </div>
+  <p><b>สรุปสั้น ๆ</b>: ทำแค่ครั้งเดียวตอนตั้งโครงการ (ขั้นตอน 1) จากนั้นขั้นตอน 2&ndash;8 จะวนทำทุกรอบที่มีพนักงานเข้าอบรม</p>
+
+  <h2 class="section-title">2) ตั้งค่าโครงการ &mdash; กำหนดว่าเอกสารอะไรบ้างที่ต้องใช้</h2>
+  <p class="meta-row"><b>ใช้เมื่อไร:</b> ทำครั้งแรกตอนเปิดโครงการใหม่ หรือเมื่อลูกค้าเปลี่ยนเงื่อนไขเอกสาร &nbsp;|&nbsp; <b>ใครทำ:</b> HR ที่ดูแลโครงการนั้น &nbsp;|&nbsp; <b>อยู่ที่หน้า:</b> ตั้งค่าเอกสารโครงการ</p>
+  <h3>ขั้นตอน</h3>
+  <ol>
+    <li>เลือกโครงการที่ต้องการตั้งค่า</li>
+    <li>เพิ่มรายการเอกสารที่โครงการนี้ต้องใช้ (เช่น รูปถ่าย, สำเนาบัตรประชาชน, ประกันต่าง ๆ)</li>
+    <li>ติ๊กเลือกคุณสมบัติพิเศษของแต่ละรายการ ถ้ามี:
+      <ul>
+        <li><b>"ระบบ/HR สร้างให้ตอนจบ"</b> &rarr; ใช้กับเอกสารที่เป็นแบบฟอร์ม/เทมเพลตที่ออกตอนจบอบรม (เช่น ใบคำร้องขอบัตรผ่าน) ไม่ต้องให้พนักงานอัปโหลด ระบบจะไม่แจ้งว่า "ขาด"</li>
+        <li><b>"กลุ่มเอกสารทางเลือก"</b> &rarr; ใช้กับเอกสารที่เลือกอย่างใดอย่างหนึ่งพอ เช่น กลุ่มประกัน (ประกันสังคม หรือ ประกันอุบัติเหตุ หรือ ประกันกลุ่ม) มีครบแค่ 1 ใน 3 ก็ถือว่าผ่าน</li>
+      </ul>
+    </li>
+    <li>ตั้งค่า "โครงการออกบัตรผ่านเอง หรือไม่" (toggle) &mdash; ใช้กำหนดว่าหลังอบรมผ่านแล้ว ใครเป็นคนทำบัตรให้พนักงาน (ดูขั้นตอนที่ 8)</li>
+  </ol>
+  <div class="callout"><b>จุดสำคัญ:</b> ตั้งค่าแค่ครั้งเดียวต่อโครงการ ระบบจะใช้เงื่อนไขนี้ตรวจเอกสารของพนักงานทุกคน/ทุกรอบในโครงการนั้นอัตโนมัติ ถ้าลืมติ๊ก "กลุ่มเอกสารทางเลือก" ระบบจะมองว่าต้องมีครบทุกรายการ ซึ่งจะทำให้ขึ้นแจ้งว่า "เอกสารขาด" ทั้งที่จริงมีครบแล้ว</div>
+
+  <h2 class="section-title">3) รวบรวมเอกสารพนักงาน</h2>
+  <p class="meta-row"><b>ใช้เมื่อไร:</b> ตั้งแต่รับพนักงานเข้าระบบ หรือเมื่อมีเอกสารใหม่ต้องเก็บเพิ่ม &nbsp;|&nbsp; <b>ใครทำ:</b> HR/Recruitment &nbsp;|&nbsp; <b>อยู่ที่หน้า:</b> ข้อมูลพนักงาน หรือหน้ารับเข้าใหม่</p>
+  <ul>
+    <li>อัปโหลดเอกสารแต่ละประเภทแนบไว้ในโปรไฟล์พนักงานทีละคน</li>
+    <li>เอกสารจะถูกเก็บไว้ที่จุดเดียว (ศูนย์กลางข้อมูลพนักงาน) และระบบอื่น ๆ เช่น หน้ารอบอบรม จะดึงไปใช้ตรวจสอบอัตโนมัติ ไม่ต้องอัปโหลดซ้ำ</li>
+  </ul>
+  <div class="callout">สำเนาบัตรประชาชนตอนนี้แยกเป็น 2 แบบในระบบ &mdash; <b>"สำเนาบัตรประชาชน"</b> (ไฟล์ดิบ) กับ <b>"สำเนาบัตรประชาชน (เซ็นสำเนาถูกต้อง)"</b> &mdash; ให้เลือกประเภทให้ตรงกับไฟล์จริงที่ได้รับจากพนักงาน</div>
+
+  <h2 class="section-title">4) สร้างรอบอบรม และเลือกพนักงานเข้ารอบ</h2>
+  <p class="meta-row"><b>ใช้เมื่อไร:</b> เมื่อมีรอบอบรมใหม่สำหรับโครงการ &nbsp;|&nbsp; <b>ใครทำ:</b> HR/Training coordinator &nbsp;|&nbsp; <b>อยู่ที่หน้า:</b> รอบอบรม (Training Batch)</p>
+  <ol>
+    <li>เลือกโครงการ และสร้างรอบอบรมใหม่</li>
+    <li>เลือกพนักงานที่จะเข้ารอบนี้ (เลือกจากรายชื่อที่มีในระบบเท่านั้น &mdash; ถ้าพนักงานยังไม่มีชื่อในระบบ ต้องไปเพิ่มข้อมูลพนักงานก่อน)</li>
+    <li>ระบบจะแสดงตารางรายชื่อ (roster) พร้อมสถานะเอกสารของแต่ละคนแบบเรียลไทม์</li>
+  </ol>
+
+  <div class="page-break"></div>
+
+  <h2 class="section-title">5) ตรวจสอบเอกสารรายคน &mdash; จุดที่ทำงานบ่อยที่สุด</h2>
+  <p class="meta-row"><b>อยู่ที่หน้า:</b> รอบอบรม &rarr; กดไอคอนรูปตา 👁 ที่แถวของพนักงานคนนั้น &rarr; เปิดป็อบอัพ "รายละเอียดรายคน"</p>
+  <table>
+    <tr><th>ส่วน</th><th>ใช้ทำอะไร</th></tr>
+    <tr><td>รายการเอกสารที่โครงการนี้ต้องการ</td><td>เห็นครบทุกอย่าง ไม่ใช่แค่ที่ขาด</td></tr>
+    <tr><td>เอกสารที่มีแล้ว</td><td>กด "ดูไฟล์" เพื่อตรวจสอบว่าไฟล์ถูกต้องไหม</td></tr>
+    <tr><td>เอกสารที่ไม่ถูกต้อง/ต้องเปลี่ยน</td><td>กด "เปลี่ยนไฟล์" อัปโหลดใหม่ทับของเดิมได้ทันที</td></tr>
+    <tr><td>เอกสารที่ยังขาด</td><td>ระบบแสดงเป็นรายการ พร้อมปุ่มอัปโหลดในแต่ละรายการ</td></tr>
+    <tr><td>กลุ่มเอกสารทางเลือก (เช่น ประกัน)</td><td>แสดงเป็น 1 ชุด ไม่นับขาดถ้ามีครบ 1 ใน หลายตัวเลือกแล้ว</td></tr>
+    <tr><td>ผลตรวจสุขภาพ</td><td>ดู/บันทึกผลตรวจและวันหมดอายุ (6 เดือน)</td></tr>
+    <tr><td>บัตรผ่านที่ได้รับ (เฉพาะโครงการที่ลูกค้า/ไซต์ออกบัตรให้)</td><td>บันทึกเลขบัตร หรือแนบรูปบัตร</td></tr>
+  </table>
+  <div class="callout">ไฟล์ที่อัปโหลด/เปลี่ยนจากหน้านี้ จะถูกบันทึกกลับไปที่โปรไฟล์พนักงานโดยอัตโนมัติ (จุดเดียวกับข้อ 3) ไม่ต้องไปอัปโหลดซ้ำที่หน้าข้อมูลพนักงานอีก</div>
+
+  <h2 class="section-title">6) ตรวจสุขภาพที่คลินิก</h2>
+  <p class="meta-row"><b>ใช้เมื่อไร:</b> ทุกโครงการต้องมีใบรับรองแพทย์ก่อนเข้าอบรม (อายุใบรับรอง 6 เดือน) &nbsp;|&nbsp; <b>ใครทำ:</b> HR สร้างลิงก์ส่งให้คลินิก / คลินิกเป็นคนกรอกผลกลับ</p>
+  <ol>
+    <li>จากหน้ารอบอบรม กดสร้าง/คัดลอก "ลิงก์คลินิก" สำหรับรอบนั้น (ไม่ต้องให้คลินิกมีบัญชีผู้ใช้ในระบบ)</li>
+    <li>ส่งลิงก์ให้คลินิกทาง LINE/อีเมล</li>
+    <li>คลินิกกรอกผลตรวจและแนบใบรับรองแพทย์ผ่านลิงก์นั้นเอง</li>
+    <li>ระบบจะอัปเดตสถานะ "ผลตรวจสุขภาพ" และวันหมดอายุในหน้ารอบอบรมอัตโนมัติ (ขึ้นแจ้งเตือนเมื่อใกล้ครบ 6 เดือน)</li>
+  </ol>
+
+  <h2 class="section-title">7) ส่งออกเอกสาร &mdash; ใบปะหน้า + รายชื่อ</h2>
+  <p class="meta-row"><b>ใช้เมื่อไร:</b> เมื่อเอกสารของทุกคนในรอบครบแล้ว พร้อมส่งเข้าอบรม &nbsp;|&nbsp; <b>อยู่ที่หน้า:</b> รอบอบรม &rarr; ปุ่ม Export</p>
+  <ul>
+    <li><b>ใบปะหน้า (Training Request Form):</b> ใช้แบบฟอร์ม PDF ของลูกค้า พิมพ์ชื่อบริษัท ("CMG Engineering &amp; Construction" ทุกคน เพราะพนักงานทำงานผ่าน CMG) และรายชื่อพนักงานอัตโนมัติ</li>
+    <li><b>ใบรายชื่อ/รายคน:</b> ใช้รายชื่อที่มีอยู่ในระบบเท่านั้น ถ้าต้องแก้ไข/เพิ่มชื่อ ต้องย้อนกลับไปแก้ที่ข้อมูลพนักงานก่อน แล้วค่อยสร้างรอบ/export ใหม่</li>
+  </ul>
+
+  <div class="page-break"></div>
+
+  <h2 class="section-title">8) หลังอบรมผ่าน &mdash; ปิดรอบ และจัดการบัตรผ่านโครงการ</h2>
+  <p>หลังพนักงานอบรมผ่านแล้ว แยกเป็น 2 กรณีตามการตั้งค่าโครงการ (ข้อ 2):</p>
+  <div class="flow">
+    <div class="fstep"><div class="n">1</div><div>พนักงานอบรมผ่านแล้ว &mdash; ตรวจว่าโครงการตั้งค่าไว้ว่าใครออกบัตร</div></div>
+    <div class="farrow">&#8595;</div>
+    <div class="fbranch">
+      <div class="fstep alt"><div class="n">A</div><div><span class="t">CMG ออกบัตรเอง</span><br/>ทำตามขั้นตอนทำบัตรของโครงการต่อ &rarr; ปิดรอบ</div></div>
+      <div class="fstep alt"><div class="n">B</div><div><span class="t">ลูกค้า/ไซต์ออกบัตรให้</span><br/>รอรับบัตร &rarr; Safety/Admin กรอกเลขบัตร/แนบรูปในป็อบอัพรายคน &rarr; ระบบมาร์กว่า "ได้รับบัตรแล้ว" &rarr; ปิดรอบ</div></div>
+    </div>
+  </div>
+  <div class="callout"><b>ข้อควรจำ:</b> "ใบคำร้องขอมีบัตรผ่านบุคคล" (เอกสารที่ระบบสร้างให้ตอนจบ ในข้อ 2) เป็นคนละเรื่องกับว่า "ใครเป็นคนออกบัตรจริง" &mdash; บางโครงการต้องยื่นใบคำร้องนี้ แต่บัตรจริงอาจออกโดยลูกค้า/ไซต์งาน ไม่ใช่ CMG ก็ได้</div>
+
+  <h2 class="section-title">สรุปใครทำอะไร</h2>
+  <table>
+    <tr><th>บทบาท</th><th>หน้าที่หลัก</th></tr>
+    <tr><td><span class="role-badge">HR (ดูแลโครงการ)</span></td><td>ตั้งค่าเอกสารโครงการ, สร้างลิงก์คลินิก, export เอกสาร</td></tr>
+    <tr><td><span class="role-badge">HR/Recruitment</span></td><td>รวบรวม/อัปโหลดเอกสารพนักงานเข้าระบบ</td></tr>
+    <tr><td><span class="role-badge">Training coordinator</span></td><td>สร้างรอบอบรม, เลือกพนักงาน, ตรวจสอบเอกสารรายคนก่อนส่งอบรม</td></tr>
+    <tr><td><span class="role-badge">คลินิก</span></td><td>กรอกผลตรวจสุขภาพผ่านลิงก์ที่ได้รับ</td></tr>
+    <tr><td><span class="role-badge">Safety/Admin</span></td><td>บันทึกเลขบัตร/แนบรูปบัตรผ่านที่ได้รับจากลูกค้า (เฉพาะโครงการที่ลูกค้าออกบัตรให้)</td></tr>
+  </table>
+
+  <p style="margin-top:24px; font-size:10.5px; color:#94a3b8;">เอกสารนี้อ้างอิงระบบ ณ วันที่ตั้งค่าโครงการ J-078 (HUASHI Building B) เป็นตัวอย่างอ้างอิง หากมีการเพิ่มฟีเจอร์ใหม่ในอนาคต ควรปรับปรุงคู่มือนี้ตามไปด้วย</p>
+
+</body>
+</html>
