@@ -17,6 +17,7 @@ import {
   appendAttachmentToRecruitmentPending,
   uploadHiringDocumentFile,
 } from "../utils/hiringDocsAttachments";
+import { IdCardPhotoGuideButton, isIdCardDocType } from "./IdCardPhotoGuide";
 import {
   buildFullName,
   canManageRecruitmentIntake,
@@ -797,12 +798,15 @@ export const RecruitmentIntakePage = ({ projectOptions = [] }: { projectOptions?
                 <h4 className="text-xs font-semibold text-gray-500 mb-2">เพิ่มเอกสารใหม่</h4>
                 <div className="flex flex-col gap-2">
                   <Field label="ประเภทเอกสาร">
-                    <select value={docType} onChange={(e) => setDocType(e.target.value)} className="input">
-                      {documentTypeOptions.map((o) => (
-                        <option key={o.value} value={o.value}>{o.label}</option>
-                      ))}
-                      <option value="other">อื่น ๆ (พิมพ์เอง)</option>
-                    </select>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <select value={docType} onChange={(e) => setDocType(e.target.value)} className="input !w-auto">
+                        {documentTypeOptions.map((o) => (
+                          <option key={o.value} value={o.value}>{o.label}</option>
+                        ))}
+                        <option value="other">อื่น ๆ (พิมพ์เอง)</option>
+                      </select>
+                      <IdCardPhotoGuideButton highlight={isIdCardDocType(docType)} />
+                    </div>
                   </Field>
                   {docType === "other" && (
                     <input

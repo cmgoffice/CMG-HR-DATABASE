@@ -1,0 +1,349 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8" />
+<title>มาตรฐานการถ่ายสำเนาบัตรประชาชน / ID Card Copy Photo Standard</title>
+<style>
+  * { box-sizing: border-box; }
+  @page { size: A4; margin: 0; }
+  html, body {
+    margin: 0;
+    padding: 0;
+    background: #e9edf3;
+    font-family: "Leelawadee UI", "Tahoma", "Segoe UI", sans-serif;
+    color: #0f2a4a;
+  }
+  .sheet {
+    width: 210mm;
+    min-height: 297mm;
+    margin: 0 auto;
+    background: linear-gradient(180deg, #0f2a4a 0%, #0f2a4a 128px, #f4f7fb 128px, #f4f7fb 100%);
+    position: relative;
+  }
+  .header {
+    padding: 22px 40px 14px 40px;
+    color: #ffffff;
+  }
+  .header .eyebrow {
+    font-size: 13px;
+    letter-spacing: 2px;
+    opacity: 0.85;
+    margin: 0 0 4px 0;
+    font-weight: 600;
+    text-transform: uppercase;
+  }
+  .header h1 {
+    font-size: 24px;
+    margin: 0 0 2px 0;
+    font-weight: 700;
+  }
+  .header h2 {
+    font-size: 15px;
+    margin: 0 0 4px 0;
+    font-weight: 500;
+    opacity: 0.9;
+  }
+  .header .sub {
+    font-size: 11px;
+    opacity: 0.85;
+    margin: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .body {
+    padding: 22px 40px 20px 40px;
+  }
+
+  .rules {
+    display: flex;
+    gap: 14px;
+    margin-bottom: 16px;
+  }
+  .rule-card {
+    flex: 1;
+    background: #ffffff;
+    border-radius: 12px;
+    box-shadow: 0 2px 8px rgba(15,42,74,0.08);
+    padding: 12px 14px;
+  }
+  .rule-card h3 {
+    margin: 0 0 6px 0;
+    font-size: 13px;
+    color: #1f6feb;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .rule-card ul {
+    margin: 0;
+    padding-left: 16px;
+  }
+  .rule-card li {
+    font-size: 11.5px;
+    line-height: 1.55;
+    margin-bottom: 2px;
+  }
+  .rule-card .en {
+    color: #64748b;
+    font-size: 10.3px;
+  }
+
+  .section-title {
+    font-size: 14px;
+    font-weight: 700;
+    color: #0f2a4a;
+    margin: 4px 0 10px 0;
+  }
+  .section-title .en {
+    font-weight: 500;
+    font-size: 11px;
+    color: #64748b;
+  }
+
+  .examples {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 12px;
+    margin-bottom: 18px;
+  }
+  .example {
+    background: #ffffff;
+    border-radius: 12px;
+    box-shadow: 0 2px 8px rgba(15,42,74,0.08);
+    overflow: hidden;
+  }
+  .frame {
+    height: 118px;
+    position: relative;
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .frame.good { background: #f3f4f6; }
+  .frame.tilt { background: linear-gradient(135deg, #8a5a2b, #5c3a18); }
+  .frame.busy { background:
+      repeating-linear-gradient(45deg, #fca5a5 0 10px, #fcd34d 10px 20px, #86efac 20px 30px, #93c5fd 30px 40px); }
+  .frame.glare { background: linear-gradient(135deg, #1e293b, #334155); }
+  .frame.crop { background: #d4d4d8; }
+
+  .id-card {
+    width: 128px;
+    height: 80px;
+    background: #ffffff;
+    border-radius: 5px;
+    box-shadow: 0 3px 8px rgba(0,0,0,0.25);
+    padding: 7px 8px;
+    display: flex;
+    gap: 6px;
+  }
+  .id-card .photo {
+    width: 26px;
+    height: 32px;
+    background: #cbd5e1;
+    border-radius: 3px;
+    flex: 0 0 auto;
+    margin-top: 2px;
+  }
+  .id-card .lines { flex: 1; display: flex; flex-direction: column; gap: 4px; margin-top: 2px; }
+  .id-card .lines span {
+    display: block;
+    height: 4px;
+    border-radius: 2px;
+    background: #94a3b8;
+  }
+  .id-card .lines span.short { width: 55%; background: #cbd5e1; }
+  .id-card .lines span.accent { background: #60a5fa; width: 70%; }
+
+  .frame.tilt .id-card { transform: rotate(16deg); }
+  .frame.crop .id-card { transform: translateX(34px); }
+
+  .glare-stripe {
+    position: absolute;
+    top: -20px; left: -40px;
+    width: 60px; height: 180px;
+    background: rgba(255,255,255,0.55);
+    transform: rotate(25deg);
+  }
+
+  .tag {
+    position: absolute;
+    top: 6px; left: 6px;
+    font-size: 10px;
+    font-weight: 700;
+    padding: 2px 7px;
+    border-radius: 999px;
+    color: #fff;
+  }
+  .tag.ok { background: #16a34a; }
+  .tag.no { background: #dc2626; }
+
+  .caption {
+    padding: 8px 10px 10px 10px;
+    text-align: center;
+  }
+  .caption .th { font-size: 11.5px; font-weight: 600; color: #0f2a4a; }
+  .caption .en { font-size: 9.5px; color: #64748b; margin-top: 1px; }
+
+  .how-to {
+    background: #eef3fb;
+    border: 1px solid #c7d8ef;
+    border-radius: 12px;
+    padding: 12px 16px;
+    margin-bottom: 14px;
+  }
+  .how-to h3 { margin: 0 0 6px 0; font-size: 13px; color: #0f2a4a; }
+  .how-to ol { margin: 0; padding-left: 18px; }
+  .how-to li { font-size: 11.5px; line-height: 1.6; }
+  .how-to .en { color: #64748b; font-size: 10px; }
+
+  .footer {
+    margin: 0 40px;
+    padding: 10px 16px;
+    background: #fff7ed;
+    border: 1px solid #fed7aa;
+    border-radius: 12px;
+    font-size: 10.8px;
+    color: #7c2d12;
+    line-height: 1.55;
+  }
+  .footer b { color: #9a3412; }
+
+  .signoff {
+    display: flex;
+    justify-content: space-between;
+    margin: 16px 40px 0 40px;
+    font-size: 10.5px;
+    color: #475569;
+  }
+  .signoff div { width: 42%; border-top: 1px solid #cbd5e1; padding-top: 4px; }
+</style>
+</head>
+<body>
+  <div class="sheet">
+    <div class="header">
+      <p class="eyebrow">CMG HR &middot; มาตรฐานเอกสารประกอบการทำงาน</p>
+      <h1>มาตรฐานการถ่าย/สำเนาบัตรประชาชน</h1>
+      <h2>ID Card Copy – Photo Standard</h2>
+      <p class="sub">โปรดถ่าย/สำเนาบัตรตามตัวอย่างนี้ก่อนส่งฝ่ายบุคคล &middot; Please follow this guide before submitting to HR</p>
+    </div>
+
+    <div class="body">
+      <div class="rules">
+        <div class="rule-card">
+          <h3>✅ ต้องทำ</h3>
+          <ul>
+            <li>วางบัตรบนกระดาษ A4 <b>สีขาวล้วน</b><br/><span class="en">Place the card on plain white A4 paper</span></li>
+            <li>ถ่าย/สแกน <b>ตรง ไม่เอียง</b> มุมฉากกับบัตร<br/><span class="en">Shoot straight-on, not tilted</span></li>
+            <li>เห็น <b>ขอบบัตรครบทั้ง 4 ด้าน</b><br/><span class="en">All 4 edges of the card visible</span></li>
+            <li>แสงสว่างพอดี <b>ไม่มีเงา/แสงสะท้อน</b><br/><span class="en">Good lighting, no shadow or glare</span></li>
+            <li>ตัวอักษร/ตัวเลข <b>คมชัด อ่านออก</b><br/><span class="en">Text must be sharp and readable</span></li>
+          </ul>
+        </div>
+        <div class="rule-card">
+          <h3>❌ ห้ามทำ</h3>
+          <ul>
+            <li>พื้นหลังสี/ลวดลาย เช่น โต๊ะ พื้นกระเบื้อง ผ้า<br/><span class="en">Colorful/patterned background</span></li>
+            <li>ถ่ายเอียง มุมบิด หรือบัตรไม่เต็มเฟรม<br/><span class="en">Tilted angle or card cropped</span></li>
+            <li>แฟลช/แสงสะท้อนจนอ่านตัวเลขไม่ออก<br/><span class="en">Flash glare covering text</span></li>
+            <li>ภาพเบลอ มืด หรือความละเอียดต่ำ<br/><span class="en">Blurry, dark, or low-resolution</span></li>
+            <li>ตัดต่อ/แก้ไขภาพบัตรด้วยโปรแกรมใดๆ<br/><span class="en">Edited or digitally altered copy</span></li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="section-title">ตัวอย่างภาพ <span class="en">&middot; Visual Examples</span></div>
+      <div class="examples">
+        <div class="example">
+          <div class="frame good">
+            <span class="tag ok">ถูกต้อง / OK</span>
+            <div class="id-card">
+              <div class="photo"></div>
+              <div class="lines">
+                <span class="accent"></span><span></span><span class="short"></span><span></span>
+              </div>
+            </div>
+          </div>
+          <div class="caption">
+            <div class="th">พื้นขาว ถ่ายตรง เห็นครบ</div>
+            <div class="en">White bg, straight, full card</div>
+          </div>
+        </div>
+
+        <div class="example">
+          <div class="frame tilt">
+            <span class="tag no">ผิด / NG</span>
+            <div class="id-card">
+              <div class="photo"></div>
+              <div class="lines">
+                <span class="accent"></span><span></span><span class="short"></span><span></span>
+              </div>
+            </div>
+          </div>
+          <div class="caption">
+            <div class="th">พื้นหลังโต๊ะไม้ + เอียง</div>
+            <div class="en">Wood background + tilted</div>
+          </div>
+        </div>
+
+        <div class="example">
+          <div class="frame busy">
+            <span class="tag no">ผิด / NG</span>
+            <div class="id-card">
+              <div class="photo"></div>
+              <div class="lines">
+                <span class="accent"></span><span></span><span class="short"></span><span></span>
+              </div>
+            </div>
+          </div>
+          <div class="caption">
+            <div class="th">พื้นหลังลวดลาย/หลากสี</div>
+            <div class="en">Busy / colorful background</div>
+          </div>
+        </div>
+
+        <div class="example">
+          <div class="frame glare">
+            <span class="glare-stripe"></span>
+            <span class="tag no">ผิด / NG</span>
+            <div class="id-card">
+              <div class="photo"></div>
+              <div class="lines">
+                <span class="accent"></span><span></span><span class="short"></span><span></span>
+              </div>
+            </div>
+          </div>
+          <div class="caption">
+            <div class="th">มืด + แสงสะท้อน/เบลอ</div>
+            <div class="en">Dark + glare / blurry</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="how-to">
+        <h3>แนะนำ: ใช้แอปสแกนเอกสารในมือถือ <span class="en">&middot; Tip: use a mobile scanning app</span></h3>
+        <ol>
+          <li>เปิดแอป เช่น Google Drive (สแกน), Adobe Scan, Notes (iPhone) หรือแอปสแกนของ CMG HR หากเปิดใช้งาน<br/>
+          <span class="en">Open an app such as Google Drive scan, Adobe Scan, Notes, or the CMG HR scan feature if available</span></li>
+          <li>วางบัตรบนกระดาษขาว ให้กรอบจับภาพล้อมรอบบัตรพอดี แล้วถ่าย<br/>
+          <span class="en">Place the card on white paper, align it inside the frame guide, then capture</span></li>
+          <li>แอปจะครอบตัดและปรับพื้นขาวให้อัตโนมัติ ตรวจสอบความชัดก่อนบันทึก/ส่งไฟล์<br/>
+          <span class="en">The app auto-crops and whitens the background; check sharpness before saving/sending</span></li>
+        </ol>
+      </div>
+
+      <div class="footer">
+        <b>หมายเหตุ:</b> ห้ามแก้ไข ตัดต่อ หรือเปลี่ยนพื้นหลังสำเนาบัตรประชาชนด้วยโปรแกรมตัดต่อภาพใดๆ เนื่องจากเป็นเอกสารยืนยันตัวตน หากพื้นหลังไม่ได้มาตรฐาน กรุณาถ่ายใหม่ตามตัวอย่างข้างต้น
+        &middot; <b>Note:</b> Do not edit, crop-and-paste, or digitally alter the background of your ID copy — it is an identity document. If the background does not meet this standard, please retake the photo as shown above.
+      </div>
+
+      <div class="signoff">
+        <div>ผู้จัดทำ / Issued by: CMG HR</div>
+        <div>วันที่ปรับปรุง / Updated: ________________</div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

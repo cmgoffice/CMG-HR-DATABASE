@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { HIRING_DOC_TYPE_OPTIONS, HiringAttachment } from "./recruitmentIntakeConfig";
 import { useDocumentTypeCatalog } from "./documentTypeCatalog";
+import { IdCardPhotoGuideButton, isIdCardDocType } from "./IdCardPhotoGuide";
 import { uploadHiringDocumentFile, appendAttachmentToEmployee } from "../utils/hiringDocsAttachments";
 import {
   buildEmployeeFullName,
@@ -410,6 +411,7 @@ const ContractorEmployeeRow = ({
                 <option key={o.value} value={o.value}>{o.label}</option>
               ))}
             </select>
+            <IdCardPhotoGuideButton highlight={isIdCardDocType(docType)} />
             <input type="file" onChange={(e) => setFile(e.target.files?.[0] || null)} className="text-xs" />
             <button
               onClick={handleUpload}
@@ -420,6 +422,11 @@ const ContractorEmployeeRow = ({
               แนบไฟล์
             </button>
           </div>
+          {isIdCardDocType(docType) && (
+            <p className="text-[11px] text-sky-700 flex items-center gap-1">
+              📌 ก่อนถ่ายรูปบัตร กด "ดูตัวอย่างถ่ายรูปบัตร" ด้านบนเพื่อดูวิธีถ่ายให้ถูกต้อง (พื้นขาว ไม่เอียง ไม่มีแสงสะท้อน)
+            </p>
+          )}
 
           {batch && (
             <button

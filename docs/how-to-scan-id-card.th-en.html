@@ -1,0 +1,212 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8" />
+<title>วิธีสแกนบัตรประชาชนด้วยมือถือ / How to Scan Your ID Card with a Phone App</title>
+<style>
+  * { box-sizing: border-box; }
+  @page { size: A4; margin: 0; }
+  html, body {
+    margin: 0;
+    padding: 0;
+    background: #e9edf3;
+    font-family: "Leelawadee UI", "Tahoma", "Segoe UI", sans-serif;
+    color: #0f2a4a;
+  }
+  .sheet {
+    width: 210mm;
+    min-height: 297mm;
+    margin: 0 auto;
+    background: linear-gradient(180deg, #0f2a4a 0%, #0f2a4a 118px, #f4f7fb 118px, #f4f7fb 100%);
+    position: relative;
+  }
+  .header { padding: 20px 40px 14px 40px; color: #ffffff; }
+  .header .eyebrow {
+    font-size: 13px; letter-spacing: 2px; opacity: 0.85; margin: 0 0 4px 0;
+    font-weight: 600; text-transform: uppercase;
+  }
+  .header h1 { font-size: 23px; margin: 0 0 2px 0; font-weight: 700; }
+  .header h2 { font-size: 14px; margin: 0 0 4px 0; font-weight: 500; opacity: 0.9; }
+  .header .sub { font-size: 11px; opacity: 0.85; margin: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+  .body { padding: 18px 40px 16px 40px; }
+
+  .apps { display: flex; gap: 12px; margin-bottom: 14px; }
+  .app-card {
+    flex: 1;
+    background: #ffffff;
+    border-radius: 12px;
+    box-shadow: 0 2px 8px rgba(15,42,74,0.08);
+    padding: 12px 13px;
+  }
+  .app-card .app-head { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+  .app-icon {
+    width: 26px; height: 26px; border-radius: 7px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 13px; font-weight: 800; color: #fff; flex: 0 0 auto;
+  }
+  .app-card h3 { margin: 0; font-size: 12.5px; color: #0f2a4a; }
+  .app-card .platform { font-size: 9.5px; color: #64748b; margin: 0; }
+  .app-card ol { margin: 0; padding-left: 15px; }
+  .app-card li { font-size: 10.3px; line-height: 1.5; margin-bottom: 3px; color: #334155; }
+  .app-card li .en { display: block; color: #94a3b8; font-size: 9px; }
+
+  .icon-gdrive { background: #16a34a; }
+  .icon-notes { background: #f59e0b; }
+  .icon-adobe { background: #dc2626; }
+  .icon-lens { background: #1f6feb; }
+
+  .section-title { font-size: 13px; font-weight: 700; color: #0f2a4a; margin: 10px 0 8px 0; }
+  .section-title .en { font-weight: 500; font-size: 10px; color: #64748b; }
+
+  .tips {
+    background: #eef3fb;
+    border: 1px solid #c7d8ef;
+    border-radius: 12px;
+    padding: 10px 14px;
+    margin-bottom: 12px;
+  }
+  .tips ul { margin: 0; padding-left: 16px; columns: 2; column-gap: 20px; }
+  .tips li { font-size: 10.3px; line-height: 1.6; color: #334155; break-inside: avoid; }
+  .tips li .en { color: #64748b; font-size: 9px; }
+
+  .where-badge {
+    display: inline-block;
+    font-size: 8.5px;
+    font-weight: 700;
+    padding: 1px 6px;
+    border-radius: 999px;
+    margin-left: 4px;
+    vertical-align: middle;
+  }
+  .where-badge.builtin { background: #dcfce7; color: #166534; }
+  .where-badge.store { background: #fef9c3; color: #854d0e; }
+
+  .footer {
+    margin: 10px 40px 0 40px;
+    padding: 10px 16px;
+    background: #fff7ed;
+    border: 1px solid #fed7aa;
+    border-radius: 12px;
+    font-size: 10.3px;
+    color: #7c2d12;
+    line-height: 1.5;
+  }
+  .footer b { color: #9a3412; }
+
+  .signoff {
+    display: flex; justify-content: space-between;
+    margin: 14px 40px 0 40px; font-size: 10px; color: #475569;
+  }
+  .signoff div { width: 42%; border-top: 1px solid #cbd5e1; padding-top: 4px; }
+</style>
+</head>
+<body>
+  <div class="sheet">
+    <div class="header">
+      <p class="eyebrow">CMG HR &middot; คู่มือสำหรับพนักงาน</p>
+      <h1>วิธีสแกนบัตรประชาชนด้วยมือถือ</h1>
+      <h2>How to Scan Your ID Card with a Phone App</h2>
+      <p class="sub">เลือกแอปที่มีอยู่แล้วในเครื่อง ไม่ต้องโหลดเพิ่มก็ได้ &middot; Pick an app you already have — no download needed</p>
+    </div>
+
+    <div class="body">
+      <div class="section-title">📱 ไม่ต้องโหลดแอปเพิ่ม <span class="en">&middot; Already on your phone</span></div>
+      <div class="apps">
+        <div class="app-card">
+          <div class="app-head">
+            <div class="app-icon icon-gdrive">G</div>
+            <div>
+              <h3>Google Drive <span class="where-badge builtin">มีอยู่แล้ว</span></h3>
+              <p class="platform">Android (ติดตั้งมาแล้วทุกเครื่อง)</p>
+            </div>
+          </div>
+          <ol>
+            <li>เปิดแอป Google Drive<span class="en">Open Google Drive app</span></li>
+            <li>แตะปุ่ม <b>+</b> มุมล่างขวา &rarr; เลือก <b>"สแกน"</b><span class="en">Tap + &rarr; "Scan"</span></li>
+            <li>วางบัตรบนกระดาษขาว เล็งกล้อง รอกรอบจับขอบ แล้วถ่าย<span class="en">Place card on white paper, let it auto-detect edges, capture</span></li>
+            <li>ลากปรับมุม/ขอบให้พอดี แตะเครื่องหมายถูก<span class="en">Adjust crop corners if needed, confirm</span></li>
+            <li>เลือกโหมดสี เช่น "สี" ให้อ่านชัด แตะ <b>บันทึก</b><span class="en">Pick color mode, tap Save</span></li>
+            <li>ตั้งชื่อไฟล์เป็น "ชื่อ-นามสกุล_บัตรประชาชน" แล้วส่งให้ HR<span class="en">Name the file and send it to HR</span></li>
+          </ol>
+        </div>
+        <div class="app-card">
+          <div class="app-head">
+            <div class="app-icon icon-notes">N</div>
+            <div>
+              <h3>Notes (บันทึกช่วยจำ) <span class="where-badge builtin">มีอยู่แล้ว</span></h3>
+              <p class="platform">iPhone (ติดตั้งมาแล้วทุกเครื่อง)</p>
+            </div>
+          </div>
+          <ol>
+            <li>เปิดแอป Notes สร้างโน้ตใหม่<span class="en">Open Notes, create a new note</span></li>
+            <li>แตะไอคอนกล้อง &rarr; เลือก <b>"สแกนเอกสาร"</b><span class="en">Tap camera icon &rarr; "Scan Documents"</span></li>
+            <li>วางบัตรบนกระดาษขาว รอกรอบเหลืองจับขอบอัตโนมัติ<span class="en">Place on white paper, wait for the yellow auto-detect frame</span></li>
+            <li>ถ่ายอัตโนมัติ หรือกดชัตเตอร์เอง ปรับมุมถ้าจำเป็น<span class="en">Auto-captures, or tap shutter; adjust corners if needed</span></li>
+            <li>แตะ <b>บันทึก</b> จะได้ไฟล์ภาพ/PDF คุณภาพสูง พื้นขาวอัตโนมัติ<span class="en">Tap Save — produces a high-quality, auto-whitened scan</span></li>
+            <li>แตะรูปที่สแกน &rarr; ไอคอนแชร์ &rarr; ส่งไฟล์ให้ HR<span class="en">Tap the scan &rarr; Share icon &rarr; send to HR</span></li>
+          </ol>
+        </div>
+      </div>
+
+      <div class="section-title">⬇️ ถ้าอยากได้ลูกเล่นเพิ่ม (โหลดฟรีจาก Store) <span class="en">&middot; Optional free downloads</span></div>
+      <div class="apps">
+        <div class="app-card">
+          <div class="app-head">
+            <div class="app-icon icon-adobe">A</div>
+            <div>
+              <h3>Adobe Scan <span class="where-badge store">โหลดฟรี</span></h3>
+              <p class="platform">Android &amp; iOS</p>
+            </div>
+          </div>
+          <ol>
+            <li>เปิดแอป เล็งกล้องไปที่บัตรบนกระดาษขาว<span class="en">Open app, point camera at card on white paper</span></li>
+            <li>แอปจับขอบ &amp; ถ่ายให้อัตโนมัติ (หรือกดถ่ายเอง)<span class="en">Auto-captures when edges are detected (or tap manually)</span></li>
+            <li>ปรับขอบ เลือก "บัตรประจำตัว/ID" เป็นประเภทเอกสาร<span class="en">Adjust crop, choose "ID Card" as document type</span></li>
+            <li>แตะ <b>บันทึก</b> &rarr; ได้ไฟล์ PDF พื้นขาวคมชัด<span class="en">Tap Save — get a crisp, white-background PDF</span></li>
+            <li>แชร์/ส่งออกไฟล์ให้ HR<span class="en">Share/export the file to HR</span></li>
+          </ol>
+        </div>
+        <div class="app-card">
+          <div class="app-head">
+            <div class="app-icon icon-lens">L</div>
+            <div>
+              <h3>Microsoft Lens <span class="where-badge store">โหลดฟรี</span></h3>
+              <p class="platform">Android &amp; iOS</p>
+            </div>
+          </div>
+          <ol>
+            <li>เปิดแอป เลือกโหมด <b>"บัตรประจำตัว / Card"</b><span class="en">Open app, select "Card" mode</span></li>
+            <li>เล็งกล้องไปที่บัตรบนกระดาษขาว รอกรอบจับขอบ<span class="en">Point at card on white paper, wait for the frame</span></li>
+            <li>กดชัตเตอร์ถ่ายภาพ<span class="en">Tap shutter to capture</span></li>
+            <li>ปรับขอบตามต้องการ แตะ <b>ยืนยัน/Confirm</b><span class="en">Adjust crop, tap Confirm</span></li>
+            <li>เลือกบันทึกเป็น PDF หรือรูปภาพ ส่งให้ HR<span class="en">Save as PDF or image, send to HR</span></li>
+          </ol>
+        </div>
+      </div>
+
+      <div class="tips">
+        <p style="margin:0 0 6px 0; font-size:11.5px; font-weight:700; color:#0f2a4a;">เคล็ดลับให้สแกนออกมาสวย <span class="en" style="font-weight:500;color:#64748b;">&middot; Tips for a clean scan</span></p>
+        <ul>
+          <li>วางบัตรบนกระดาษ A4 สีขาว ให้พื้นหลังตัดกับบัตรชัดเจน<span class="en">Use white A4 paper for contrast with the card</span></li>
+          <li>ถ่ายในที่มีแสงสว่างพอ หลีกเลี่ยงแสงจ้า/ย้อนแสง<span class="en">Shoot in good, even lighting — avoid direct glare</span></li>
+          <li>ถือมือถือให้นิ่ง หรือวางพิงกับอะไรสักอย่างกันสั่น<span class="en">Hold steady, or rest the phone to avoid blur</span></li>
+          <li>ตรวจภาพก่อนส่ง — ซูมดูว่าตัวเลขบัตรอ่านออกชัดเจน<span class="en">Zoom in and check the ID number is readable before sending</span></li>
+        </ul>
+      </div>
+
+      <div class="footer">
+        <b>หมายเหตุ:</b> หลังสแกนแล้ว ห้ามแก้ไข/ตัดต่อพื้นหลังหรือข้อมูลบนบัตรด้วยโปรแกรมใดๆ อีก เพราะเป็นเอกสารยืนยันตัวตน ดูมาตรฐานฉบับเต็มได้ที่เอกสาร
+        "มาตรฐานการถ่าย/สำเนาบัตรประชาชน (ID Card Copy – Photo Standard)"
+        &middot; <b>Note:</b> After scanning, do not edit or alter the card's background or data in any way — see the full
+        "ID Card Copy – Photo Standard" guide for details.
+      </div>
+
+      <div class="signoff">
+        <div>ผู้จัดทำ / Issued by: CMG HR</div>
+        <div>วันที่ปรับปรุง / Updated: ________________</div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

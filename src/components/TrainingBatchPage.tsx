@@ -57,6 +57,11 @@ import {
   isHuashiTrainingRequestProject,
 } from "../utils/huashiTrainingRequestFormPdf";
 import {
+  countGmtpEnrollmentsByLanguage,
+  generateAndDownloadGmtpTrainingRequestFormXlsx,
+  isGmtpTrainingRequestProject,
+} from "../utils/gmtpTrainingRequestFormXlsx";
+import {
   buildProjectAliasGroups,
   buildProjectDisplayKeys,
   checkProjectDocumentCompleteness,
@@ -83,6 +88,7 @@ import {
 import { useDocumentTypeCatalog } from "./documentTypeCatalog";
 import { HiringAttachment } from "./recruitmentIntakeConfig";
 import { appendAttachmentToEmployee, uploadHiringDocumentFile } from "../utils/hiringDocsAttachments";
+import { IdCardPhotoGuideButton, isIdCardDocType } from "./IdCardPhotoGuide";
 
 export interface EmployeeRow {
   id: string;
@@ -2218,6 +2224,7 @@ const RequirementGroupRow = ({
                 <option key={opt.docType} value={opt.docType}>{opt.label}</option>
               ))}
             </select>
+            {isIdCardDocType(selectedDocType) && <IdCardPhotoGuideButton highlight />}
             <label className="flex items-center gap-1 text-xs text-gray-600 border border-gray-200 bg-white rounded-lg px-2 py-1 cursor-pointer hover:bg-gray-50 max-w-[140px]">
               <span className="truncate">{file ? file.name : "เลือกไฟล์"}</span>
               <input type="file" onChange={(e) => setFile(e.target.files?.[0] || null)} className="hidden" />
@@ -2289,6 +2296,7 @@ const OtherDocumentUploader = ({ employee }: { employee: EmployeeRow }) => {
             <option key={o.value} value={o.value}>{o.label}</option>
           ))}
         </select>
+        {isIdCardDocType(selectedDocType) && <IdCardPhotoGuideButton highlight />}
         <label className="flex items-center gap-1 text-xs text-gray-600 border border-gray-200 rounded-lg px-2 py-1 cursor-pointer hover:bg-gray-50 max-w-[140px]">
           <span className="truncate">{file ? file.name : "เลือกไฟล์"}</span>
           <input type="file" onChange={(e) => setFile(e.target.files?.[0] || null)} className="hidden" />
