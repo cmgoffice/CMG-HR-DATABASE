@@ -506,6 +506,7 @@ import { ProjectDocumentRequirementsModal } from './components/ProjectDocumentRe
 import { TRAINING_MANAGE_ROLES } from './components/trainingBatchConfig';
 import { ClinicCheckupPortal } from './components/ClinicCheckupPortal';
 import { ContractorPortal } from './components/ContractorPortal';
+import { EmployeeDocumentPortal } from './components/EmployeeDocumentPortal';
 import { EmployeeDocumentsPage, OPEN_EMPLOYEE_DOCUMENTS_STORAGE_KEY } from './components/EmployeeDocumentsPage';
 import { ApprovalCenterPage } from './components/ApprovalCenterPage';
 import { InfoTooltip } from './components/InfoTooltip';
@@ -4628,6 +4629,7 @@ export default function App() {
       {/* หน้าสาธารณะสำหรับคลินิก — ไม่ต้อง login เข้าถึงได้ด้วย token ในลิงก์เท่านั้น */}
       <Route path="/clinic/:token" element={<ClinicCheckupPortal />} />
       <Route path="/contractor/:token" element={<ContractorPortal />} />
+      <Route path="/my-documents/:token" element={<EmployeeDocumentPortal />} />
       <Route path="/login" element={<LoginPage />} />
       <Route path="/register" element={<RegisterPage />} />
       <Route path="/pending" element={

@@ -5,14 +5,12 @@ import {
   AlertTriangle,
   Building2,
   CheckCircle2,
+  Clock,
   FileUp,
   Inbox,
   Loader2,
   Paperclip,
-  Plus,
-  UserPlus,
   Users,
-  X,
 } from "lucide-react";
 import { HIRING_DOC_TYPE_OPTIONS, HiringAttachment } from "./recruitmentIntakeConfig";
 import { useDocumentTypeCatalog } from "./documentTypeCatalog";
@@ -27,12 +25,8 @@ import {
 } from "./trainingBatchConfig";
 import {
   CONTRACTOR_EMPLOYEE_TYPE_LABELS,
-  CONTRACTOR_EMPLOYEE_TYPES,
-  PENDING_MEMBER_STATUS_META,
   TRAINING_CONTRACTOR_LINKS_COLLECTION,
-  TRAINING_PENDING_MEMBERS_COLLECTION,
   TrainingContractorLink,
-  TrainingPendingMember,
 } from "./contractorPortalConfig";
 import {
   buildProjectAliasGroups,
@@ -65,13 +59,16 @@ interface EmployeeRow {
 }
 
 const INACTIVE_STATUSES = ["ลาออก", "เลิกจ้าง"];
-const createLocalId = (): string => `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
 /**
  * หน้าสาธารณะสำหรับผู้รับเหมา/Supply manpower — ไม่ต้อง login เข้าถึงด้วย token ในลิงก์
  * เส้นทาง: /contractor/:token
- * ให้ 2 อย่าง: (1) เลือกคนที่ HR กรอกชื่อไว้แล้วในระบบ ส่งเข้ารอบอบรม + แนบเอกสารตามที่
- * โครงการกำหนด (2) เพิ่มชื่อคนใหม่ที่ยังไม่มีในระบบ ส่งเป็นคำขอรอ HR ตรวจสอบ/อนุมัติ
+ *
+ * ลิงก์นี้มี 2 โหมด (ดูรายละเอียดที่ contractorPortalConfig.ts):
+ *  - ผูกรอบอบรม (link.batchId มีค่า): แนบเอกสาร + กดส่งเข้ารอบอบรมได้เลย (ของเดิม)
+ *  - เก็บเอกสารล่วงหน้า (ไม่มี batchId): แนบเอกสารรอไว้ก่อนเฉยๆ ยังไม่มีรอบให้ส่งเข้า
+ * ทั้ง 2 โหมด HR เป็นคนเลือกรายชื่อ (invitedEmployeeIds) ไว้ล่วงหน้าตอนสร้างลิงก์เสมอ
+ * — ผู้รับเหมาแนบเอกสารให้เฉพาะคนที่อยู่ในรายชื่อนี้เท่านั้น ไม่มีฟอร์มเพิ่มชื่อใหม่
  */
 export const ContractorPortal = () => {
   const { token } = useParams<{ token: string }>();
@@ -81,9 +78,7 @@ export const ContractorPortal = () => {
   const [batch, setBatch] = useState<TrainingBatch | null>(null);
   const [employees, setEmployees] = useState<EmployeeRow[]>([]);
   const [enrollments, setEnrollments] = useState<TrainingEnrollment[]>([]);
-  const [pendingMembers, setPendingMembers] = useState<TrainingPendingMember[]>([]);
   const [requirements, setRequirements] = useState<ProjectDocumentRequirement[]>([]);
-  const [showAddNew, setShowAddNew] = useState(false);
 
   useEffect(() => {
     if (!token) {
@@ -105,8 +100,12 @@ export const ContractorPortal = () => {
     return () => unsub();
   }, [db, token]);
 
+  // มีรอบอบรมผูกไว้หรือไม่ — ถ้าไม่มี (ลิงก์เก็บเอกสารล่วงหน้า) ไม่ต้องรอ batch เลย
   useEffect(() => {
-    if (!link?.batchId) return;
+    if (!link?.batchId) {
+      setBatch(null);
+      return;
+    }
     const ref = doc(db, "CMG-HR-Database", "root", TRAINING_BATCHES_COLLECTION, link.batchId);
     const unsub = onSnapshot(ref, (snap) => {
       setBatch(snap.exists() ? ({ id: snap.id, ...(snap.data() as object) } as TrainingBatch) : null);
@@ -122,9 +121,8 @@ export const ContractorPortal = () => {
         .map((d) => ({ id: d.id, ...(d.data() as object) } as EmployeeRow))
         .filter((e) => !INACTIVE_STATUSES.includes(String(e.สถานะพนักงาน || "").trim()))
         .filter((e) => (e.บริษัทผู้รับเหมา || "").trim() === link.company)
-        .filter((e) => CONTRACTOR_EMPLOYEE_TYPES.includes((e.employee_type || "") as any))
         .filter((e) => [e.โครงการ, e.โครงการปัจจุบัน].some((p) => isSameProjectName(p, link.project, projectAliasGroups)))
-        // ลิงก์ใหม่: HR เลือกรายชื่อไว้ล่วงหน้าตอนสร้างลิงก์ — แสดงเฉพาะคนที่อยู่ในรายการนี้เท่านั้น
+        // HR เลือกรายชื่อไว้ล่วงหน้าตอนสร้างลิงก์เสมอ — แสดงเฉพาะคนที่อยู่ในรายการนี้เท่านั้น
         // (ลิงก์เก่าก่อนมีฟีเจอร์นี้ ไม่มี invitedEmployeeIds — ใช้ fallback แสดงทุกคนที่ตรงบริษัท+โครงการเหมือนเดิม)
         .filter((e) => (link.invitedEmployeeIds ? link.invitedEmployeeIds.includes(e.id) : true));
       setEmployees(rows);
@@ -133,7 +131,10 @@ export const ContractorPortal = () => {
   }, [db, link, projectAliasGroups]);
 
   useEffect(() => {
-    if (!link?.batchId) return;
+    if (!link?.batchId) {
+      setEnrollments([]);
+      return;
+    }
     const unsub = onSnapshot(collection(db, "CMG-HR-Database", "root", TRAINING_ENROLLMENTS_COLLECTION), (snap) => {
       setEnrollments(
         snap.docs
@@ -143,19 +144,6 @@ export const ContractorPortal = () => {
     });
     return () => unsub();
   }, [db, link?.batchId]);
-
-  useEffect(() => {
-    if (!link) return;
-    const unsub = onSnapshot(collection(db, "CMG-HR-Database", "root", TRAINING_PENDING_MEMBERS_COLLECTION), (snap) => {
-      setPendingMembers(
-        snap.docs
-          .map((d) => ({ id: d.id, ...(d.data() as object) } as TrainingPendingMember))
-          .filter((m) => m.batchId === link.batchId && m.company === link.company)
-          .sort((a, b) => b.submittedAt - a.submittedAt)
-      );
-    });
-    return () => unsub();
-  }, [db, link]);
 
   useEffect(() => {
     if (!link) return;
@@ -185,7 +173,8 @@ export const ContractorPortal = () => {
     );
   }
 
-  if (link === null || !batch) {
+  // ไม่มีลิงก์ หรือ (มี batchId ผูกไว้แต่หารอบอบรมนั้นไม่เจอ) = ลิงก์เสีย
+  if (link === null || (link.batchId && !batch)) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center bg-gray-50 gap-3 p-6 text-center">
         <AlertTriangle className="text-amber-500" size={36} />
@@ -195,23 +184,37 @@ export const ContractorPortal = () => {
     );
   }
 
-  const notEnrolledEmployees = employees.filter((e) => !enrolledIds.has(e.id));
-  const enrolledEmployees = employees.filter((e) => enrolledIds.has(e.id));
+  const notEnrolledEmployees = batch ? employees.filter((e) => !enrolledIds.has(e.id)) : employees;
+  const enrolledEmployees = batch ? employees.filter((e) => enrolledIds.has(e.id)) : [];
 
   return (
     <div className="min-h-screen bg-gray-50 py-6 px-4 sm:px-8">
       <div className="max-w-5xl mx-auto flex flex-col gap-5">
         <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-5">
-          <h1 className="text-lg font-bold text-gray-800 flex items-center gap-2">
-            <Users className="text-blue-600" size={22} />
-            ส่งทีมงานเข้าอบรมก่อนเข้างาน — {batch.courseName}
-          </h1>
+          {batch ? (
+            <>
+              <h1 className="text-lg font-bold text-gray-800 flex items-center gap-2">
+                <Users className="text-blue-600" size={22} />
+                ส่งทีมงานเข้าอบรมก่อนเข้างาน — {batch.courseName}
+              </h1>
+              <p className="text-xs text-gray-400 mt-1">
+                วันอบรม: {batch.date || "-"} {batch.timeSlot ? `(${batch.timeSlot})` : ""} ที่ {batch.location || "-"}
+              </p>
+            </>
+          ) : (
+            <>
+              <h1 className="text-lg font-bold text-gray-800 flex items-center gap-2">
+                <FileUp className="text-sky-600" size={22} />
+                เตรียมเอกสารทีมงานล่วงหน้า
+              </h1>
+              <p className="text-xs text-gray-400 mt-1 flex items-center gap-1.5">
+                <Clock size={12} /> แนบเอกสารรอไว้ก่อนได้เลย — พอ HR เปิดรอบอบรมจริง จะเลือกคนที่เอกสารครบแล้วส่งเข้ารอบได้ทันที ไม่ต้องรอแนบใหม่
+              </p>
+            </>
+          )}
           <p className="text-sm text-gray-500 mt-1 flex items-center gap-1.5">
             <Building2 size={14} /> โครงการ: {link.project} • บริษัท: <strong>{link.company}</strong>
             {link.employeeType && ` (${CONTRACTOR_EMPLOYEE_TYPE_LABELS[link.employeeType]})`}
-          </p>
-          <p className="text-xs text-gray-400 mt-1">
-            วันอบรม: {batch.date || "-"} {batch.timeSlot ? `(${batch.timeSlot})` : ""} ที่ {batch.location || "-"}
           </p>
           {requirements.length > 0 && (
             <div className="mt-3 bg-sky-50 border border-sky-200 rounded-lg p-3 text-xs text-sky-800">
@@ -228,13 +231,19 @@ export const ContractorPortal = () => {
         </div>
 
         <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-5">
-          <h2 className="text-sm font-bold text-gray-700 mb-1">รายชื่อทีมงานที่ยังไม่ได้ส่งเข้ารอบนี้ ({notEnrolledEmployees.length} คน)</h2>
-          <p className="text-xs text-gray-400 mb-3">รายชื่อนี้ HR กรอกไว้ในระบบแล้ว — แนบเอกสารให้ครบแล้วกดส่งเข้ารอบอบรมได้เลย</p>
+          <h2 className="text-sm font-bold text-gray-700 mb-1">
+            {batch ? `รายชื่อทีมงานที่ยังไม่ได้ส่งเข้ารอบนี้ (${notEnrolledEmployees.length} คน)` : `รายชื่อทีมงาน (${notEnrolledEmployees.length} คน)`}
+          </h2>
+          <p className="text-xs text-gray-400 mb-3">
+            {batch
+              ? "รายชื่อนี้ HR กรอกไว้ในระบบแล้ว — แนบเอกสารให้ครบแล้วกดส่งเข้ารอบอบรมได้เลย"
+              : "รายชื่อนี้ HR กรอกไว้ในระบบแล้ว — แนบเอกสารรอไว้ก่อนได้เลย ถ้ามีคนที่ยังไม่มีชื่ออยู่ในนี้ กรุณาติดต่อ HR/Safety ของโครงการให้เพิ่มชื่อในระบบก่อน"}
+          </p>
 
           {notEnrolledEmployees.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-24 text-gray-400 gap-2">
               <Inbox size={24} />
-              <p className="text-sm">ไม่มีรายชื่อที่รอส่งเข้ารอบนี้ (ถ้ายังไม่มีชื่อ ให้เพิ่มชื่อใหม่ด้านล่าง)</p>
+              <p className="text-sm">ไม่มีรายชื่อในลิงก์นี้ — ติดต่อ HR/Safety ของโครงการเพื่อขอลิงก์ใหม่</p>
             </div>
           ) : (
             <div className="flex flex-col gap-2">
@@ -259,48 +268,6 @@ export const ContractorPortal = () => {
             </ul>
           </div>
         )}
-
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-5">
-          <div className="flex items-center justify-between">
-            <h2 className="text-sm font-bold text-gray-700">เพิ่มชื่อทีมงานใหม่ (ยังไม่มีในระบบ)</h2>
-            <button
-              onClick={() => setShowAddNew((v) => !v)}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 text-white rounded-lg text-xs font-semibold hover:bg-blue-700"
-            >
-              <UserPlus size={14} /> {showAddNew ? "ปิดฟอร์ม" : "เพิ่มชื่อใหม่"}
-            </button>
-          </div>
-          <p className="text-xs text-gray-400 mt-1">
-            รายชื่อที่เพิ่มตรงนี้จะถูกส่งให้ HR ตรวจสอบและอนุมัติก่อน ถึงจะถูกเพิ่มเข้าระบบและเข้ารอบอบรมจริง
-          </p>
-
-          {showAddNew && (
-            <AddNewMemberForm
-              batchId={batch.id}
-              project={link.project}
-              company={link.company}
-              employeeType={link.employeeType}
-              onSubmitted={() => setShowAddNew(false)}
-            />
-          )}
-
-          {pendingMembers.length > 0 && (
-            <div className="mt-4 border-t pt-3">
-              <h3 className="text-xs font-semibold text-gray-500 mb-2">รายชื่อที่ส่งไปแล้ว</h3>
-              <ul className="flex flex-col gap-1.5">
-                {pendingMembers.map((m) => {
-                  const meta = PENDING_MEMBER_STATUS_META[m.status];
-                  return (
-                    <li key={m.id} className="flex items-center justify-between gap-2 text-sm bg-gray-50 rounded-lg px-3 py-2">
-                      <span className="text-gray-700">{m.fullName}</span>
-                      <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold ${meta.cls}`}>{meta.label}</span>
-                    </li>
-                  );
-                })}
-              </ul>
-            </div>
-          )}
-        </div>
       </div>
 
       <style>{`.input { border: 1px solid #e5e7eb; border-radius: 0.5rem; padding: 0.5rem 0.75rem; font-size: 0.875rem; width: 100%; outline: none; background: white; } .input:focus { box-shadow: 0 0 0 2px #dbeafe; }`}</style>
@@ -309,7 +276,7 @@ export const ContractorPortal = () => {
 };
 
 // ---------------------------------------------------------------------------
-// แถวพนักงาน 1 คนที่มีอยู่แล้วในระบบ — แนบเอกสาร + กดส่งเข้ารอบอบรม
+// แถวพนักงาน 1 คนที่มีอยู่แล้วในระบบ — แนบเอกสาร + (ถ้ามีรอบอบรมผูกไว้) กดส่งเข้ารอบอบรม
 // ---------------------------------------------------------------------------
 const ContractorEmployeeRow = ({
   employee,
@@ -318,7 +285,7 @@ const ContractorEmployeeRow = ({
   requirements,
 }: {
   employee: EmployeeRow;
-  batch: TrainingBatch;
+  batch: TrainingBatch | null;
   project: string;
   requirements: ProjectDocumentRequirement[];
 }) => {
@@ -363,6 +330,7 @@ const ContractorEmployeeRow = ({
   };
 
   const handleEnroll = async () => {
+    if (!batch) return;
     setEnrolling(true);
     setError(null);
     try {
@@ -453,167 +421,20 @@ const ContractorEmployeeRow = ({
             </button>
           </div>
 
-          <button
-            onClick={handleEnroll}
-            disabled={enrolling}
-            className="self-start flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-lg text-xs font-semibold hover:bg-emerald-700 disabled:opacity-50"
-          >
-            {enrolling ? <Loader2 className="animate-spin" size={13} /> : <CheckCircle2 size={13} />}
-            ส่งเข้ารอบอบรมนี้
-          </button>
+          {batch && (
+            <button
+              onClick={handleEnroll}
+              disabled={enrolling}
+              className="self-start flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-lg text-xs font-semibold hover:bg-emerald-700 disabled:opacity-50"
+            >
+              {enrolling ? <Loader2 className="animate-spin" size={13} /> : <CheckCircle2 size={13} />}
+              ส่งเข้ารอบอบรมนี้
+            </button>
+          )}
 
           {error && <p className="text-xs text-red-600">{error}</p>}
         </div>
       )}
-    </div>
-  );
-};
-
-// ---------------------------------------------------------------------------
-// ฟอร์มเพิ่มชื่อใหม่ (ยังไม่มีในระบบ) — ส่งเป็นคำขอรอ HR อนุมัติ
-// ---------------------------------------------------------------------------
-const AddNewMemberForm = ({
-  batchId,
-  project,
-  company,
-  employeeType,
-  onSubmitted,
-}: {
-  batchId: string;
-  project: string;
-  company: string;
-  employeeType: TrainingContractorLink["employeeType"];
-  onSubmitted: () => void;
-}) => {
-  const db = getFirestore();
-  const documentTypeOptions = useDocumentTypeCatalog();
-  const [pendingKey] = useState<string>(() => `contractor-pending-${createLocalId()}`);
-  const [fullName, setFullName] = useState("");
-  const [position, setPosition] = useState("");
-  const [nationality, setNationality] = useState("");
-  const [idCardNumber, setIdCardNumber] = useState("");
-  const [gender, setGender] = useState("");
-  const [attachments, setAttachments] = useState<HiringAttachment[]>([]);
-  const [docType, setDocType] = useState<string>(HIRING_DOC_TYPE_OPTIONS[0]?.value || "");
-  const [file, setFile] = useState<File | null>(null);
-  const [uploading, setUploading] = useState(false);
-  const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const handleUploadAttachment = async () => {
-    if (!file || !fullName.trim()) {
-      setError("กรุณากรอกชื่อ-สกุลก่อนแนบไฟล์");
-      return;
-    }
-    setUploading(true);
-    setError(null);
-    try {
-      const res = await uploadHiringDocumentFile(file, {
-        candidateName: fullName.trim(),
-        position: position.trim(),
-        candidateKey: pendingKey,
-        docType,
-      });
-      setAttachments((prev) => [...prev, { docType, name: file.name, url: res.url, uploadedAt: new Date().toISOString() }]);
-      setFile(null);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "อัปโหลดไม่สำเร็จ");
-    } finally {
-      setUploading(false);
-    }
-  };
-
-  const handleRemoveAttachment = (idx: number) => {
-    setAttachments((prev) => prev.filter((_, i) => i !== idx));
-  };
-
-  const handleSubmit = async () => {
-    if (!fullName.trim()) {
-      setError("กรุณากรอกชื่อ-สกุล");
-      return;
-    }
-    setSubmitting(true);
-    setError(null);
-    try {
-      const ref = doc(collection(db, "CMG-HR-Database", "root", TRAINING_PENDING_MEMBERS_COLLECTION));
-      const record: Omit<TrainingPendingMember, "id"> = {
-        batchId,
-        project,
-        company,
-        employeeType,
-        fullName: fullName.trim(),
-        position: position.trim(),
-        nationality: nationality.trim(),
-        idCardNumber: idCardNumber.trim(),
-        gender,
-        attachments,
-        status: "pending",
-        submittedAt: Date.now(),
-      };
-      await setDoc(ref, record);
-      onSubmitted();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "ส่งคำขอไม่สำเร็จ");
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  return (
-    <div className="mt-3 border-t pt-3 flex flex-col gap-2">
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-        <input value={fullName} onChange={(e) => setFullName(e.target.value)} placeholder="ชื่อ-สกุล *" className="input" />
-        <input value={position} onChange={(e) => setPosition(e.target.value)} placeholder="ตำแหน่ง" className="input" />
-        <input value={nationality} onChange={(e) => setNationality(e.target.value)} placeholder="สัญชาติ" className="input" />
-        <input value={idCardNumber} onChange={(e) => setIdCardNumber(e.target.value)} placeholder="เลขบัตรประชาชน/พาสปอร์ต" className="input" />
-        <select value={gender} onChange={(e) => setGender(e.target.value)} className="input">
-          <option value="">เพศ</option>
-          <option value="ชาย">ชาย</option>
-          <option value="หญิง">หญิง</option>
-        </select>
-      </div>
-
-      {attachments.length > 0 && (
-        <ul className="flex flex-col gap-1">
-          {attachments.map((a, idx) => (
-            <li key={`${a.url}-${idx}`} className="flex items-center justify-between gap-2 text-xs bg-white rounded-lg px-2.5 py-1.5 border border-gray-200">
-              <span className="flex items-center gap-1.5 text-gray-600 truncate">
-                <Paperclip size={12} /> {a.name}{" "}
-                <span className="text-gray-400">({documentTypeOptions.find((o) => o.value === a.docType)?.label || a.docType})</span>
-              </span>
-              <button onClick={() => handleRemoveAttachment(idx)} className="text-gray-300 hover:text-red-500 shrink-0"><X size={13} /></button>
-            </li>
-          ))}
-        </ul>
-      )}
-
-      <div className="flex flex-wrap items-center gap-2">
-        <select value={docType} onChange={(e) => setDocType(e.target.value)} className="input !w-auto">
-          {documentTypeOptions.map((o) => (
-            <option key={o.value} value={o.value}>{o.label}</option>
-          ))}
-        </select>
-        <input type="file" onChange={(e) => setFile(e.target.files?.[0] || null)} className="text-xs" />
-        <button
-          onClick={handleUploadAttachment}
-          disabled={!file || uploading}
-          className="flex items-center gap-1.5 px-3 py-1.5 bg-sky-600 text-white rounded-lg text-xs font-semibold hover:bg-sky-700 disabled:opacity-50"
-        >
-          {uploading ? <Loader2 className="animate-spin" size={13} /> : <Plus size={13} />}
-          เพิ่มไฟล์แนบ
-        </button>
-      </div>
-
-      <button
-        onClick={handleSubmit}
-        disabled={submitting}
-        className="self-start flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg text-xs font-semibold hover:bg-blue-700 disabled:opacity-50"
-      >
-        {submitting ? <Loader2 className="animate-spin" size={13} /> : <UserPlus size={13} />}
-        ส่งให้ HR ตรวจสอบ
-      </button>
-
-      {error && <p className="text-xs text-red-600">{error}</p>}
     </div>
   );
 };

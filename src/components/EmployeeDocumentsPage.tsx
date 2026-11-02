@@ -1,12 +1,19 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { collection, getFirestore, onSnapshot } from "firebase/firestore";
-import { AlertTriangle, FileUp, Inbox, Loader2, Paperclip, Search, X } from "lucide-react";
+import { collection, doc, getFirestore, onSnapshot, setDoc } from "firebase/firestore";
+import { AlertTriangle, CheckCircle2, Copy, FileUp, Inbox, Link2, Loader2, Paperclip, Search, X } from "lucide-react";
 import {
   appendAttachmentToEmployee,
   uploadHiringDocumentFile,
 } from "../utils/hiringDocsAttachments";
 import { HiringAttachment } from "./recruitmentIntakeConfig";
 import { useDocumentTypeCatalog } from "./documentTypeCatalog";
+import { useAuth } from "../auth/AuthContext";
+import {
+  buildEmployeeDocumentPortalUrl,
+  createEmployeeDocumentLinkToken,
+  EMPLOYEE_DOCUMENT_LINKS_COLLECTION,
+  EmployeeDocumentLink,
+} from "./employeeDocumentLinkConfig";
 
 // path ที่หน้านี้อ่านแบบ realtime: CMG-HR-Database/root/employee_data (ใช้ร่วมกับหน้าพนักงานหลักทุกกลุ่ม)
 const FIRESTORE_PATH = "CMG-HR-Database/root/employee_data";
@@ -46,6 +53,7 @@ const buildFullName = (e: EmployeeRecord): string =>
     .join(" ") || e.id;
 
 export const EmployeeDocumentsPage = () => {
+  const { firebaseUser, userProfile } = useAuth();
   const documentTypeOptions = useDocumentTypeCatalog();
   const [employees, setEmployees] = useState<EmployeeRecord[]>([]);
   const [loading, setLoading] = useState(true);
@@ -59,6 +67,15 @@ export const EmployeeDocumentsPage = () => {
   const [docFile, setDocFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
   const [docsError, setDocsError] = useState<string | null>(null);
+
+  // ----- ลิงก์ส่งให้พนักงานแนบเอกสารเอง (รายคน) -----
+  const [showLinkPanel, setShowLinkPanel] = useState(false);
+  const [linkRequestedTypes, setLinkRequestedTypes] = useState<Set<string>>(new Set());
+  const [linkNote, setLinkNote] = useState("");
+  const [creatingLink, setCreatingLink] = useState(false);
+  const [linkError, setLinkError] = useState<string | null>(null);
+  const [generatedLinkUrl, setGeneratedLinkUrl] = useState<string | null>(null);
+  const [copiedLink, setCopiedLink] = useState(false);
 
   useEffect(() => {
     setLoading(true);
@@ -127,12 +144,68 @@ export const EmployeeDocumentsPage = () => {
     setDocType(documentTypeOptions[0]?.value || "");
     setDocFile(null);
     setDocsError(null);
+    setShowLinkPanel(false);
+    setLinkRequestedTypes(new Set());
+    setLinkNote("");
+    setLinkError(null);
+    setGeneratedLinkUrl(null);
   };
 
   const closeDocsPanel = () => {
     setDocsTarget(null);
     setDocFile(null);
     setDocsError(null);
+    setShowLinkPanel(false);
+    setLinkRequestedTypes(new Set());
+    setLinkNote("");
+    setLinkError(null);
+    setGeneratedLinkUrl(null);
+  };
+
+  const toggleLinkRequestedType = (value: string) => {
+    setLinkRequestedTypes((prev) => {
+      const next = new Set(prev);
+      if (next.has(value)) next.delete(value);
+      else next.add(value);
+      return next;
+    });
+  };
+
+  const handleCreateEmployeeDocLink = async () => {
+    if (!docsTarget) return;
+    setCreatingLink(true);
+    setLinkError(null);
+    try {
+      const db = getFirestore();
+      const token = createEmployeeDocumentLinkToken();
+      const record: Omit<EmployeeDocumentLink, "id"> = {
+        employeeId: docsTarget.id,
+        employeeCode: docsTarget.รหัสพนักงาน || docsTarget.id,
+        employeeName: buildFullName(docsTarget),
+        requestedDocTypes: Array.from(linkRequestedTypes),
+        note: linkNote.trim(),
+        createdAt: Date.now(),
+        createdByUid: firebaseUser?.uid || "",
+        createdByName: `${userProfile?.firstName || ""} ${userProfile?.lastName || ""}`.trim(),
+      };
+      await setDoc(doc(db, "CMG-HR-Database", "root", EMPLOYEE_DOCUMENT_LINKS_COLLECTION, token), record);
+      setGeneratedLinkUrl(buildEmployeeDocumentPortalUrl(token));
+    } catch (err) {
+      setLinkError(err instanceof Error ? err.message : "สร้างลิงก์ไม่สำเร็จ");
+    } finally {
+      setCreatingLink(false);
+    }
+  };
+
+  const handleCopyGeneratedLink = async () => {
+    if (!generatedLinkUrl) return;
+    try {
+      await navigator.clipboard.writeText(generatedLinkUrl);
+      setCopiedLink(true);
+      setTimeout(() => setCopiedLink(false), 2000);
+    } catch {
+      window.prompt("คัดลอกลิงก์นี้:", generatedLinkUrl);
+    }
   };
 
   const handleUploadDoc = async () => {
@@ -347,6 +420,91 @@ export const EmployeeDocumentsPage = () => {
                     อัปโหลดและแนบเข้าระบบ
                   </button>
                 </div>
+              </div>
+
+              <div className="border-t pt-4">
+                {!showLinkPanel ? (
+                  <button
+                    type="button"
+                    onClick={() => setShowLinkPanel(true)}
+                    className="flex items-center gap-1.5 text-xs font-semibold text-sky-600 hover:underline"
+                  >
+                    <Link2 size={13} /> ส่งลิงก์ให้พนักงานแนบเอกสารเอง (ไม่ต้อง login)
+                  </button>
+                ) : (
+                  <div className="flex flex-col gap-2">
+                    <h4 className="text-xs font-semibold text-gray-500 flex items-center gap-1.5">
+                      <Link2 size={13} className="text-sky-600" /> สร้างลิงก์ให้พนักงานแนบเอกสารเอง
+                    </h4>
+                    {!generatedLinkUrl ? (
+                      <>
+                        <p className="text-[11px] text-gray-400">
+                          ติ๊กประเภทเอกสารที่ยังขาด (ถ้าไม่ติ๊กเลย = เปิดให้แนบไฟล์ประเภทไหนก็ได้อิสระ ไม่มี checklist บังคับ)
+                        </p>
+                        <div className="flex flex-col gap-1 max-h-36 overflow-y-auto border rounded-lg p-2">
+                          {documentTypeOptions.map((o) => (
+                            <label key={o.value} className="flex items-center gap-2 text-xs text-gray-700 cursor-pointer">
+                              <input
+                                type="checkbox"
+                                checked={linkRequestedTypes.has(o.value)}
+                                onChange={() => toggleLinkRequestedType(o.value)}
+                                className="w-3.5 h-3.5 rounded border-gray-300 text-sky-600 focus:ring-sky-500 cursor-pointer"
+                              />
+                              {o.label}
+                            </label>
+                          ))}
+                        </div>
+                        <textarea
+                          value={linkNote}
+                          onChange={(e) => setLinkNote(e.target.value)}
+                          placeholder="ข้อความถึงพนักงาน (ไม่บังคับ) เช่น กรุณาแนบภายในวันที่..."
+                          rows={2}
+                          className="border rounded-lg px-3 py-2 text-xs outline-none focus:ring-2 focus:ring-sky-100"
+                        />
+                        {linkError && (
+                          <div className="text-xs font-medium text-red-600 bg-red-50 border border-red-200 rounded-lg p-2">
+                            {linkError}
+                          </div>
+                        )}
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={handleCreateEmployeeDocLink}
+                            disabled={creatingLink}
+                            className="flex items-center gap-1.5 px-3 py-1.5 bg-sky-600 text-white rounded-lg text-xs font-semibold hover:bg-sky-700 disabled:opacity-50"
+                          >
+                            {creatingLink ? <Loader2 className="animate-spin" size={13} /> : <Link2 size={13} />}
+                            สร้างลิงก์
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setShowLinkPanel(false)}
+                            className="text-xs text-gray-500 hover:underline"
+                          >
+                            ยกเลิก
+                          </button>
+                        </div>
+                      </>
+                    ) : (
+                      <div className="flex flex-col gap-2 bg-sky-50 border border-sky-200 rounded-lg p-3">
+                        <p className="text-xs text-sky-800 font-medium">สร้างลิงก์สำเร็จ — ส่งลิงก์นี้ให้พนักงานได้เลย</p>
+                        <div className="flex items-center gap-2">
+                          <code className="text-xs text-gray-600 break-all flex-1 bg-white border border-gray-200 rounded px-2 py-1.5">
+                            {generatedLinkUrl}
+                          </code>
+                          <button
+                            type="button"
+                            onClick={handleCopyGeneratedLink}
+                            className="flex items-center gap-1 px-2 py-1.5 bg-white border border-gray-200 rounded text-sky-700 hover:bg-sky-100 text-xs shrink-0"
+                          >
+                            {copiedLink ? <CheckCircle2 size={12} /> : <Copy size={12} />}
+                            {copiedLink ? "คัดลอกแล้ว" : "คัดลอก"}
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
           </div>

@@ -70,6 +70,7 @@ import {
 } from "./projectDocumentConfig";
 import {
   buildContractorPortalUrl,
+  CONTRACTOR_EMPLOYEE_TYPE_LABELS,
   CONTRACTOR_EMPLOYEE_TYPES,
   ContractorEmployeeType,
   createContractorLinkToken,
@@ -163,6 +164,15 @@ export const TrainingBatchPage = ({ projectOptions = [] }: { projectOptions?: st
 
   const [activeBatchId, setActiveBatchId] = useState<string | null>(null);
 
+  // ----- ลิงก์เก็บเอกสารล่วงหน้า (ไม่ผูกรอบอบรม) -----
+  const [generalContractorLinks, setGeneralContractorLinks] = useState<TrainingContractorLink[]>([]);
+  const [showGeneralLinkForm, setShowGeneralLinkForm] = useState(false);
+  const [generalLinkProject, setGeneralLinkProject] = useState("");
+  const [generalLinkCompany, setGeneralLinkCompany] = useState("");
+  const [showGeneralLinkPicker, setShowGeneralLinkPicker] = useState(false);
+  const [creatingGeneralLink, setCreatingGeneralLink] = useState(false);
+  const [copiedGeneralLinkId, setCopiedGeneralLinkId] = useState<string | null>(null);
+
   // ----- Realtime subscriptions -----
   useEffect(() => {
     setLoadingBatches(true);
@@ -198,6 +208,18 @@ export const TrainingBatchPage = ({ projectOptions = [] }: { projectOptions?: st
         .map((d) => ({ id: d.id, ...(d.data() as object) } as EmployeeRow))
         .filter((e) => !INACTIVE_STATUSES.includes(String(e.สถานะพนักงาน || "").trim()));
       setEmployees(rows);
+    });
+    return () => unsub();
+  }, [db]);
+
+  // ลิงก์เก็บเอกสารล่วงหน้าทั้งหมด (ไม่มี batchId) — ใช้ซ้ำได้เรื่อยๆ ต่อ โครงการ+บริษัทผู้รับเหมา
+  useEffect(() => {
+    const unsub = onSnapshot(collection(db, "CMG-HR-Database", "root", TRAINING_CONTRACTOR_LINKS_COLLECTION), (snap) => {
+      const rows = snap.docs
+        .map((d) => ({ id: d.id, ...(d.data() as object) } as TrainingContractorLink))
+        .filter((l) => !l.batchId)
+        .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+      setGeneralContractorLinks(rows);
     });
     return () => unsub();
   }, [db]);
@@ -261,6 +283,80 @@ export const TrainingBatchPage = ({ projectOptions = [] }: { projectOptions?: st
     });
     return ids;
   }, [enrollments, activeBatch, projectAliasGroups]);
+
+  // บริษัทผู้รับเหมา/Supply manpower ของโครงการที่เลือกไว้ตอนสร้างลิงก์เก็บเอกสารล่วงหน้า
+  const generalLinkCompanies = useMemo(() => {
+    if (!generalLinkProject) return [];
+    const names = new Set<string>();
+    employees.forEach((e) => {
+      const empType = e.employee_type || "";
+      if (!CONTRACTOR_EMPLOYEE_TYPES.includes(empType as ContractorEmployeeType)) return;
+      if (!employeeProjectNames(e).some((p) => isSameProjectName(p, generalLinkProject, projectAliasGroups))) return;
+      const company = (e.บริษัทผู้รับเหมา || "").trim();
+      if (company) names.add(company);
+    });
+    return Array.from(names).sort();
+  }, [employees, generalLinkProject, projectAliasGroups]);
+
+  // รายชื่อพนักงานของบริษัทที่เลือกไว้ — ไม่ตัดคนที่เคยอบรมแล้วออก เพราะยังไม่ผูกรอบอบรมใดๆ
+  const generalLinkCandidates = useMemo(() => {
+    if (!generalLinkProject || !generalLinkCompany) return [];
+    return employees.filter((e) => {
+      const empType = e.employee_type || "";
+      if (!CONTRACTOR_EMPLOYEE_TYPES.includes(empType as ContractorEmployeeType)) return false;
+      if ((e.บริษัทผู้รับเหมา || "").trim() !== generalLinkCompany) return false;
+      if (!employeeProjectNames(e).some((p) => isSameProjectName(p, generalLinkProject, projectAliasGroups))) return false;
+      return true;
+    });
+  }, [employees, generalLinkProject, generalLinkCompany, projectAliasGroups]);
+
+  const handleCreateGeneralLink = async (invitedEmployeeIds: string[]) => {
+    if (!generalLinkProject || !generalLinkCompany) return;
+    setCreatingGeneralLink(true);
+    try {
+      const token = createContractorLinkToken();
+      const matchedEmployee = employees.find((e) => invitedEmployeeIds.includes(e.id));
+      const employeeType = (matchedEmployee?.employee_type as ContractorEmployeeType) || "";
+      const record: Omit<TrainingContractorLink, "id"> = {
+        project: generalLinkProject,
+        company: generalLinkCompany,
+        employeeType,
+        invitedEmployeeIds,
+        createdAt: Date.now(),
+        createdByUid: firebaseUser?.uid || "",
+        createdByName: `${userProfile?.firstName || ""} ${userProfile?.lastName || ""}`.trim(),
+      };
+      await setDoc(doc(db, "CMG-HR-Database", "root", TRAINING_CONTRACTOR_LINKS_COLLECTION, token), record);
+      setShowGeneralLinkPicker(false);
+      setShowGeneralLinkForm(false);
+      setGeneralLinkProject("");
+      setGeneralLinkCompany("");
+    } catch (err) {
+      window.alert(`สร้างลิงก์ไม่สำเร็จ: ${err instanceof Error ? err.message : "เกิดข้อผิดพลาดที่ไม่คาดคิด"}`);
+    } finally {
+      setCreatingGeneralLink(false);
+    }
+  };
+
+  const handleCopyGeneralLink = async (link: TrainingContractorLink) => {
+    const url = buildContractorPortalUrl(link.id);
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopiedGeneralLinkId(link.id);
+      setTimeout(() => setCopiedGeneralLinkId(null), 2000);
+    } catch {
+      window.prompt("คัดลอกลิงก์นี้:", url);
+    }
+  };
+
+  const handleDeleteGeneralLink = async (link: TrainingContractorLink) => {
+    if (!window.confirm(`ยืนยันลบลิงก์เก็บเอกสารล่วงหน้านี้? (${link.company} — ${link.project})`)) return;
+    try {
+      await deleteDoc(doc(db, "CMG-HR-Database", "root", TRAINING_CONTRACTOR_LINKS_COLLECTION, link.id));
+    } catch (err) {
+      window.alert(`ลบไม่สำเร็จ: ${err instanceof Error ? err.message : "เกิดข้อผิดพลาดที่ไม่คาดคิด"}`);
+    }
+  };
 
   // ----- Create batch -----
   const openCreateForm = () => {
@@ -407,6 +503,59 @@ export const TrainingBatchPage = ({ projectOptions = [] }: { projectOptions?: st
         </select>
       </div>
 
+      <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4 flex flex-col gap-3">
+        <div className="flex flex-wrap items-start justify-between gap-2">
+          <div>
+            <h3 className="text-sm font-bold text-gray-700 flex items-center gap-1.5">
+              <Link2 className="text-sky-600" size={16} />
+              ลิงก์เก็บเอกสารล่วงหน้า (ก่อนมีรอบอบรม)
+            </h3>
+            <p className="text-xs text-gray-400 mt-0.5">
+              ส่งลิงก์นี้ให้ผู้รับเหมา/Supply manpower แนบเอกสารของทีมงานรอไว้ก่อนได้เลย พอเปิดรอบอบรมจริงจะเลือกคนที่เอกสารครบแล้วส่งเข้ารอบได้ทันที
+            </p>
+          </div>
+          {canManage && (
+            <button
+              onClick={() => setShowGeneralLinkForm(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-sky-600 text-white rounded-lg text-xs font-semibold hover:bg-sky-700 whitespace-nowrap"
+            >
+              <Plus size={14} /> สร้างลิงก์ใหม่
+            </button>
+          )}
+        </div>
+
+        {generalContractorLinks.length === 0 ? (
+          <p className="text-xs text-gray-400">ยังไม่มีลิงก์เก็บเอกสารล่วงหน้า</p>
+        ) : (
+          <ul className="flex flex-col gap-1.5">
+            {generalContractorLinks.map((link) => (
+              <li key={link.id} className="flex flex-wrap items-center gap-2 text-xs bg-gray-50 border border-gray-200 rounded-lg px-3 py-2">
+                <span className="font-semibold text-gray-700 whitespace-nowrap">{link.project}</span>
+                <span className="text-gray-400">•</span>
+                <span className="text-gray-600 whitespace-nowrap">{link.company}</span>
+                {link.employeeType && (
+                  <span className="text-gray-400 whitespace-nowrap">({CONTRACTOR_EMPLOYEE_TYPE_LABELS[link.employeeType]})</span>
+                )}
+                <span className="text-gray-400 whitespace-nowrap">{(link.invitedEmployeeIds || []).length} คน</span>
+                <code className="text-gray-500 break-all flex-1 min-w-[160px]">{buildContractorPortalUrl(link.id)}</code>
+                <button
+                  onClick={() => handleCopyGeneralLink(link)}
+                  className="flex items-center gap-1 px-2 py-1 bg-white border border-gray-200 rounded text-sky-700 hover:bg-sky-50 whitespace-nowrap"
+                >
+                  {copiedGeneralLinkId === link.id ? <CheckCircle2 size={12} /> : <Copy size={12} />}
+                  {copiedGeneralLinkId === link.id ? "คัดลอกแล้ว" : "คัดลอก"}
+                </button>
+                {canManage && (
+                  <button onClick={() => handleDeleteGeneralLink(link)} className="text-gray-400 hover:text-red-500 p-1" title="ลบลิงก์">
+                    <Trash2 size={13} />
+                  </button>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+
       <div className="flex-1 overflow-auto bg-white rounded-xl border border-gray-200 shadow-sm">
         {loadingBatches ? (
           <div className="flex items-center justify-center h-40 text-gray-400 gap-2">
@@ -481,6 +630,85 @@ export const TrainingBatchPage = ({ projectOptions = [] }: { projectOptions?: st
           </table>
         )}
       </div>
+
+      {showGeneralLinkForm && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[90] flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
+            <div className="p-5 border-b flex items-start justify-between">
+              <div>
+                <h3 className="text-lg font-bold text-gray-800 flex items-center gap-2">
+                  <Link2 className="text-sky-600" size={20} />
+                  สร้างลิงก์เก็บเอกสารล่วงหน้า
+                </h3>
+                <p className="text-xs text-gray-500 mt-1">เลือกโครงการ + บริษัทผู้รับเหมา แล้วเลือกรายชื่อทีมงาน (ต้องมีชื่ออยู่ในระบบแล้วเท่านั้น)</p>
+              </div>
+              <button
+                onClick={() => { setShowGeneralLinkForm(false); setGeneralLinkProject(""); setGeneralLinkCompany(""); }}
+                className="text-gray-400 hover:text-red-500 p-1 shrink-0"
+              >
+                <X size={18} />
+              </button>
+            </div>
+            <div className="p-5 flex flex-col gap-3">
+              <Field label="โครงการ *">
+                <select
+                  className="input"
+                  value={generalLinkProject}
+                  onChange={(e) => { setGeneralLinkProject(e.target.value); setGeneralLinkCompany(""); }}
+                >
+                  <option value="">เลือกโครงการ</option>
+                  {projectOptions.map((p) => (
+                    <option key={p} value={p}>{p}</option>
+                  ))}
+                </select>
+              </Field>
+              <Field label="บริษัทผู้รับเหมา/Supply manpower *">
+                <select
+                  className="input"
+                  value={generalLinkCompany}
+                  onChange={(e) => setGeneralLinkCompany(e.target.value)}
+                  disabled={!generalLinkProject}
+                >
+                  <option value="">เลือกบริษัท</option>
+                  {generalLinkCompanies.map((c) => (
+                    <option key={c} value={c}>{c}</option>
+                  ))}
+                </select>
+              </Field>
+              {generalLinkProject && generalLinkCompanies.length === 0 && (
+                <p className="text-xs text-amber-600">
+                  ไม่พบบริษัทผู้รับเหมา/Supply manpower ของโครงการนี้ในระบบ — กรุณาเพิ่มชื่อพนักงานเข้าระบบก่อน
+                </p>
+              )}
+            </div>
+            <div className="p-5 border-t bg-gray-50 flex justify-end gap-2">
+              <button
+                onClick={() => { setShowGeneralLinkForm(false); setGeneralLinkProject(""); setGeneralLinkCompany(""); }}
+                className="px-5 py-2 text-gray-600 hover:bg-gray-200 rounded-lg text-sm"
+              >
+                ยกเลิก
+              </button>
+              <button
+                onClick={() => setShowGeneralLinkPicker(true)}
+                disabled={!generalLinkProject || !generalLinkCompany}
+                className="px-5 py-2 bg-sky-600 text-white rounded-lg text-sm font-semibold hover:bg-sky-700 disabled:opacity-50"
+              >
+                เลือกรายชื่อ →
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showGeneralLinkPicker && (
+        <ContractorLinkPickerModal
+          company={generalLinkCompany}
+          candidates={generalLinkCandidates}
+          creating={creatingGeneralLink}
+          onClose={() => setShowGeneralLinkPicker(false)}
+          onConfirm={handleCreateGeneralLink}
+        />
+      )}
 
       {showCreateForm && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[80] flex items-center justify-center p-4">
@@ -2561,8 +2789,8 @@ const ContractorLinkPickerModal = ({
               เลือกรายชื่อ — {company}
             </h3>
             <p className="text-xs text-gray-500 mt-1">
-              เลือกเฉพาะคนที่จะส่งเข้ารอบนี้ (ตัดคนที่เคยอบรมโครงการนี้แล้วออกให้อัตโนมัติ) — ผู้รับเหมาจะเห็นเฉพาะชื่อที่เลือกไว้ตรงนี้เท่านั้น
-              ชื่ออื่นต้องให้ผู้รับเหมาส่งผ่านฟอร์ม "เพิ่มชื่อใหม่" ในลิงก์แล้ว HR ค่อยอนุมัติ
+              เลือกเฉพาะคนที่จะส่งลิงก์นี้ให้ (ตัดคนที่เคยอบรมโครงการนี้แล้วออกให้อัตโนมัติ ถ้ามี) — ผู้รับเหมาจะเห็นเฉพาะชื่อที่เลือกไว้ตรงนี้เท่านั้น
+              ถ้ามีคนใหม่ที่ยังไม่มีในระบบ กรุณาเพิ่มชื่อเข้าระบบก่อน แล้วค่อยสร้างลิงก์ใหม่/เลือกเพิ่มทีหลังได้
             </p>
           </div>
           <button onClick={onClose} className="text-gray-400 hover:text-red-500 p-1 shrink-0">
@@ -2587,7 +2815,7 @@ const ContractorLinkPickerModal = ({
             <div className="flex flex-col items-center justify-center h-40 text-gray-400 gap-2 p-4 text-center">
               <Inbox size={28} />
               <p className="text-sm">ไม่พบพนักงานของบริษัทนี้ที่ยังไม่เคยอบรมโครงการนี้มาก่อน</p>
-              <p className="text-xs">(ถ้ามีคนใหม่ที่ยังไม่มีในระบบ ให้สร้างลิงก์แบบไม่เลือกใครก่อน แล้วให้ผู้รับเหมาส่งชื่อผ่านฟอร์ม "เพิ่มชื่อใหม่")</p>
+              <p className="text-xs">(ถ้ามีคนใหม่ที่ยังไม่มีในระบบ กรุณาเพิ่มชื่อพนักงานเข้าระบบก่อน แล้วค่อยกลับมาสร้างลิงก์ใหม่)</p>
             </div>
           ) : filtered.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-32 text-gray-400 gap-2">
