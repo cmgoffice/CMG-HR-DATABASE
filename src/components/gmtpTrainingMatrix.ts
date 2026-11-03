@@ -6,8 +6,39 @@ export const GMTP_MATRIX_COURSES = GMTP_TRAINING_MATRIX.courses;
 export const getGmtpMatrixCourse = (name: string) => GMTP_MATRIX_COURSES.find((course) => course.name === name);
 
 export const GMTP_COMBINED_ROLE = "Carpenter + Painter + Mason";
-const companyRoles: Record<string, string> = { "ช่างไม้/ช่างปูน": GMTP_COMBINED_ROLE, "ช่างเชื่อม": "Welder" };
-const expandRole = (role: string): string[] => role === GMTP_COMBINED_ROLE ? ["Carpenter", "Painter", "Mason"] : [role];
+const companyRoles: Record<string, string> = {
+  "ช่างไม้/ช่างปูน": GMTP_COMBINED_ROLE,
+  "ช่างเชื่อม": "Welder",
+  "ผู้ช่วยช่าง": "Helper / Labor",
+  "Worker": "Helper / Labor",
+  "ผู้ช่วยช่างประกอบ": "Helper / Labor",
+  "แม่บ้าน": "Helper / Labor",
+  "ช่างไม้ B": "Carpenter",
+  "Foreman Rigger": "Rigger",
+  "ช่างซ่อมบำรุง": "Mechanic",
+  "ผู้ช่วยช่างซ่อมบำรุง": "Mechanic",
+  "ผู้วยช่างซ่อมบำรุง": "Mechanic",
+  "หัวหน้าช่าง": "Foreman",
+  "หัวหน้าช่างซ่อมบำรุง": "Foreman",
+  "Supervisor scaffolding": "Supervisor + Scaffolder",
+  "Scaffolding Inspector": "Supervisor + Scaffolder",
+  "Survey": "Surveyor",
+  "ผู้ช่วย Survey": "Surveyor",
+  "Survey engineer": "Superintendent / Engineer",
+  "พนักงานขับรถเครน": "Driver",
+  "พนักงานขับรถเฮี๊ยบ": "Driver",
+  "พนักงานขับรถเฮี๊ยบแดง": "Driver",
+  "พนักงานขับรถเฮี้ยบ": "Driver",
+  "พนักงานขับเฮี้ยบ": "Driver",
+  "พนักงานขับรถโฟล์คลิฟท์": "Driver",
+  "พนักงานขับรถแม็คโคร": "Driver",
+  "พนักงานขับรถ JCB": "Driver",
+  "Safety Officer": "SHE Manager/SHE Supervisor + Office Staff",
+  "Safety Technical": "SHE Manager/SHE Supervisor + Office Staff",
+  "Work permit": "Office Staff",
+};
+export const GMTP_ROLE_OPTIONS = Array.from(new Set([...GMTP_MATRIX_ROLES, ...Object.values(companyRoles)]));
+const expandRole = (role: string): string[] => role.split(" + ");
 export const getGmtpRoleCourses = (role: string) => GMTP_MATRIX_COURSES.filter((course) => expandRole(role).some((item) => course.roles.includes(item)));
 
 export const getGmtpCourseEnrollments = <T extends { position?: string; matrixRole?: string }>(enrollments: T[], courseName: string): T[] => {
@@ -15,16 +46,17 @@ export const getGmtpCourseEnrollments = <T extends { position?: string; matrixRo
   return enrollments.filter((en) => expandRole(resolveGmtpMatrixRole(en.position, en.matrixRole)).some((role) => course?.roles.includes(role)));
 };
 
-// Only exact source role names are inferred. HR selects the matrix role for other job titles.
+// Company aliases are confirmed by HR. Unknown titles require manual selection.
 export const resolveGmtpMatrixRole = (position: string | undefined, selected?: string): string =>
-  selected ? ([...GMTP_MATRIX_ROLES, GMTP_COMBINED_ROLE].includes(selected) ? selected : "")
-    : companyRoles[(position || "").trim()] || GMTP_MATRIX_ROLES.find((role) => role.toLowerCase() === (position || "").trim().toLowerCase()) || "";
+  selected ? (GMTP_ROLE_OPTIONS.includes(selected) ? selected : "")
+    : Object.entries(companyRoles).find(([name]) => name.toLowerCase() === (position || "").trim().toLowerCase())?.[1]
+      || GMTP_MATRIX_ROLES.find((role) => role.toLowerCase() === (position || "").trim().toLowerCase()) || "";
 
 export const gmtpMatrixRoleMessage = (courseName: string, role: string): string => {
   const course = getGmtpMatrixCourse(courseName);
   if (!course) return "กรุณาเลือกชื่อคอร์สตาม Training Matrix 74";
   if (!role) return "กรุณาจับคู่ตำแหน่งกับ Training Matrix 74";
-  return course.roles.includes(role) ? "ตำแหน่งนี้ต้องอบรมตาม Matrix" : "Matrix ไม่ได้ทำเครื่องหมาย X สำหรับตำแหน่งนี้";
+  return expandRole(role).some((item) => course.roles.includes(item)) ? "ตำแหน่งนี้ต้องอบรมตาม Matrix" : "Matrix ไม่ได้ทำเครื่องหมาย X สำหรับตำแหน่งนี้";
 };
 
 const certificates = [
@@ -44,7 +76,7 @@ export const gmtpDocumentRequirements = (
   if (!getGmtpMatrixCourse(courseName)) return base;
   const matches = (req: ProjectDocumentRequirement, pattern: RegExp) => pattern.test(`${req.docType} ${req.label}`);
   const result = base.filter((req) => !certificates.some((cert) => matches(req, cert.match)) && !matches(req, /งานที่สูง|working[ _]*at[ _]*height/i));
-  certificates.filter((cert) => cert.course === courseName && (!cert.roles.length || cert.roles.includes(role))).forEach((cert) => {
+  certificates.filter((cert) => cert.course === courseName && (!cert.roles.length || expandRole(role).some((item) => cert.roles.includes(item)))).forEach((cert) => {
     const existing = base.filter((req) => matches(req, cert.match));
     const required: ProjectDocumentRequirement[] = existing.length ? existing : [{ docType: `gmtp_${cert.id}`, label: cert.label, appliesTo: "all" }];
     required.forEach((req) => {

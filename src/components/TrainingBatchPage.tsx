@@ -131,7 +131,7 @@ export interface EmployeeRow {
   อีเมล์?: string;
 }
 
-import { GMTP_MATRIX_COURSES, GMTP_MATRIX_ROLES, GMTP_COMBINED_ROLE, getGmtpRoleCourses, getGmtpCourseEnrollments, resolveGmtpMatrixRole, gmtpRoundDocumentRequirements } from "./gmtpTrainingMatrix";
+import { GMTP_MATRIX_COURSES, GMTP_ROLE_OPTIONS, getGmtpRoleCourses, getGmtpCourseEnrollments, resolveGmtpMatrixRole, gmtpRoundDocumentRequirements } from "./gmtpTrainingMatrix";
 
 const INACTIVE_STATUSES = ["ลาออก", "เลิกจ้าง"];
 
@@ -1966,8 +1966,7 @@ const GmtpMatrixRoleField = ({ courseName, value, onChange }: {
     <label className="text-xs text-gray-500">ตำแหน่งตาม Training Matrix 74</label>
     <select value={value} disabled={!onChange} onChange={(e) => onChange?.(e.target.value)} className="w-full border rounded px-2 py-1 text-xs">
       <option value="">เลือกกลุ่มตำแหน่ง</option>
-      <option value={GMTP_COMBINED_ROLE}>{GMTP_COMBINED_ROLE} (ช่างไม้/ช่างปูน)</option>
-      {GMTP_MATRIX_ROLES.map((role) => <option key={role} value={role}>{role}</option>)}
+      {GMTP_ROLE_OPTIONS.map((role) => <option key={role} value={role}>{role}</option>)}
     </select>
     <p className="text-xs text-gray-600 mt-1">{value ? `ต้องอบรม ${getGmtpRoleCourses(value).length} คอร์สตาม Matrix` : "กรุณาจับคู่ตำแหน่ง"}</p>
   </div>
