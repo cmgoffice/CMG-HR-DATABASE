@@ -199,6 +199,7 @@ export const TrainingBatchPage = ({ projectOptions = [] }: { projectOptions?: st
   const [saving, setSaving] = useState(false);
 
   const [activeBatchId, setActiveBatchId] = useState<string | null>(null);
+  const [newBatchId, setNewBatchId] = useState<string | null>(null);
 
   // ----- ลิงก์เก็บเอกสารล่วงหน้า (ไม่ผูกรอบอบรม) -----
   const [generalContractorLinks, setGeneralContractorLinks] = useState<TrainingContractorLink[]>([]);
@@ -456,6 +457,7 @@ export const TrainingBatchPage = ({ projectOptions = [] }: { projectOptions?: st
         });
       }
       setShowCreateForm(false);
+      setNewBatchId(ref.id);
       setActiveBatchId(ref.id);
     } catch (err) {
       window.alert(`สร้างรอบอบรมไม่สำเร็จ: ${err instanceof Error ? err.message : "เกิดข้อผิดพลาดที่ไม่คาดคิด"}`);
@@ -493,6 +495,8 @@ export const TrainingBatchPage = ({ projectOptions = [] }: { projectOptions?: st
   if (activeBatch) {
     return (
       <TrainingBatchDetail
+        key={activeBatch.id}
+        openEmployeePicker={newBatchId === activeBatch.id}
         batch={activeBatch}
         enrollments={enrollments.filter((en) => en.batchId === activeBatch.id)}
         employees={employees}
@@ -501,7 +505,7 @@ export const TrainingBatchPage = ({ projectOptions = [] }: { projectOptions?: st
         issuesOwnAccessBadge={projectIssuesOwnBadge.get(activeBatch.project) ?? false}
         projectAliasGroups={projectAliasGroups}
         alreadyTrainedEmployeeIds={projectEnrolledEmployeeIds}
-        onBack={() => setActiveBatchId(null)}
+        onBack={() => { setActiveBatchId(null); setNewBatchId(null); }}
         onChangeStatus={(status) => handleChangeBatchStatus(activeBatch, status)}
       />
     );
@@ -946,6 +950,7 @@ export const TrainingBatchPage = ({ projectOptions = [] }: { projectOptions?: st
 // ---------------------------------------------------------------------------
 const TrainingBatchDetail = ({
   batch,
+  openEmployeePicker,
   enrollments,
   employees,
   canManage,
@@ -957,6 +962,7 @@ const TrainingBatchDetail = ({
   onChangeStatus,
 }: {
   batch: TrainingBatch;
+  openEmployeePicker: boolean;
   enrollments: TrainingEnrollment[];
   employees: EmployeeRow[];
   canManage: boolean;
@@ -969,7 +975,7 @@ const TrainingBatchDetail = ({
 }) => {
   const { firebaseUser, userProfile } = useAuth();
   const db = getFirestore();
-  const [showPicker, setShowPicker] = useState(false);
+  const [showPicker, setShowPicker] = useState(openEmployeePicker && canManage);
   const [healthRecords, setHealthRecords] = useState<HealthCheckRecord[]>([]);
   const [clinicLinkCopied, setClinicLinkCopied] = useState(false);
   const [generatingLink, setGeneratingLink] = useState(false);
@@ -981,10 +987,7 @@ const TrainingBatchDetail = ({
   const [scheduleTimeSlot, setScheduleTimeSlot] = useState(batch.healthCheckTimeSlot || "");
   const [scheduleLocation, setScheduleLocation] = useState(batch.healthCheckLocation || "");
   const [savingSchedule, setSavingSchedule] = useState(false);
-  // พับแผงลิงก์คลินิกเก็บไว้เป็นค่าเริ่มต้นถ้านัดตรวจ+สร้างลิงก์ไว้แล้ว เพื่อให้ตารางรายชื่อมีพื้นที่แสดงผลเยอะขึ้น
-  const [clinicPanelOpen, setClinicPanelOpen] = useState(
-    !((batch.healthCheckDate || "").trim() && (batch.healthCheckTimeSlot || "").trim() && (batch.healthCheckLocation || "").trim() && batch.healthCheckToken)
-  );
+  const [clinicPanelOpen, setClinicPanelOpen] = useState(false);
 
   // ลิงก์สำหรับผู้รับเหมา/Supply manpower กรอกรายชื่อ+เอกสารเองต่อบริษัท ภายในรอบนี้
   const [contractorPanelOpen, setContractorPanelOpen] = useState(false);
