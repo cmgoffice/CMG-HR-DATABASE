@@ -49,7 +49,7 @@ import {
   TrainingLanguage,
 } from "./trainingBatchConfig";
 import { HealthCheckBadge, HealthCheckRowEditor, SharedFileUploadPanel } from "./HealthCheckControls";
-import { generateAndDownloadTrainingNameListPdf, generateAndPreviewTrainingNameListPdf } from "../utils/trainingNameListPdf";
+import { generateTrainingNameListPdf, generateAndDownloadTrainingNameListPdf, generateAndPreviewTrainingNameListPdf } from "../utils/trainingNameListPdf";
 import { generateAccessBadgeRequestPdf, generateAndDownloadAccessBadgeRequestPdf, generateAndPreviewAccessBadgeRequestPdf } from "../utils/accessBadgeRequestPdf";
 import { generateTrainingSubmissionZip } from "../utils/trainingSubmissionZip";
 import {
@@ -986,8 +986,7 @@ const TrainingBatchDetail = ({
   const db = getFirestore();
   const [showPicker, setShowPicker] = useState(openEmployeePicker && canManage);
   const [detailTab, setDetailTab] = useState<"roster" | "forms">("roster");
-  const hasDocumentTabs = isGmtpTrainingRequestProject(batch.project) || isHuashiTrainingRequestProject(batch.project);
-  const [generatingHuashiSubmission, setGeneratingHuashiSubmission] = useState(false);
+  const [generatingSubmission, setGeneratingSubmission] = useState(false);
   const [healthRecords, setHealthRecords] = useState<HealthCheckRecord[]>([]);
   const [clinicLinkCopied, setClinicLinkCopied] = useState(false);
   const [generatingLink, setGeneratingLink] = useState(false);
@@ -1440,11 +1439,13 @@ const TrainingBatchDetail = ({
     }
   };
 
-  const handleDownloadHuashiSubmission = async () => {
-    if (!canManage || generatingHuashiSubmission || !enrollments.length) return;
-    setGeneratingHuashiSubmission(true);
+  const handleDownloadSubmission = async () => {
+    if (!canManage || generatingSubmission || !enrollments.length) return;
+    setGeneratingSubmission(true);
     try {
-      const cover = await generateHuashiTrainingRequestFormPdf(batch, enrollments, employees);
+      const cover = isHuashiTrainingRequestProject(batch.project)
+        ? await generateHuashiTrainingRequestFormPdf(batch, enrollments, employees)
+        : await generateTrainingNameListPdf(batch, enrollments);
       const individualForms = await generateAccessBadgeRequestPdf(batch, enrollments, employees, recordByEmployee);
       const warnings: string[] = [];
       const bytes = await generateTrainingSubmissionZip([
@@ -1454,7 +1455,7 @@ const TrainingBatchDetail = ({
       const url = URL.createObjectURL(new Blob([bytes as BlobPart], { type: "application/zip" }));
       const link = document.createElement("a");
       link.href = url;
-      link.download = `J78_Training_Submission_${batch.date}.zip`;
+      link.download = `Training_Submission_${batch.project.replace(/[\\/:*?"<>|]/g, "_")}_${batch.date}.zip`;
       document.body.appendChild(link);
       link.click();
       link.remove();
@@ -1463,7 +1464,7 @@ const TrainingBatchDetail = ({
     } catch (error) {
       window.alert(`ดาวน์โหลดชุดส่งอบรมไม่สำเร็จ: ${error instanceof Error ? error.message : "กรุณาลองอีกครั้ง"}`);
     } finally {
-      setGeneratingHuashiSubmission(false);
+      setGeneratingSubmission(false);
     }
   };
 
@@ -1548,7 +1549,7 @@ const TrainingBatchDetail = ({
                   {generatingGmtpXlsx ? <Loader2 className="animate-spin" size={16} /> : <Download size={14} />} ดาวน์โหลดชุดส่งอบรมทุกคอร์ส
                 </button>
               </>
-            )) : ((!isHuashiTrainingRequestProject(batch.project) || detailTab === "forms") && (
+            )) : (detailTab === "forms" && (
               <>
                 <button
                   onClick={handlePreviewTrainingNameListPdf}
@@ -1575,7 +1576,7 @@ const TrainingBatchDetail = ({
                 </button>
               </>
             ))}
-            {!isGmtpTrainingRequestProject(batch.project) && (!hasDocumentTabs || detailTab === "forms") && <>
+            {!isGmtpTrainingRequestProject(batch.project) && detailTab === "forms" && <>
             <button
               onClick={handlePreviewAccessBadgeRequestPdf}
               disabled={enrollments.length === 0 || generatingBadgeRequestPdf}
@@ -1604,12 +1605,10 @@ const TrainingBatchDetail = ({
         )}
       </div>
 
-      {hasDocumentTabs && (
         <div role="tablist" aria-label="ข้อมูลรอบอบรม" className="flex gap-2 border-b border-gray-200 shrink-0">
-          <button id="j74-roster-tab" role="tab" aria-selected={detailTab === "roster"} aria-controls="j74-roster-panel" onClick={() => setDetailTab("roster")} className={`px-4 py-3 text-sm font-semibold border-b-2 ${detailTab === "roster" ? "border-blue-600 text-blue-700" : "border-transparent text-gray-500"}`}>รายชื่อผู้เข้าอบรม ({enrollments.length} คน)</button>
-          <button id="j74-forms-tab" role="tab" aria-selected={detailTab === "forms"} aria-controls="j74-forms-panel" onClick={() => setDetailTab("forms")} className={`px-4 py-3 text-sm font-semibold border-b-2 ${detailTab === "forms" ? "border-indigo-600 text-indigo-700" : "border-transparent text-gray-500"}`}>ใบปะหน้า / ชุดส่งอบรม {isGmtpTrainingRequestProject(batch.project) ? `(${gmtpCourseGroups.length} คอร์ส)` : ""}</button>
+          <button id="training-roster-tab" role="tab" aria-selected={detailTab === "roster"} aria-controls="training-roster-panel" onClick={() => setDetailTab("roster")} className={`px-4 py-3 text-sm font-semibold border-b-2 ${detailTab === "roster" ? "border-blue-600 text-blue-700" : "border-transparent text-gray-500"}`}>รายชื่อผู้เข้าอบรม ({enrollments.length} คน)</button>
+          <button id="training-forms-tab" role="tab" aria-selected={detailTab === "forms"} aria-controls="training-forms-panel" onClick={() => setDetailTab("forms")} className={`px-4 py-3 text-sm font-semibold border-b-2 ${detailTab === "forms" ? "border-indigo-600 text-indigo-700" : "border-transparent text-gray-500"}`}>ใบปะหน้า / ชุดส่งอบรม {isGmtpTrainingRequestProject(batch.project) ? `(${gmtpCourseGroups.length} คอร์ส)` : ""}</button>
         </div>
-      )}
 
       {canManage && detailTab === "roster" && (
         <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
@@ -1835,7 +1834,7 @@ const TrainingBatchDetail = ({
         </div>
       )}
 
-      {detailTab === "roster" && <div id="j74-roster-panel" role={hasDocumentTabs ? "tabpanel" : undefined} aria-labelledby={hasDocumentTabs ? "j74-roster-tab" : undefined} className="flex flex-col flex-1 min-h-0 gap-3">
+      {detailTab === "roster" && <div id="training-roster-panel" role="tabpanel" aria-labelledby="training-roster-tab" className="flex flex-col flex-1 min-h-0 gap-3">
       <div className="flex items-center gap-2 text-sm text-gray-500 shrink-0">
         <Users size={16} />
         รายชื่อในรอบนี้: {enrollments.length}
@@ -1891,7 +1890,7 @@ const TrainingBatchDetail = ({
       </div>}
 
       {isGmtpTrainingRequestProject(batch.project) && detailTab === "forms" && (
-        <section id="j74-forms-panel" role="tabpanel" aria-labelledby="j74-forms-tab" className="flex-1 min-h-0 overflow-auto border rounded-xl bg-white p-4">
+        <section id="training-forms-panel" role="tabpanel" aria-labelledby="training-forms-tab" className="flex-1 min-h-0 overflow-auto border rounded-xl bg-white p-4">
           <h3 className="font-bold text-gray-800">ใบปะหน้าแยกตามคอร์สใน Training Matrix 74</h3>
           <p className="text-sm text-gray-500 my-2">รายชื่อคนเดิมอยู่ได้หลายคอร์สตามตำแหน่ง กำหนดการส่วนหัวใช้ร่วมกันทั้งรอบ</p>
           {gmtpCourseGroups.length === 0 && <p className="text-sm text-gray-500">เพิ่มรายชื่อและจับคู่ตำแหน่งเพื่อจัดคอร์ส</p>}
@@ -1910,13 +1909,13 @@ const TrainingBatchDetail = ({
         </section>
       )}
 
-      {isHuashiTrainingRequestProject(batch.project) && detailTab === "forms" && (
-        <section id="j74-forms-panel" role="tabpanel" aria-labelledby="j74-forms-tab" className="flex-1 min-h-0 overflow-auto border rounded-xl bg-white p-4">
-          <h3 className="font-bold text-gray-800">ชุดส่งอบรม J78</h3>
-          <p className="text-sm text-gray-600 my-3">รวมใบปะหน้า HUASHI ใบรายคน และเอกสารแนบของผู้เข้าอบรม {enrollments.length} คน แยกโฟลเดอร์รายคน เรียงเอกสารตามข้อกำหนดของโครงการ</p>
-          {canManage && <button onClick={handleDownloadHuashiSubmission} disabled={!enrollments.length || generatingHuashiSubmission} className="flex items-center gap-2 px-4 py-2 rounded-lg bg-indigo-700 text-white text-sm font-semibold disabled:opacity-50">
-            {generatingHuashiSubmission ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} />}
-            {generatingHuashiSubmission ? "กำลังรวมเอกสาร..." : "ดาวน์โหลดชุดส่งอบรมทั้งหมด (ZIP)"}
+      {!isGmtpTrainingRequestProject(batch.project) && detailTab === "forms" && (
+        <section id="training-forms-panel" role="tabpanel" aria-labelledby="training-forms-tab" className="flex-1 min-h-0 overflow-auto border rounded-xl bg-white p-4">
+          <h3 className="font-bold text-gray-800">ชุดส่งอบรม {batch.project}</h3>
+          <p className="text-sm text-gray-600 my-3">รวมใบปะหน้า {isHuashiTrainingRequestProject(batch.project) ? "HUASHI " : ""}ใบรายคน และเอกสารแนบของผู้เข้าอบรม {enrollments.length} คน แยกโฟลเดอร์รายคน เรียงเอกสารตามข้อกำหนดของโครงการ</p>
+          {canManage && <button onClick={handleDownloadSubmission} disabled={!enrollments.length || generatingSubmission} className="flex items-center gap-2 px-4 py-2 rounded-lg bg-indigo-700 text-white text-sm font-semibold disabled:opacity-50">
+            {generatingSubmission ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} />}
+            {generatingSubmission ? "กำลังรวมเอกสาร..." : "ดาวน์โหลดชุดส่งอบรมทั้งหมด (ZIP)"}
           </button>}
           <p className="text-xs text-gray-500 mt-3">ดาวน์โหลดได้แม้เอกสารยังไม่ครบ ระบบจะแจ้งรายการที่ขาดและแนบรายการติดตามไว้ใน ZIP</p>
         </section>
