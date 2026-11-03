@@ -177,6 +177,7 @@ export interface TrainingEnrollment {
   employeeName: string;
   employeeFirstName?: string; // ชื่อตัวอย่างเดียว (ไม่มีนามสกุล) ไว้ตั้งชื่อไฟล์ใบรับรองแพทย์
   position?: string;
+  matrixRole?: string;
   company?: string;
   nationality?: string;
   idCardNumber?: string; // snapshot ตอนเพิ่มเข้ารอบ ไว้แสดงในลิงก์คลินิก

@@ -6,6 +6,7 @@
 // เขียนทับบน PDF จริงของลูกค้า (ถ้าใช้ไลบรารี xlsx อ่าน-เขียนไฟล์ใหม่ทั้งไฟล์ รูปภาพ/โลโก้ที่ฝังไว้จะหายไปทันที)
 import JSZip from "jszip";
 import { resolveEmployeeDateOfBirth } from "./employeeDates";
+import { getGmtpMatrixCourse, resolveGmtpMatrixRole } from "../components/gmtpTrainingMatrix";
 import type { TrainingBatch, TrainingEnrollment } from "../components/trainingBatchConfig";
 import type { EmployeeRow } from "../components/TrainingBatchPage";
 
@@ -227,6 +228,9 @@ export const generateGmtpTrainingRequestFormXlsx = async (
   language: "th" | "mm",
   requestor: GmtpRequestorInfo
 ): Promise<Uint8Array> => {
+  if (!getGmtpMatrixCourse(batch.courseName)) {
+    throw new Error("กรุณาเลือกชื่อคอร์สจาก Training Matrix 74 ในปุ่มแก้ไขข้อมูลใบปะหน้า / ชื่อคอร์สก่อนดาวน์โหลด");
+  }
   const templateBytes = await fetchBytes(TEMPLATE_URL[language]);
   const zip = await JSZip.loadAsync(templateBytes);
   const employeeById = new Map(employees.map((e) => [e.id, e]));
@@ -235,6 +239,8 @@ export const generateGmtpTrainingRequestFormXlsx = async (
   const unresolved = enrollments.filter((en) => !resolveGmtpGroup(resolveNationality(en, employeeById.get(en.employeeId))));
   if (unresolved.length) throw new Error(`กรุณาตรวจสัญชาติไทย/เมียนมาในข้อมูลพนักงาน: ${unresolved.map((en) => en.employeeName).join(", ")}`);
   const filtered = enrollments.filter((en) => resolveGmtpGroup(resolveNationality(en, employeeById.get(en.employeeId))) === language);
+  const missingRoles = filtered.filter((en) => !resolveGmtpMatrixRole(en.position, en.matrixRole));
+  if (missingRoles.length) throw new Error(`กรุณาจับคู่ตำแหน่งตาม Training Matrix 74: ${missingRoles.map((en) => en.employeeName).join(", ")}`);
   const sheetPaths = SHEET_PATHS[language];
   const layouts = SHEET_LAYOUTS[language];
   const maxCapacity = layouts.reduce((total, layout) => total + layout.rows, 0);
@@ -279,7 +285,7 @@ export const generateGmtpTrainingRequestFormXlsx = async (
         nameEn: buildEnglishName(emp, en.employeeName),
         nameTh: en.employeeName,
         section: emp?.แผนก || "",
-        position: en.position || "",
+        position: resolveGmtpMatrixRole(en.position, en.matrixRole),
         idCard: en.idCardNumber || "",
         company: resolveGmtpCompanyLabel(nationality),
         nationality,
@@ -308,7 +314,7 @@ export const generateGmtpTrainingRequestFormXlsx = async (
       xml = writePhotosRow(xml, rowNum, {
         no: i + 1,
         nameEn: buildEnglishName(emp, en.employeeName),
-        position: en.position || "",
+        position: resolveGmtpMatrixRole(en.position, en.matrixRole),
         blood: emp?.กรุ๊ปเลือด || "",
       });
     }
