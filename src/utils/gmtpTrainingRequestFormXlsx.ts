@@ -6,7 +6,7 @@
 // เขียนทับบน PDF จริงของลูกค้า (ถ้าใช้ไลบรารี xlsx อ่าน-เขียนไฟล์ใหม่ทั้งไฟล์ รูปภาพ/โลโก้ที่ฝังไว้จะหายไปทันที)
 import JSZip from "jszip";
 import { resolveEmployeeDateOfBirth } from "./employeeDates";
-import { getGmtpMatrixCourse, resolveGmtpMatrixRole } from "../components/gmtpTrainingMatrix";
+import { GMTP_MATRIX_COURSES, getGmtpCourseEnrollments, getGmtpMatrixCourse, resolveGmtpMatrixRole } from "../components/gmtpTrainingMatrix";
 import type { TrainingBatch, TrainingEnrollment } from "../components/trainingBatchConfig";
 import type { EmployeeRow } from "../components/TrainingBatchPage";
 
@@ -325,7 +325,7 @@ export const generateGmtpTrainingRequestFormXlsx = async (
 };
 
 const downloadBlob = (bytes: Uint8Array, filename: string) => {
-  const blob = new Blob([bytes as BlobPart], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+  const blob = new Blob([bytes as BlobPart], { type: filename.endsWith(".zip") ? "application/zip" : "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
@@ -359,4 +359,45 @@ export const countGmtpEnrollmentsByLanguage = (enrollments: TrainingEnrollment[]
     else if (group === "mm") mm += 1;
   });
   return { th, mm };
+};
+
+export const generateGmtpRoundFiles = async (
+  batch: TrainingBatch, enrollments: TrainingEnrollment[], employees: EmployeeRow[],
+  requestor: GmtpRequestorInfo, courseName?: string, language?: "th" | "mm"
+): Promise<Array<{ name: string; bytes: Uint8Array }>> => {
+  const employeeById = new Map(employees.map((emp) => [emp.id, emp]));
+  const incomplete = enrollments.filter((en) => !resolveGmtpMatrixRole(en.position, en.matrixRole)
+    || !resolveGmtpGroup(resolveNationality(en, employeeById.get(en.employeeId))));
+  if (incomplete.length) throw new Error(`กรุณาตรวจสัญชาติและจับคู่ตำแหน่งตาม Matrix ให้ครบ: ${incomplete.map((en) => en.employeeName).join(", ")}`);
+  const courses = courseName ? GMTP_MATRIX_COURSES.filter((course) => course.name === courseName) : GMTP_MATRIX_COURSES;
+  const languages: Array<"th" | "mm"> = language ? [language] : ["th", "mm"];
+  const files: Array<{ name: string; bytes: Uint8Array }> = [];
+  for (const course of courses) {
+    const courseEnrollments = getGmtpCourseEnrollments(enrollments, course.name);
+    for (const lang of languages) {
+      const people = courseEnrollments.filter((en) => resolveGmtpGroup(resolveNationality(en, employeeById.get(en.employeeId))) === lang);
+      const capacity = SHEET_LAYOUTS[lang].reduce((total, layout) => total + layout.rows, 0);
+      for (let offset = 0; offset < people.length; offset += capacity) {
+        const bytes = await generateGmtpTrainingRequestFormXlsx({ ...batch, courseName: course.name }, people.slice(offset, offset + capacity), employees, lang, requestor);
+        const safeName = course.name.replace(/[\\/:*?"<>|]/g, "_");
+        files.push({ name: `${String(course.id).padStart(2, "0")}_${safeName}_${lang === "th" ? "Thai" : "Myanmar"}_${batch.date}_${Math.floor(offset / capacity) + 1}.xlsx`, bytes });
+      }
+    }
+  }
+  return files;
+};
+
+export const downloadGmtpRoundForms = async (
+  batch: TrainingBatch, enrollments: TrainingEnrollment[], employees: EmployeeRow[],
+  requestor: GmtpRequestorInfo, courseName?: string, language?: "th" | "mm"
+): Promise<void> => {
+  const files = await generateGmtpRoundFiles(batch, enrollments, employees, requestor, courseName, language);
+  if (!files.length) throw new Error("ยังไม่มีผู้เข้าอบรมตามตำแหน่งใน Matrix สำหรับคอร์สนี้");
+  if (files.length === 1) {
+    downloadBlob(files[0].bytes, files[0].name);
+    return;
+  }
+  const zip = new JSZip();
+  files.forEach((file) => zip.file(file.name, file.bytes));
+  downloadBlob(await zip.generateAsync({ type: "uint8array" }), `GMTP_Training_Forms_${batch.date}.zip`);
 };

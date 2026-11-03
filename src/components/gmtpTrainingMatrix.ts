@@ -5,10 +5,20 @@ export const GMTP_MATRIX_ROLES = GMTP_TRAINING_MATRIX.roles;
 export const GMTP_MATRIX_COURSES = GMTP_TRAINING_MATRIX.courses;
 export const getGmtpMatrixCourse = (name: string) => GMTP_MATRIX_COURSES.find((course) => course.name === name);
 
+export const GMTP_COMBINED_ROLE = "Carpenter + Painter + Mason";
+const companyRoles: Record<string, string> = { "ช่างไม้/ช่างปูน": GMTP_COMBINED_ROLE, "ช่างเชื่อม": "Welder" };
+const expandRole = (role: string): string[] => role === GMTP_COMBINED_ROLE ? ["Carpenter", "Painter", "Mason"] : [role];
+export const getGmtpRoleCourses = (role: string) => GMTP_MATRIX_COURSES.filter((course) => expandRole(role).some((item) => course.roles.includes(item)));
+
+export const getGmtpCourseEnrollments = <T extends { position?: string; matrixRole?: string }>(enrollments: T[], courseName: string): T[] => {
+  const course = getGmtpMatrixCourse(courseName);
+  return enrollments.filter((en) => expandRole(resolveGmtpMatrixRole(en.position, en.matrixRole)).some((role) => course?.roles.includes(role)));
+};
+
 // Only exact source role names are inferred. HR selects the matrix role for other job titles.
 export const resolveGmtpMatrixRole = (position: string | undefined, selected?: string): string =>
-  selected !== undefined ? (GMTP_MATRIX_ROLES.includes(selected) ? selected : "")
-    : GMTP_MATRIX_ROLES.find((role) => role.toLowerCase() === (position || "").trim().toLowerCase()) || "";
+  selected ? ([...GMTP_MATRIX_ROLES, GMTP_COMBINED_ROLE].includes(selected) ? selected : "")
+    : companyRoles[(position || "").trim()] || GMTP_MATRIX_ROLES.find((role) => role.toLowerCase() === (position || "").trim().toLowerCase()) || "";
 
 export const gmtpMatrixRoleMessage = (courseName: string, role: string): string => {
   const course = getGmtpMatrixCourse(courseName);
@@ -44,4 +54,12 @@ export const gmtpDocumentRequirements = (
     });
   });
   return result;
+};
+
+export const gmtpRoundDocumentRequirements = (base: ProjectDocumentRequirement[], role: string): ProjectDocumentRequirement[] => {
+  const requirements = new Map(gmtpDocumentRequirements(base, "Visitor Induction", role).map((req) => [req.docType, req]));
+  getGmtpRoleCourses(role).forEach((course) => {
+    gmtpDocumentRequirements(base, course.name, role).forEach((req) => requirements.set(req.docType, req));
+  });
+  return Array.from(requirements.values());
 };

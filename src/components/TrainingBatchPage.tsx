@@ -58,7 +58,7 @@ import {
 } from "../utils/huashiTrainingRequestFormPdf";
 import {
   countGmtpEnrollmentsByLanguage,
-  generateAndDownloadGmtpTrainingRequestFormXlsx,
+  downloadGmtpRoundForms,
   isGmtpTrainingRequestProject,
 } from "../utils/gmtpTrainingRequestFormXlsx";
 import {
@@ -131,7 +131,7 @@ export interface EmployeeRow {
   อีเมล์?: string;
 }
 
-import { GMTP_MATRIX_COURSES, GMTP_MATRIX_ROLES, getGmtpMatrixCourse, resolveGmtpMatrixRole, gmtpMatrixRoleMessage, gmtpDocumentRequirements } from "./gmtpTrainingMatrix";
+import { GMTP_MATRIX_COURSES, GMTP_MATRIX_ROLES, GMTP_COMBINED_ROLE, getGmtpRoleCourses, getGmtpCourseEnrollments, resolveGmtpMatrixRole, gmtpRoundDocumentRequirements } from "./gmtpTrainingMatrix";
 
 const INACTIVE_STATUSES = ["ลาออก", "เลิกจ้าง"];
 
@@ -165,7 +165,7 @@ const saveLastGmtpRequestorInfo = (info: { requestorName: string; requestorPosit
 
 const emptyBatchForm = (defaultProject: string) => ({
   project: defaultProject,
-  courseName: isGmtpTrainingRequestProject(defaultProject) ? GMTP_MATRIX_COURSES[0].name : DEFAULT_TRAINING_COURSE_OPTIONS[0],
+  courseName: isGmtpTrainingRequestProject(defaultProject) ? "รอบอบรม J74" : DEFAULT_TRAINING_COURSE_OPTIONS[0],
   courseNameOther: "",
   date: "",
   timeSlot: "",
@@ -417,10 +417,6 @@ export const TrainingBatchPage = ({ projectOptions = [] }: { projectOptions?: st
       batchForm.courseName === "อื่นๆ (ระบุ)" ? batchForm.courseNameOther.trim() : batchForm.courseName;
     if (!courseName) {
       window.alert("กรุณาระบุชื่อหลักสูตร");
-      return;
-    }
-    if (isGmtpTrainingRequestProject(batchForm.project) && !getGmtpMatrixCourse(courseName)) {
-      window.alert("กรุณาเลือกชื่อคอร์สตาม Training Matrix 74");
       return;
     }
     setSaving(true);
@@ -789,7 +785,7 @@ export const TrainingBatchPage = ({ projectOptions = [] }: { projectOptions?: st
                   required
                   value={batchForm.project}
                   onChange={(e) => setBatchForm((f) => ({ ...f, project: e.target.value,
-                    courseName: isGmtpTrainingRequestProject(e.target.value) ? GMTP_MATRIX_COURSES[0].name : DEFAULT_TRAINING_COURSE_OPTIONS[0],
+                    courseName: isGmtpTrainingRequestProject(e.target.value) ? "รอบอบรม J74" : DEFAULT_TRAINING_COURSE_OPTIONS[0],
                   }))}
                   className="input"
                 >
@@ -808,16 +804,19 @@ export const TrainingBatchPage = ({ projectOptions = [] }: { projectOptions?: st
                   className="input"
                 />
               </Field>
-              <Field label="หลักสูตร *">
-                <select
+              <Field label={isGmtpTrainingRequestProject(batchForm.project) ? "ชื่อรอบอบรม *" : "หลักสูตร *"}>
+                {isGmtpTrainingRequestProject(batchForm.project) ? <>
+                  <input required value={batchForm.courseName} onChange={(e) => setBatchForm((f) => ({ ...f, courseName: e.target.value }))} className="input" />
+                  <p className="text-xs text-gray-500 mt-1">เพิ่มรายชื่อและจับคู่ตำแหน่ง ระบบจะจัดทุกคอร์สตาม Training Matrix 74</p>
+                </> : <select
                   value={batchForm.courseName}
                   onChange={(e) => setBatchForm((f) => ({ ...f, courseName: e.target.value }))}
                   className="input"
                 >
-                  {(isGmtpTrainingRequestProject(batchForm.project) ? GMTP_MATRIX_COURSES.map((course) => course.name) : DEFAULT_TRAINING_COURSE_OPTIONS).map((c) => (
+                  {DEFAULT_TRAINING_COURSE_OPTIONS.map((c) => (
                     <option key={c} value={c}>{c}</option>
                   ))}
-                </select>
+                </select>}
               </Field>
               {!isGmtpTrainingRequestProject(batchForm.project) && batchForm.courseName === "อื่นๆ (ระบุ)" && (
                 <Field label="ระบุชื่อหลักสูตร *">
@@ -1131,7 +1130,7 @@ const TrainingBatchDetail = ({
       const empRef = doc(collection(db, "CMG-HR-Database", "root", "employee_data"));
       const nameParts = member.fullName.trim().split(/\s+/);
       const docCheckRequirements = isGmtpTrainingRequestProject(batch.project)
-        ? gmtpDocumentRequirements(documentRequirements, batch.courseName, resolveGmtpMatrixRole(member.position)) : documentRequirements;
+        ? gmtpRoundDocumentRequirements(documentRequirements, resolveGmtpMatrixRole(member.position)) : documentRequirements;
       const isMigrant = isMigrantNationality(member.nationality);
       const docCheck = checkProjectDocumentCompleteness(member.attachments, docCheckRequirements, isMigrant);
       await setDoc(empRef, {
@@ -1299,7 +1298,7 @@ const TrainingBatchDetail = ({
           const isMigrant = isMigrantNationality(emp.สัญชาติ);
           const docCheck = checkProjectDocumentCompleteness(
             emp.attachments as Array<{ docType?: string }> | undefined,
-            isGmtpTrainingRequestProject(batch.project) ? gmtpDocumentRequirements(documentRequirements, batch.courseName, resolveGmtpMatrixRole(emp.ตำแหน่ง, matrixRoles[emp.id])) : documentRequirements,
+            isGmtpTrainingRequestProject(batch.project) ? gmtpRoundDocumentRequirements(documentRequirements, resolveGmtpMatrixRole(emp.ตำแหน่ง, matrixRoles[emp.id])) : documentRequirements,
             isMigrant
           );
           const record: Omit<TrainingEnrollment, "id"> = {
@@ -1382,7 +1381,10 @@ const TrainingBatchDetail = ({
   };
 
   const [generatingGmtpXlsx, setGeneratingGmtpXlsx] = useState(false);
-  const gmtpLanguageCounts = useMemo(() => countGmtpEnrollmentsByLanguage(enrollments, employees), [enrollments, employees]);
+  const gmtpCourseGroups = useMemo(() => GMTP_MATRIX_COURSES.map((course) => {
+    const people = getGmtpCourseEnrollments(enrollments, course.name);
+    return { ...course, people, counts: countGmtpEnrollmentsByLanguage(people, employees) };
+  }).filter((course) => course.people.length > 0), [enrollments, employees]);
   const [editingGmtpHeader, setEditingGmtpHeader] = useState(false);
   const [savingGmtpHeader, setSavingGmtpHeader] = useState(false);
   const [gmtpHeader, setGmtpHeader] = useState({
@@ -1403,10 +1405,6 @@ const TrainingBatchDetail = ({
   const saveGmtpHeader = async (event: React.FormEvent) => {
     event.preventDefault();
     if (!canManage || savingGmtpHeader || !gmtpHeader.courseName.trim() || !gmtpHeader.date) return;
-    if (!getGmtpMatrixCourse(gmtpHeader.courseName)) {
-      window.alert("กรุณาเลือกชื่อคอร์สตาม Training Matrix 74");
-      return;
-    }
     setSavingGmtpHeader(true);
     try {
       await updateDoc(doc(db, "CMG-HR-Database", "root", TRAINING_BATCHES_COLLECTION, batch.id), {
@@ -1421,20 +1419,15 @@ const TrainingBatchDetail = ({
     }
   };
 
-  const handleDownloadGmtpXlsx = async (language: "th" | "mm") => {
-    const count = language === "th" ? gmtpLanguageCounts.th : gmtpLanguageCounts.mm;
-    if (count === 0) {
-      window.alert(`ยังไม่มีคน${language === "th" ? "ไทย" : "เมียนมา"}ในรอบนี้ให้สร้างใบปะหน้า`);
-      return;
-    }
+  const handleDownloadGmtpXlsx = async (courseName?: string, language?: "th" | "mm") => {
     setGeneratingGmtpXlsx(true);
     try {
-      await generateAndDownloadGmtpTrainingRequestFormXlsx(batch, enrollments, employees, language, {
+      await downloadGmtpRoundForms(batch, enrollments, employees, {
         requestorName: batch.requestorName || "",
         requestorPosition: batch.requestorPosition || "",
         requestorMobile: batch.requestorMobile || "",
         requestorEmail: batch.requestorEmail || "",
-      });
+      }, courseName, language);
     } catch (err) {
       window.alert(`สร้างใบปะหน้าไม่สำเร็จ: ${err instanceof Error ? err.message : "เกิดข้อผิดพลาดที่ไม่คาดคิด"}`);
     } finally {
@@ -1488,7 +1481,7 @@ const TrainingBatchDetail = ({
           <p className="text-sm text-gray-500 mt-0.5">
             {batch.project} • อบรม: {batch.date} {batch.timeSlot ? `(${batch.timeSlot})` : ""} ที่ {batch.location || "-"} • วิทยากร: {batch.trainer || "-"}
           </p>
-          {isGmtpTrainingRequestProject(batch.project) && <GmtpMatrixCourseInfo courseName={batch.courseName} />}
+          {isGmtpTrainingRequestProject(batch.project) && <p className="text-sm text-indigo-700 mt-2">หนึ่งรอบ หลายคอร์สตาม Training Matrix 74 • รายชื่อซ้ำได้ตามคอร์สที่ตำแหน่งต้องอบรม</p>}
         </div>
         {canManage && (
           <div className="flex flex-wrap items-center gap-2 sm:gap-1">
@@ -1510,23 +1503,15 @@ const TrainingBatchDetail = ({
             {isGmtpTrainingRequestProject(batch.project) ? (
               <>
                 <button onClick={openGmtpHeader} className="px-3 py-2 rounded-lg border border-indigo-300 text-indigo-700 text-sm font-semibold hover:bg-indigo-50">
-                  แก้ไขข้อมูลใบปะหน้า / ชื่อคอร์ส
+                  แก้ไขข้อมูลใบปะหน้า / ชื่อรอบ
                 </button>
                 <button
-                  onClick={() => handleDownloadGmtpXlsx("th")}
-                  disabled={gmtpLanguageCounts.th === 0 || generatingGmtpXlsx}
-                  title="ดาวน์โหลดใบปะหน้า GMTP (Excel) เฉพาะคนไทยในรอบนี้ — กรอกชื่อ/เลขบัตร/บริษัทให้อัตโนมัติ"
+                  onClick={() => handleDownloadGmtpXlsx()}
+                  disabled={enrollments.length === 0 || generatingGmtpXlsx}
+                  title="รวมใบปะหน้าทุกคอร์ส แยกไฟล์ไทยและพม่าใน ZIP"
                   className="flex items-center gap-1.5 sm:gap-1 px-3 py-2 sm:px-2.5 sm:py-1.5 bg-indigo-700 text-white rounded-lg text-sm sm:text-xs font-semibold hover:bg-indigo-800 disabled:opacity-50 whitespace-nowrap shrink-0"
                 >
-                  {generatingGmtpXlsx ? <Loader2 className="animate-spin" size={16} /> : <Download size={14} />} ใบปะหน้า (ไทย) {gmtpLanguageCounts.th > 0 ? `${gmtpLanguageCounts.th} คน` : ""}
-                </button>
-                <button
-                  onClick={() => handleDownloadGmtpXlsx("mm")}
-                  disabled={gmtpLanguageCounts.mm === 0 || generatingGmtpXlsx}
-                  title="ดาวน์โหลดใบปะหน้า GMTP (Excel) เฉพาะคนเมียนมาในรอบนี้ — กรอกชื่อ/เลขบัตร/บริษัทให้อัตโนมัติ"
-                  className="flex items-center gap-1.5 sm:gap-1 px-3 py-2 sm:px-2.5 sm:py-1.5 bg-indigo-700 text-white rounded-lg text-sm sm:text-xs font-semibold hover:bg-indigo-800 disabled:opacity-50 whitespace-nowrap shrink-0"
-                >
-                  {generatingGmtpXlsx ? <Loader2 className="animate-spin" size={16} /> : <Download size={14} />} ใบปะหน้า (พม่า) {gmtpLanguageCounts.mm > 0 ? `${gmtpLanguageCounts.mm} คน` : ""}
+                  {generatingGmtpXlsx ? <Loader2 className="animate-spin" size={16} /> : <Download size={14} />} ดาวน์โหลดใบปะหน้าทุกคอร์ส
                 </button>
               </>
             ) : (
@@ -1844,7 +1829,7 @@ const TrainingBatchDetail = ({
                   key={en.id}
                   enrollment={en}
                   employee={employeeById.get(en.employeeId)}
-                  documentRequirements={isGmtpTrainingRequestProject(batch.project) ? gmtpDocumentRequirements(documentRequirements, batch.courseName, resolveGmtpMatrixRole(en.position, en.matrixRole)) : documentRequirements}
+                  documentRequirements={isGmtpTrainingRequestProject(batch.project) ? gmtpRoundDocumentRequirements(documentRequirements, resolveGmtpMatrixRole(en.position, en.matrixRole)) : documentRequirements}
                   matrixCourseName={isGmtpTrainingRequestProject(batch.project) ? batch.courseName : undefined}
                   issuesOwnAccessBadge={issuesOwnAccessBadge}
                   canManage={canManage}
@@ -1859,6 +1844,26 @@ const TrainingBatchDetail = ({
         )}
       </div>
 
+      {isGmtpTrainingRequestProject(batch.project) && (
+        <section className="border rounded-xl bg-white p-4">
+          <h3 className="font-bold text-gray-800">ใบปะหน้าแยกตามคอร์สใน Training Matrix 74</h3>
+          <p className="text-sm text-gray-500 my-2">รายชื่อคนเดิมอยู่ได้หลายคอร์สตามตำแหน่ง กำหนดการส่วนหัวใช้ร่วมกันทั้งรอบ</p>
+          {gmtpCourseGroups.length === 0 && <p className="text-sm text-gray-500">เพิ่มรายชื่อและจับคู่ตำแหน่งเพื่อจัดคอร์ส</p>}
+          <div className="divide-y">
+            {gmtpCourseGroups.map((course) => (
+              <div key={course.id} className="py-3">
+                <p className="font-semibold text-sm">{course.name} <span className="font-normal text-gray-500">({course.duration})</span></p>
+                <p className="text-xs text-gray-600 my-1">{course.people.map((en) => en.employeeName).join(", ")}</p>
+                {course.note && <p className="text-xs text-amber-700 mb-2">{course.note}</p>}
+                {canManage && <div className="flex gap-2">
+                  {(["th", "mm"] as const).map((lang) => <button key={lang} disabled={generatingGmtpXlsx || course.counts[lang] === 0} onClick={() => handleDownloadGmtpXlsx(course.name, lang)} className="text-xs border rounded px-3 py-2 text-indigo-700 disabled:opacity-40">ใบปะหน้า {lang === "th" ? "ไทย" : "พม่า"} ({course.counts[lang]} คน)</button>)}
+                </div>}
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+
       {detailsEnrollmentId && (() => {
         const detailEnrollment = enrollments.find((e) => e.id === detailsEnrollmentId);
         if (!detailEnrollment) return null;
@@ -1866,7 +1871,7 @@ const TrainingBatchDetail = ({
           <EnrollmentDetailModal
             enrollment={detailEnrollment}
             employee={employeeById.get(detailEnrollment.employeeId)}
-            documentRequirements={isGmtpTrainingRequestProject(batch.project) ? gmtpDocumentRequirements(documentRequirements, batch.courseName, resolveGmtpMatrixRole(detailEnrollment.position, detailEnrollment.matrixRole)) : documentRequirements}
+            documentRequirements={isGmtpTrainingRequestProject(batch.project) ? gmtpRoundDocumentRequirements(documentRequirements, resolveGmtpMatrixRole(detailEnrollment.position, detailEnrollment.matrixRole)) : documentRequirements}
             issuesOwnAccessBadge={issuesOwnAccessBadge}
             latestHealthRecord={recordByEmployee.get(detailEnrollment.employeeId)}
             canManage={canManage}
@@ -1895,10 +1900,10 @@ const TrainingBatchDetail = ({
         <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4">
           <form onSubmit={saveGmtpHeader} className="bg-white rounded-xl shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto p-5">
             <h3 className="font-bold text-lg mb-2">ข้อมูลใบปะหน้า J74</h3>
-            <p className="text-sm text-gray-500 mb-4">เลือกชื่อคอร์สตรงตาม Training Matrix 74 ข้อมูลนี้ใช้ทั้งใบไทยและใบพม่า วันที่ยืนยันให้กรอกเมื่อได้รับการยืนยันแล้ว</p>
+            <p className="text-sm text-gray-500 mb-4">ข้อมูลส่วนหัวและกำหนดการนี้ใช้ร่วมกันทุกคอร์สในรอบ ชื่อคอร์สในแต่ละใบมาจาก Training Matrix 74 วันที่ยืนยันให้กรอกเมื่อได้รับการยืนยันแล้ว</p>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               {([
-                ["courseName", "ชื่อคอร์ส / หัวข้ออบรม", "text"],
+                ["courseName", "ชื่อรอบอบรม", "text"],
                 ["date", "วันที่อบรม (ส่วนหัวและท้ายใบ)", "date"],
                 ["requestorName", "ผู้ขออบรม (Requestor)", "text"],
                 ["requestorPosition", "ตำแหน่งผู้ขออบรม", "text"],
@@ -1912,15 +1917,10 @@ const TrainingBatchDetail = ({
               ] as const).map(([field, label, type]) => (
                 <label key={field} className="text-sm text-gray-700">
                   {label}
-                  {field === "courseName" ? (
-                    <select required value={gmtpHeader.courseName} disabled={savingGmtpHeader} onChange={(e) => setGmtpHeader((current) => ({ ...current, courseName: e.target.value }))} className="mt-1 w-full border rounded-lg px-3 py-2">
-                      {!getGmtpMatrixCourse(gmtpHeader.courseName) && <option value={gmtpHeader.courseName} disabled>{gmtpHeader.courseName || "เลือกคอร์สตาม Matrix"} — กรุณาเลือกจาก Matrix</option>}
-                      {GMTP_MATRIX_COURSES.map((course) => <option key={course.id} value={course.name}>{course.name}</option>)}
-                    </select>
-                  ) : <input type={type} value={gmtpHeader[field]} required={field === "date"}
+                  <input type={type} value={gmtpHeader[field]} required={field === "date" || field === "courseName"}
                     disabled={savingGmtpHeader}
                     onChange={(e) => setGmtpHeader((current) => ({ ...current, [field]: e.target.value }))}
-                    className="mt-1 w-full border border-gray-300 rounded-lg px-3 py-2" />}
+                    className="mt-1 w-full border border-gray-300 rounded-lg px-3 py-2" />
                 </label>
               ))}
             </div>
@@ -1959,18 +1959,6 @@ const TrainingBatchDetail = ({
   );
 };
 
-const GmtpMatrixCourseInfo = ({ courseName }: { courseName: string }) => {
-  const course = getGmtpMatrixCourse(courseName);
-  if (!course) return <p className="text-sm text-amber-700 mt-2">กรุณาแก้ไขชื่อคอร์สให้ตรงกับ Training Matrix 74</p>;
-  return (
-    <div className="mt-2 text-xs text-gray-600 whitespace-normal">
-      <p>Training Matrix 74 • ระยะเวลาโดยประมาณ {course.duration}</p>
-      <p>ตำแหน่งที่มีเครื่องหมาย X — {course.roles.join(", ")}</p>
-      {course.note && <p className="text-amber-700">{course.note}</p>}
-    </div>
-  );
-};
-
 const GmtpMatrixRoleField = ({ courseName, value, onChange }: {
   courseName: string; value: string; onChange?: (value: string) => void;
 }) => (
@@ -1978,9 +1966,10 @@ const GmtpMatrixRoleField = ({ courseName, value, onChange }: {
     <label className="text-xs text-gray-500">ตำแหน่งตาม Training Matrix 74</label>
     <select value={value} disabled={!onChange} onChange={(e) => onChange?.(e.target.value)} className="w-full border rounded px-2 py-1 text-xs">
       <option value="">เลือกกลุ่มตำแหน่ง</option>
+      <option value={GMTP_COMBINED_ROLE}>{GMTP_COMBINED_ROLE} (ช่างไม้/ช่างปูน)</option>
       {GMTP_MATRIX_ROLES.map((role) => <option key={role} value={role}>{role}</option>)}
     </select>
-    <p className="text-xs text-gray-600 mt-1">{gmtpMatrixRoleMessage(courseName, value)}</p>
+    <p className="text-xs text-gray-600 mt-1">{value ? `ต้องอบรม ${getGmtpRoleCourses(value).length} คอร์สตาม Matrix` : "กรุณาจับคู่ตำแหน่ง"}</p>
   </div>
 );
 
@@ -2810,10 +2799,6 @@ const EmployeePickerModal = ({
       window.alert("กรุณาเลือกพนักงานอย่างน้อย 1 คน");
       return;
     }
-    if (isGmtp && !getGmtpMatrixCourse(batch.courseName)) {
-      window.alert("กรุณาแก้ไขชื่อคอร์สให้ตรงกับ Training Matrix 74 ก่อนเพิ่มรายชื่อ");
-      return;
-    }
     if (isGmtp && picked.some((emp) => !resolveGmtpMatrixRole(emp.ตำแหน่ง, matrixRoles[emp.id]))) {
       window.alert("กรุณาเลือกกลุ่มตำแหน่งตาม Training Matrix 74 ให้ครบสำหรับพนักงานที่เลือก");
       return;
@@ -2831,7 +2816,7 @@ const EmployeePickerModal = ({
               เลือกพนักงานเข้ารอบอบรม
             </h3>
             <p className="text-xs text-gray-500 mt-1">{batch.courseName} • {batch.project} • {batch.date}</p>
-            {isGmtp && <GmtpMatrixCourseInfo courseName={batch.courseName} />}
+            {isGmtp && <p className="text-xs text-indigo-700">ระบบจัดหลายคอร์สตามตำแหน่งใน Training Matrix 74</p>}
           </div>
           <button onClick={onClose} className="text-gray-400 hover:text-red-500 p-1">
             <X size={18} />
@@ -2886,7 +2871,7 @@ const EmployeePickerModal = ({
                 {filtered.map((e) => {
                   const isMigrant = isMigrantNationality(e.สัญชาติ);
                   const role = resolveGmtpMatrixRole(e.ตำแหน่ง, matrixRoles[e.id]);
-                  const requirements = isGmtp ? gmtpDocumentRequirements(documentRequirements, batch.courseName, role) : documentRequirements;
+                  const requirements = isGmtp ? gmtpRoundDocumentRequirements(documentRequirements, role) : documentRequirements;
                   const docCheck = checkProjectDocumentCompleteness(
                     e.attachments as Array<{ docType?: string }> | undefined,
                     requirements,
