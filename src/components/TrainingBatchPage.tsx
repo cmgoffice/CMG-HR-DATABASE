@@ -52,6 +52,7 @@ import { HealthCheckBadge, HealthCheckRowEditor, SharedFileUploadPanel } from ".
 import { generateTrainingNameListPdf, generateAndDownloadTrainingNameListPdf, generateAndPreviewTrainingNameListPdf } from "../utils/trainingNameListPdf";
 import { generateAccessBadgeRequestPdf, generateAndDownloadAccessBadgeRequestPdf, generateAndPreviewAccessBadgeRequestPdf } from "../utils/accessBadgeRequestPdf";
 import { generateTrainingSubmissionZip } from "../utils/trainingSubmissionZip";
+import { DrugTestReportPanel } from "./DrugTestReportPanel";
 import {
   generateAndDownloadHuashiTrainingRequestFormPdf,
   generateAndPreviewHuashiTrainingRequestFormPdf,
@@ -1892,6 +1893,7 @@ const TrainingBatchDetail = ({
       {isGmtpTrainingRequestProject(batch.project) && detailTab === "forms" && (
         <section id="training-forms-panel" role="tabpanel" aria-labelledby="training-forms-tab" className="flex-1 min-h-0 overflow-auto border rounded-xl bg-white p-4">
           <h3 className="font-bold text-gray-800">ใบปะหน้าแยกตามคอร์สใน Training Matrix 74</h3>
+          {canManage && <DrugTestReportPanel project={batch.project} enrollments={enrollments} employees={employees} />}
           <p className="text-sm text-gray-500 my-2">รายชื่อคนเดิมอยู่ได้หลายคอร์สตามตำแหน่ง กำหนดการส่วนหัวใช้ร่วมกันทั้งรอบ</p>
           {gmtpCourseGroups.length === 0 && <p className="text-sm text-gray-500">เพิ่มรายชื่อและจับคู่ตำแหน่งเพื่อจัดคอร์ส</p>}
           <div className="divide-y">
