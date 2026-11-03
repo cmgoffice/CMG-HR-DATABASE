@@ -223,7 +223,7 @@ const writePhotosRow = (xml: string, rowIndex: number, values: { no: number; nam
   return out;
 };
 
-const embedGmtpPhotos = async (zip: JSZip, language: "th" | "mm", people: TrainingEnrollment[], employees: Map<string, EmployeeRow>): Promise<void> => {
+const embedGmtpPhotos = async (zip: JSZip, language: "th" | "mm", people: TrainingEnrollment[], employees: Map<string, EmployeeRow>, warnings: string[]): Promise<void> => {
   const drawing = language === "th" ? "drawing3" : "drawing2";
   const drawingRelsPath = `xl/drawings/_rels/${drawing}.xml.rels`;
   const originalRels = await zip.file(drawingRelsPath)?.async("text") || "";
@@ -232,7 +232,10 @@ const embedGmtpPhotos = async (zip: JSZip, language: "th" | "mm", people: Traini
   const relationships: string[] = [];
   for (const [index, en] of Array.from(people.entries())) {
     const photo = employees.get(en.employeeId)?.attachments?.find((item) => item.url && /photo|รูปถ่าย/i.test(item.docType || ""));
-    if (!photo?.url) throw new Error(`กรุณาแนบรูปถ่ายทำบัตร: ${en.employeeName}`);
+    if (!photo?.url) {
+      warnings.push(`${en.employeeName} — ยังไม่มีรูปถ่ายทำบัตร`);
+      continue;
+    }
     const response = await fetch(photo.url);
     if (!response.ok) throw new Error(`โหลดรูปถ่ายไม่สำเร็จ: ${en.employeeName}`);
     const blob = await response.blob();
@@ -268,7 +271,8 @@ export const generateGmtpTrainingRequestFormXlsx = async (
   enrollments: TrainingEnrollment[],
   employees: EmployeeRow[],
   language: "th" | "mm",
-  requestor: GmtpRequestorInfo
+  requestor: GmtpRequestorInfo,
+  warnings: string[] = []
 ): Promise<Uint8Array> => {
   if (!getGmtpMatrixCourse(batch.courseName)) {
     throw new Error("กรุณาเลือกชื่อคอร์สจาก Training Matrix 74 ในปุ่มแก้ไขข้อมูลใบปะหน้า / ชื่อคอร์สก่อนดาวน์โหลด");
@@ -362,7 +366,7 @@ export const generateGmtpTrainingRequestFormXlsx = async (
     zip.file(sheetPaths.photos, xml);
   }
 
-  await embedGmtpPhotos(zip, language, filtered, employeeById);
+  await embedGmtpPhotos(zip, language, filtered, employeeById, warnings);
   return zip.generateAsync({ type: "uint8array" });
 };
 
@@ -405,7 +409,7 @@ export const countGmtpEnrollmentsByLanguage = (enrollments: TrainingEnrollment[]
 
 export const generateGmtpRoundFiles = async (
   batch: TrainingBatch, enrollments: TrainingEnrollment[], employees: EmployeeRow[],
-  requestor: GmtpRequestorInfo, courseName?: string, language?: "th" | "mm"
+  requestor: GmtpRequestorInfo, courseName?: string, language?: "th" | "mm", warnings: string[] = []
 ): Promise<Array<{ name: string; bytes: Uint8Array }>> => {
   const employeeById = new Map(employees.map((emp) => [emp.id, emp]));
   const incomplete = enrollments.filter((en) => !resolveGmtpMatrixRole(en.position, en.matrixRole)
@@ -420,7 +424,7 @@ export const generateGmtpRoundFiles = async (
       const people = courseEnrollments.filter((en) => resolveGmtpGroup(resolveNationality(en, employeeById.get(en.employeeId))) === lang);
       const capacity = SHEET_LAYOUTS[lang].reduce((total, layout) => total + layout.rows, 0);
       for (let offset = 0; offset < people.length; offset += capacity) {
-        const bytes = await generateGmtpTrainingRequestFormXlsx({ ...batch, courseName: course.name }, people.slice(offset, offset + capacity), employees, lang, requestor);
+        const bytes = await generateGmtpTrainingRequestFormXlsx({ ...batch, courseName: course.name }, people.slice(offset, offset + capacity), employees, lang, requestor, warnings);
         const safeName = course.name.replace(/[\\/:*?"<>|]/g, "_");
         files.push({ name: `${String(course.id).padStart(2, "0")}_${safeName}_${lang === "th" ? "Thai" : "Myanmar"}_${batch.date}_${Math.floor(offset / capacity) + 1}.xlsx`, bytes });
       }
@@ -435,12 +439,12 @@ export const downloadGmtpRoundForms = async (
   requirements: ProjectDocumentRequirement[] = [],
   healthFiles: Map<string, { fileUrl?: string; fileName?: string }> = new Map()
 ): Promise<void> => {
-  const files = await generateGmtpRoundFiles(batch, enrollments, employees, requestor, courseName, language);
+  const missing: string[] = [];
+  const files = await generateGmtpRoundFiles(batch, enrollments, employees, requestor, courseName, language, missing);
   if (!files.length) throw new Error("ยังไม่มีผู้เข้าอบรมตามตำแหน่งใน Matrix สำหรับคอร์สนี้");
   const zip = new JSZip();
   const employeeById = new Map(employees.map((emp) => [emp.id, emp]));
   const downloads = new Map<string, ArrayBuffer>();
-  const missing: string[] = [];
   const safeName = (value: string) => value.replace(/[\\/:*?"<>|]/g, "_").replace(/^[. ]+|[. ]+$/g, "") || "document";
   for (const file of files) {
     const course = GMTP_MATRIX_COURSES.find((item) => file.name.startsWith(`${String(item.id).padStart(2, "0")}_`))!;
@@ -482,6 +486,7 @@ export const downloadGmtpRoundForms = async (
       }
     }
   }
-  if (missing.length) throw new Error(`เอกสารยังไม่ครบ กรุณาแนบก่อนดาวน์โหลดชุดส่งอบรม:\n${Array.from(new Set(missing)).join("\n")}`);
+  if (missing.length) zip.file("รายการเอกสารที่ต้องติดตาม.txt", `\uFEFFชุดนี้รวมเฉพาะเอกสารที่มี กรุณาติดตามรายการต่อไปนี้\n\n${Array.from(new Set(missing)).join("\n")}`);
   downloadBlob(await zip.generateAsync({ type: "uint8array" }), `GMTP_Training_Submission_${batch.date}.zip`);
+  if (missing.length) window.alert(`ดาวน์โหลดชุดเอกสารที่มีแล้ว แต่เอกสารยังไม่ครบ:\n${Array.from(new Set(missing)).join("\n")}\n\nมีรายการนี้แนบใน ZIP ด้วย`);
 };

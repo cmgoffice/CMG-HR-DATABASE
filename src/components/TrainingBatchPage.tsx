@@ -1446,10 +1446,11 @@ const TrainingBatchDetail = ({
     try {
       const cover = await generateHuashiTrainingRequestFormPdf(batch, enrollments, employees);
       const individualForms = await generateAccessBadgeRequestPdf(batch, enrollments, employees, recordByEmployee);
+      const warnings: string[] = [];
       const bytes = await generateTrainingSubmissionZip([
         { name: "00_ใบปะหน้า.pdf", bytes: cover },
         { name: "01_ใบรายคน.pdf", bytes: individualForms },
-      ], enrollments, employees, documentRequirements, recordByEmployee);
+      ], enrollments, employees, documentRequirements, recordByEmployee, warnings);
       const url = URL.createObjectURL(new Blob([bytes as BlobPart], { type: "application/zip" }));
       const link = document.createElement("a");
       link.href = url;
@@ -1458,6 +1459,7 @@ const TrainingBatchDetail = ({
       link.click();
       link.remove();
       setTimeout(() => URL.revokeObjectURL(url), 4000);
+      if (warnings.length) window.alert(`ดาวน์โหลดชุดเอกสารที่มีแล้ว แต่เอกสารยังไม่ครบ:\n${Array.from(new Set(warnings)).join("\n")}\n\nมีรายการนี้แนบใน ZIP ด้วย`);
     } catch (error) {
       window.alert(`ดาวน์โหลดชุดส่งอบรมไม่สำเร็จ: ${error instanceof Error ? error.message : "กรุณาลองอีกครั้ง"}`);
     } finally {
@@ -1916,7 +1918,7 @@ const TrainingBatchDetail = ({
             {generatingHuashiSubmission ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} />}
             {generatingHuashiSubmission ? "กำลังรวมเอกสาร..." : "ดาวน์โหลดชุดส่งอบรมทั้งหมด (ZIP)"}
           </button>}
-          <p className="text-xs text-gray-500 mt-3">หากเอกสารที่โครงการกำหนดยังไม่ครบ ระบบจะแจ้งชื่อพนักงานและรายการที่ขาดก่อนดาวน์โหลด</p>
+          <p className="text-xs text-gray-500 mt-3">ดาวน์โหลดได้แม้เอกสารยังไม่ครบ ระบบจะแจ้งรายการที่ขาดและแนบรายการติดตามไว้ใน ZIP</p>
         </section>
       )}
 

@@ -8,7 +8,7 @@ import type { EmployeeRow } from "../components/TrainingBatchPage";
 export const generateTrainingSubmissionZip = async (
   forms: Array<{ name: string; bytes: Uint8Array }>,
   enrollments: TrainingEnrollment[], employees: EmployeeRow[],
-  requirements: ProjectDocumentRequirement[], healthRecords: Map<string, HealthCheckRecord>
+  requirements: ProjectDocumentRequirement[], healthRecords: Map<string, HealthCheckRecord>, warnings: string[] = []
 ): Promise<Uint8Array> => {
   if (!enrollments.length) throw new Error("กรุณาเพิ่มรายชื่อผู้เข้าอบรมก่อนดาวน์โหลด");
   const employeeById = new Map(employees.map((employee) => [employee.id, employee]));
@@ -46,7 +46,7 @@ export const generateTrainingSubmissionZip = async (
       documents.push({ path: `${folder}/${String(index + 1).padStart(2, "0")}_${safeName(attachment.name || `${unit.label}.pdf`)}`, url: attachment.url, label: `${enrollment.employeeName} — ${unit.label}` });
     });
   });
-  if (missing.length) throw new Error(`เอกสารยังไม่ครบ กรุณาแนบก่อนดาวน์โหลดชุดส่งอบรม:\n${missing.join("\n")}`);
+  warnings.push(...missing);
   const zip = new JSZip();
   forms.forEach((form) => zip.file(form.name, form.bytes));
   const cache = new Map<string, ArrayBuffer>();
@@ -60,5 +60,6 @@ export const generateTrainingSubmissionZip = async (
     }
     zip.file(document.path, bytes);
   }
+  if (warnings.length) zip.file("รายการเอกสารที่ต้องติดตาม.txt", `\uFEFFชุดนี้รวมเฉพาะเอกสารที่มี กรุณาติดตามรายการต่อไปนี้\n\n${Array.from(new Set(warnings)).join("\n")}`);
   return zip.generateAsync({ type: "uint8array" });
 };
