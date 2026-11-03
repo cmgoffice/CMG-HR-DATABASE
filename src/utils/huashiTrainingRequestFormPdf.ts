@@ -18,7 +18,7 @@ import type { EmployeeRow } from "../components/TrainingBatchPage";
 
 // โครงการที่ใช้แบบฟอร์มนี้ — จับคู่แบบ "มีคำนี้อยู่ใน batch.project" (ไม่สนตัวพิมพ์เล็ก/ใหญ่)
 // ครอบคลุมทั้งกรณี batch.project เก็บเป็น "PRJ-2026-J-078 - HUASHI Building B" หรือรหัสสั้น
-const HUASHI_PROJECT_MATCH_KEYWORDS = ["J-078", "J078", "HUASHI"];
+const HUASHI_PROJECT_MATCH_KEYWORDS = ["J-078", "J078", "J78", "HUASHI"];
 
 export function isHuashiTrainingRequestProject(project: string | undefined | null): boolean {
   const value = String(project || "").toUpperCase();
