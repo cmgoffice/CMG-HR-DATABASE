@@ -81,6 +81,12 @@ export interface TrainingBatch {
   // token สุ่มสำหรับลิงก์สาธารณะที่ส่งให้คลินิกตรวจสุขภาพก่อนอบรม — รู้ token เท่ากับเข้าดู/แก้ไขได้
   // (ไม่ต้อง login) ตามแบบ "ใครมีลิงก์ก็เข้าดูได้" จึงต้องเป็นสตริงสุ่มที่เดาไม่ได้เท่านั้น
   healthCheckToken?: string;
+  // ข้อมูลผู้ขออบรม (A2 Requestor Information) — บางโครงการที่ใช้ใบปะหน้าแบบลูกค้าเอง (เช่น GMTP/J-074)
+  // ต้องกรอกส่วนนี้ด้วย ส่วนโครงการอื่นที่ไม่ได้ใช้ ปล่อยว่างได้ไม่กระทบอะไร
+  requestorName?: string;
+  requestorPosition?: string;
+  requestorMobile?: string;
+  requestorEmail?: string;
 }
 
 export const DEFAULT_TRAINING_COURSE_OPTIONS: string[] = [

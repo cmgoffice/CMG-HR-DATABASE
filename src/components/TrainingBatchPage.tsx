@@ -133,6 +133,34 @@ export interface EmployeeRow {
 
 const INACTIVE_STATUSES = ["ลาออก", "เลิกจ้าง"];
 
+// จำค่าผู้ขออบรม (Requestor) ล่าสุดไว้ใน localStorage เพราะปกติเป็นคนเดิมทุกรอบ (เช่น Safety Officer
+// ประจำโครงการ) ไม่ต้องให้กรอกใหม่ทุกครั้ง — ใช้เฉพาะโครงการที่ต้องใช้ใบปะหน้าแบบ GMTP (ดู isGmtpTrainingRequestProject)
+const GMTP_REQUESTOR_STORAGE_KEY = "cmg_hr_gmtp_requestor_info_v1";
+
+const loadLastGmtpRequestorInfo = (): { requestorName: string; requestorPosition: string; requestorMobile: string; requestorEmail: string } => {
+  try {
+    const raw = window.localStorage.getItem(GMTP_REQUESTOR_STORAGE_KEY);
+    if (!raw) return { requestorName: "", requestorPosition: "", requestorMobile: "", requestorEmail: "" };
+    const parsed = JSON.parse(raw);
+    return {
+      requestorName: String(parsed?.requestorName || ""),
+      requestorPosition: String(parsed?.requestorPosition || ""),
+      requestorMobile: String(parsed?.requestorMobile || ""),
+      requestorEmail: String(parsed?.requestorEmail || ""),
+    };
+  } catch {
+    return { requestorName: "", requestorPosition: "", requestorMobile: "", requestorEmail: "" };
+  }
+};
+
+const saveLastGmtpRequestorInfo = (info: { requestorName: string; requestorPosition: string; requestorMobile: string; requestorEmail: string }) => {
+  try {
+    window.localStorage.setItem(GMTP_REQUESTOR_STORAGE_KEY, JSON.stringify(info));
+  } catch {
+    // localStorage ใช้ไม่ได้ (เช่น private mode) — ปล่อยผ่าน ไม่ใช่ปัญหาคอขาด
+  }
+};
+
 const emptyBatchForm = (defaultProject: string) => ({
   project: defaultProject,
   courseName: DEFAULT_TRAINING_COURSE_OPTIONS[0],
@@ -147,6 +175,8 @@ const emptyBatchForm = (defaultProject: string) => ({
   healthCheckDate: "",
   healthCheckTimeSlot: "",
   healthCheckLocation: "",
+  // ข้อมูลผู้ขออบรม — ใช้เฉพาะโครงการที่ใบปะหน้าต้องการ (เช่น GMTP/J-074) จำค่าล่าสุดไว้ให้อัตโนมัติ
+  ...loadLastGmtpRequestorInfo(),
 });
 
 export const TrainingBatchPage = ({ projectOptions = [] }: { projectOptions?: string[] }) => {
@@ -411,7 +441,20 @@ export const TrainingBatchPage = ({ projectOptions = [] }: { projectOptions?: st
       if (batchForm.healthCheckDate) record.healthCheckDate = batchForm.healthCheckDate;
       if (batchForm.healthCheckTimeSlot.trim()) record.healthCheckTimeSlot = batchForm.healthCheckTimeSlot.trim();
       if (batchForm.healthCheckLocation.trim()) record.healthCheckLocation = batchForm.healthCheckLocation.trim();
+      // ข้อมูลผู้ขออบรม — ใส่เฉพาะตอนที่กรอกมา (โครงการที่ไม่ใช้ใบปะหน้าแบบ GMTP ปล่อยว่างได้)
+      if (batchForm.requestorName.trim()) record.requestorName = batchForm.requestorName.trim();
+      if (batchForm.requestorPosition.trim()) record.requestorPosition = batchForm.requestorPosition.trim();
+      if (batchForm.requestorMobile.trim()) record.requestorMobile = batchForm.requestorMobile.trim();
+      if (batchForm.requestorEmail.trim()) record.requestorEmail = batchForm.requestorEmail.trim();
       await setDoc(ref, record);
+      if (isGmtpTrainingRequestProject(batchForm.project)) {
+        saveLastGmtpRequestorInfo({
+          requestorName: batchForm.requestorName.trim(),
+          requestorPosition: batchForm.requestorPosition.trim(),
+          requestorMobile: batchForm.requestorMobile.trim(),
+          requestorEmail: batchForm.requestorEmail.trim(),
+        });
+      }
       setShowCreateForm(false);
       setActiveBatchId(ref.id);
     } catch (err) {
@@ -797,6 +840,44 @@ export const TrainingBatchPage = ({ projectOptions = [] }: { projectOptions?: st
                   className="input"
                 />
               </Field>
+              {isGmtpTrainingRequestProject(batchForm.project) && (
+                <>
+                  <div className="sm:col-span-2 border-t pt-3 mt-1">
+                    <p className="text-xs font-semibold text-emerald-700 mb-2">
+                      ข้อมูลผู้ขออบรม (สำหรับใบปะหน้า GMTP — จำค่าล่าสุดไว้ให้แล้ว แก้ไขได้ถ้าเปลี่ยนคนขอ)
+                    </p>
+                  </div>
+                  <Field label="ชื่อผู้ขอ (Requestor)">
+                    <input
+                      value={batchForm.requestorName}
+                      onChange={(e) => setBatchForm((f) => ({ ...f, requestorName: e.target.value }))}
+                      className="input"
+                    />
+                  </Field>
+                  <Field label="ตำแหน่งผู้ขอ (Position)">
+                    <input
+                      value={batchForm.requestorPosition}
+                      onChange={(e) => setBatchForm((f) => ({ ...f, requestorPosition: e.target.value }))}
+                      className="input"
+                    />
+                  </Field>
+                  <Field label="เบอร์โทรผู้ขอ (Mobile)">
+                    <input
+                      value={batchForm.requestorMobile}
+                      onChange={(e) => setBatchForm((f) => ({ ...f, requestorMobile: e.target.value }))}
+                      className="input"
+                    />
+                  </Field>
+                  <Field label="อีเมล์ผู้ขอ (Email)">
+                    <input
+                      type="email"
+                      value={batchForm.requestorEmail}
+                      onChange={(e) => setBatchForm((f) => ({ ...f, requestorEmail: e.target.value }))}
+                      className="input"
+                    />
+                  </Field>
+                </>
+              )}
               <div className="sm:col-span-2 border-t pt-3 mt-1">
                 <p className="text-xs font-semibold text-sky-700 mb-2">
                   นัดตรวจสุขภาพ (ไม่บังคับ — กรอกเฉพาะกรณีตรวจคนละวัน/คนละสถานที่กับวันอบรม ไม่กรอกตอนนี้ก็ได้ มากรอกทีหลังก่อนสร้างลิงก์คลินิกได้)
@@ -1287,6 +1368,30 @@ const TrainingBatchDetail = ({
     }
   };
 
+  const [generatingGmtpXlsx, setGeneratingGmtpXlsx] = useState(false);
+  const gmtpLanguageCounts = useMemo(() => countGmtpEnrollmentsByLanguage(enrollments), [enrollments]);
+
+  const handleDownloadGmtpXlsx = async (language: "th" | "mm") => {
+    const count = language === "th" ? gmtpLanguageCounts.th : gmtpLanguageCounts.mm;
+    if (count === 0) {
+      window.alert(`ยังไม่มีคน${language === "th" ? "ไทย" : "เมียนมา"}ในรอบนี้ให้สร้างใบปะหน้า`);
+      return;
+    }
+    setGeneratingGmtpXlsx(true);
+    try {
+      await generateAndDownloadGmtpTrainingRequestFormXlsx(batch, enrollments, employees, language, {
+        requestorName: batch.requestorName || "",
+        requestorPosition: batch.requestorPosition || "",
+        requestorMobile: batch.requestorMobile || "",
+        requestorEmail: batch.requestorEmail || "",
+      });
+    } catch (err) {
+      window.alert(`สร้างใบปะหน้าไม่สำเร็จ: ${err instanceof Error ? err.message : "เกิดข้อผิดพลาดที่ไม่คาดคิด"}`);
+    } finally {
+      setGeneratingGmtpXlsx(false);
+    }
+  };
+
   const [generatingBadgeRequestPdf, setGeneratingBadgeRequestPdf] = useState(false);
 
   const handlePreviewAccessBadgeRequestPdf = async () => {
@@ -1351,29 +1456,52 @@ const TrainingBatchDetail = ({
             >
               <UserPlus size={16} className="sm:hidden" /><UserPlus size={14} className="hidden sm:block" /> เพิ่มรายชื่อ
             </button>
-            <button
-              onClick={handlePreviewTrainingNameListPdf}
-              disabled={enrollments.length === 0 || generatingNameListPdf}
-              title="ดูตัวอย่างใบปะหน้า (Training Name List) ที่กรอกชื่อ/บริษัท/ตำแหน่งให้อัตโนมัติ เหลือแต่เซ็นชื่อหน้างาน"
-              className="flex items-center gap-1.5 sm:gap-1 px-3 py-2 sm:px-2.5 sm:py-1.5 bg-white border border-indigo-300 text-indigo-700 rounded-lg text-sm sm:text-xs font-semibold hover:bg-indigo-50 disabled:opacity-50 whitespace-nowrap shrink-0"
-            >
-              {generatingNameListPdf ? (
-                <Loader2 className="animate-spin" size={16} />
-              ) : (
-                <>
-                  <FileSpreadsheet size={16} className="sm:hidden" /><FileSpreadsheet size={14} className="hidden sm:block" />
-                </>
-              )}
-              ดูตัวอย่างใบปะหน้า
-            </button>
-            <button
-              onClick={handleDownloadTrainingNameListPdf}
-              disabled={enrollments.length === 0 || generatingNameListPdf}
-              title="ดาวน์โหลด PDF ใบปะหน้า (Training Name List) พร้อมพิมพ์ให้คนเซ็นชื่อหน้างาน"
-              className="flex items-center gap-1.5 sm:gap-1 px-3 py-2 sm:px-2.5 sm:py-1.5 bg-indigo-700 text-white rounded-lg text-sm sm:text-xs font-semibold hover:bg-indigo-800 disabled:opacity-50 whitespace-nowrap shrink-0"
-            >
-              <Download size={16} className="sm:hidden" /><Download size={14} className="hidden sm:block" /> ดาวน์โหลดใบปะหน้า (PDF)
-            </button>
+            {isGmtpTrainingRequestProject(batch.project) ? (
+              <>
+                <button
+                  onClick={() => handleDownloadGmtpXlsx("th")}
+                  disabled={gmtpLanguageCounts.th === 0 || generatingGmtpXlsx}
+                  title="ดาวน์โหลดใบปะหน้า GMTP (Excel) เฉพาะคนไทยในรอบนี้ — กรอกชื่อ/เลขบัตร/บริษัทให้อัตโนมัติ"
+                  className="flex items-center gap-1.5 sm:gap-1 px-3 py-2 sm:px-2.5 sm:py-1.5 bg-indigo-700 text-white rounded-lg text-sm sm:text-xs font-semibold hover:bg-indigo-800 disabled:opacity-50 whitespace-nowrap shrink-0"
+                >
+                  {generatingGmtpXlsx ? <Loader2 className="animate-spin" size={16} /> : <Download size={14} />} ใบปะหน้า (ไทย) {gmtpLanguageCounts.th > 0 ? `${gmtpLanguageCounts.th} คน` : ""}
+                </button>
+                <button
+                  onClick={() => handleDownloadGmtpXlsx("mm")}
+                  disabled={gmtpLanguageCounts.mm === 0 || generatingGmtpXlsx}
+                  title="ดาวน์โหลดใบปะหน้า GMTP (Excel) เฉพาะคนเมียนมาในรอบนี้ — กรอกชื่อ/เลขบัตร/บริษัทให้อัตโนมัติ"
+                  className="flex items-center gap-1.5 sm:gap-1 px-3 py-2 sm:px-2.5 sm:py-1.5 bg-indigo-700 text-white rounded-lg text-sm sm:text-xs font-semibold hover:bg-indigo-800 disabled:opacity-50 whitespace-nowrap shrink-0"
+                >
+                  {generatingGmtpXlsx ? <Loader2 className="animate-spin" size={16} /> : <Download size={14} />} ใบปะหน้า (พม่า) {gmtpLanguageCounts.mm > 0 ? `${gmtpLanguageCounts.mm} คน` : ""}
+                </button>
+              </>
+            ) : (
+              <>
+                <button
+                  onClick={handlePreviewTrainingNameListPdf}
+                  disabled={enrollments.length === 0 || generatingNameListPdf}
+                  title="ดูตัวอย่างใบปะหน้า (Training Name List) ที่กรอกชื่อ/บริษัท/ตำแหน่งให้อัตโนมัติ เหลือแต่เซ็นชื่อหน้างาน"
+                  className="flex items-center gap-1.5 sm:gap-1 px-3 py-2 sm:px-2.5 sm:py-1.5 bg-white border border-indigo-300 text-indigo-700 rounded-lg text-sm sm:text-xs font-semibold hover:bg-indigo-50 disabled:opacity-50 whitespace-nowrap shrink-0"
+                >
+                  {generatingNameListPdf ? (
+                    <Loader2 className="animate-spin" size={16} />
+                  ) : (
+                    <>
+                      <FileSpreadsheet size={16} className="sm:hidden" /><FileSpreadsheet size={14} className="hidden sm:block" />
+                    </>
+                  )}
+                  ดูตัวอย่างใบปะหน้า
+                </button>
+                <button
+                  onClick={handleDownloadTrainingNameListPdf}
+                  disabled={enrollments.length === 0 || generatingNameListPdf}
+                  title="ดาวน์โหลด PDF ใบปะหน้า (Training Name List) พร้อมพิมพ์ให้คนเซ็นชื่อหน้างาน"
+                  className="flex items-center gap-1.5 sm:gap-1 px-3 py-2 sm:px-2.5 sm:py-1.5 bg-indigo-700 text-white rounded-lg text-sm sm:text-xs font-semibold hover:bg-indigo-800 disabled:opacity-50 whitespace-nowrap shrink-0"
+                >
+                  <Download size={16} className="sm:hidden" /><Download size={14} className="hidden sm:block" /> ดาวน์โหลดใบปะหน้า (PDF)
+                </button>
+              </>
+            )}
             <button
               onClick={handlePreviewAccessBadgeRequestPdf}
               disabled={enrollments.length === 0 || generatingBadgeRequestPdf}
