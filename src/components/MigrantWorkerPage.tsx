@@ -98,7 +98,7 @@ const EMPLOYEE_TYPE_OPTIONS = [
 // เพื่อให้ข้อมูลที่กรอกจากหน้าแรงงานต่างด้าว สอดคล้อง/ใช้ filter ร่วมกับระบบเดิมได้
 // "รอดำเนินการ" เป็นสถานะเพิ่มเติมสำหรับคนที่เพิ่งเพิ่มเข้าระบบแต่ยังไม่เริ่มงานจริง
 const PENDING_STATUS = "รอดำเนินการ";
-const EMPLOYEE_STATUS_OPTIONS = [PENDING_STATUS, "ทำงาน", "พักงาน", "ลาคลอด", "ลาออก", "เลิกจ้าง"];
+const EMPLOYEE_STATUS_OPTIONS = [PENDING_STATUS, "ทำงาน", "พักงาน", "ลาคลอด", "ลาออก", "เลิกจ้าง", "ไม่มาเริ่มงาน"];
 const WORK_GROUP_OPTIONS = ["Staff", "Worker", "Subcontract", "Supply Contract"];
 
 // ตัวเลือกสัญชาติที่พบบ่อยในหน้าแรงงานต่างด้าว — เลือก "อื่นๆ" เพื่อระบุเองได้
@@ -164,7 +164,7 @@ const CATEGORY_META: Record<WorkerCategory, { label: string; shortLabel: string;
 };
 
 // สถานะที่ถือว่า "พ้นสภาพ" แล้ว ไม่นับรวมในทะเบียนแรงงานต่างด้าวที่ยังทำงานอยู่
-const INACTIVE_STATUSES = ["ลาออก", "เลิกจ้าง"];
+const INACTIVE_STATUSES = ["ลาออก", "เลิกจ้าง", "ไม่มาเริ่มงาน"];
 const isActiveEmployment = (status: unknown) => !INACTIVE_STATUSES.includes(String(status || "").trim());
 
 const monthKey = (dateStr?: string): string | null => {
@@ -372,9 +372,9 @@ export const MigrantWorkerPage = ({ projectOptions }: { projectOptions: string[]
   const monthlyHireExit = useMemo(() => {
     const months = getLastMonthKeys(6);
     return months.map((key) => {
-      const hires = rawCategoryEmployees.filter((e) => monthKey(e.start_date) === key).length;
+      const hires = rawCategoryEmployees.filter((e) => e.สถานะพนักงาน !== "ไม่มาเริ่มงาน" && monthKey(e.start_date) === key).length;
       const exits = rawCategoryEmployees.filter(
-        (e) => INACTIVE_STATUSES.includes(String(e.สถานะพนักงาน || "").trim()) && monthKey(e.resignation_date) === key
+        (e) => ["ลาออก", "เลิกจ้าง"].includes(String(e.สถานะพนักงาน || "").trim()) && monthKey(e.resignation_date) === key
       ).length;
       return { key, label: monthLabel(key), hires, exits };
     });

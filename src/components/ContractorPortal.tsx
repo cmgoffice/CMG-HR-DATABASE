@@ -59,7 +59,7 @@ interface EmployeeRow {
   attachments?: HiringAttachment[];
 }
 
-const INACTIVE_STATUSES = ["ลาออก", "เลิกจ้าง"];
+const INACTIVE_STATUSES = ["ลาออก", "เลิกจ้าง", "ไม่มาเริ่มงาน"];
 
 /**
  * หน้าสาธารณะสำหรับผู้รับเหมา/Supply manpower — ไม่ต้อง login เข้าถึงด้วย token ในลิงก์

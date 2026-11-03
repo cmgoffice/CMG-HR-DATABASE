@@ -44,7 +44,7 @@ const EMPLOYEE_TYPE_LABEL: Record<string, string> = {
   Direct_SubContractor: "Sub contractor",
 };
 
-const INACTIVE_STATUSES = ["ลาออก", "เลิกจ้าง"];
+const INACTIVE_STATUSES = ["ลาออก", "เลิกจ้าง", "ไม่มาเริ่มงาน"];
 
 const buildFullName = (e: EmployeeRecord): string =>
   [e.ชื่อต้น || e.คำนำหน้าชื่อ, e.ชื่อตัว, e.ชื่อสกุล]

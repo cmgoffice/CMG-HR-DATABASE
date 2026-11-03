@@ -104,6 +104,11 @@ export interface RecruitmentPendingEmployee {
   createdAt?: { seconds: number; nanoseconds: number } | number | null;
   createdByUid?: string;
   createdByName?: string;
+  intakeStatus?: "no_show";
+  noShowReason?: string;
+  noShowAt?: number;
+  noShowByUid?: string;
+  noShowByName?: string;
 
   [key: string]: unknown;
 }

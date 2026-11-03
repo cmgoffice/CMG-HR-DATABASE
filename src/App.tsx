@@ -409,7 +409,7 @@ const DEFAULT_SCHEMAS = {
       id: "สถานะพนักงาน",
       label: "สถานะพนักงาน",
       type: "select",
-      options: ["รอดำเนินการ", "ทำงาน", "พักงาน", "ลาคลอด", "ลาออก", "เลิกจ้าง"],
+      options: ["รอดำเนินการ", "ทำงาน", "พักงาน", "ลาคลอด", "ลาออก", "เลิกจ้าง", "ไม่มาเริ่มงาน"],
     },
     { id: "employment_status_reason", label: "เหตุผลสถานะพนักงาน", type: "text" },
     { id: "resignation_date", label: "วันที่ลาออก", type: "date" },
@@ -1330,6 +1330,7 @@ function MasterDatabaseApp() {
 
   const applyDynamicSchemaOptions = (fields: SchemaField[], projectOptions = projectStatusOptions, positions = positionOptions) => {
     return fields.map((f) => {
+      if (f.id === "สถานะพนักงาน") return { ...f, options: Array.from(new Set([...(f.options || []), "ไม่มาเริ่มงาน"])) };
       if (f.id === "สถานะโครงการ") return { ...f, options: projectOptions };
       if (f.id === "ตำแหน่ง") return { ...f, type: "select", options: positions };
       return f;
@@ -1625,7 +1626,7 @@ function MasterDatabaseApp() {
             id: "สถานะพนักงาน",
             label: "สถานะพนักงาน",
             type: "select",
-            options: ["รอดำเนินการ", "ทำงาน", "พักงาน", "ลาคลอด", "ลาออก", "เลิกจ้าง"],
+            options: ["รอดำเนินการ", "ทำงาน", "พักงาน", "ลาคลอด", "ลาออก", "เลิกจ้าง", "ไม่มาเริ่มงาน"],
           },
           {
             id: "สถานะกลุ่มงาน",
@@ -1727,7 +1728,7 @@ function MasterDatabaseApp() {
           } else {
             loadedFields = applyDynamicSchemaOptions(loadedFields);
           }
-          setSchemas((prev) => ({ ...prev, [moduleId]: loadedFields }));
+          setSchemas((prev) => ({ ...prev, [moduleId]: applyDynamicSchemaOptions(loadedFields) }));
         } else {
           const fallbackKey = subcollectionName;
           let defaultSchema = (DEFAULT_SCHEMAS as Record<string, SchemaField[]>)[schemaModuleId]

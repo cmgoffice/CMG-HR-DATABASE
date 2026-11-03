@@ -212,7 +212,7 @@ export const HRAnalyticsTab = ({
     () =>
       allEmployees.filter((e) => {
         const startDate = resolveEmployeeStartDate(e);
-        return startDate && new Date(`${startDate}T00:00:00`).getFullYear() === currentYear;
+        return e.สถานะพนักงาน !== "ไม่มาเริ่มงาน" && startDate && new Date(`${startDate}T00:00:00`).getFullYear() === currentYear;
       }).length,
     [allEmployees, currentYear]
   );
@@ -259,7 +259,7 @@ export const HRAnalyticsTab = ({
 
       const headcountAtMonth = allEmployees.filter((e) => {
         const startDate = resolveEmployeeStartDate(e);
-        if (!startDate || startDate > monthEndStr) return false;
+        if (e.สถานะพนักงาน === "ไม่มาเริ่มงาน" || !startDate || startDate > monthEndStr) return false;
         if (e.resignation_date && e.resignation_date <= monthEndStr) return false;
         return true;
       }).length;

@@ -375,7 +375,7 @@ export const SafetyDashboardTab = ({
   // ---------- Workforce Movement ----------
   const movementData = useMemo(() => {
     const inRange = (d?: string | null): boolean => !!d && !!rangeStart && !!rangeEnd && d >= rangeStart && d <= rangeEnd;
-    const newHires = allEmployees.filter((e) => inRange(resolveEmployeeStartDate(e)));
+    const newHires = allEmployees.filter((e) => e.สถานะพนักงาน !== "ไม่มาเริ่มงาน" && inRange(resolveEmployeeStartDate(e)));
     const exits = hasResignationDates ? allEmployees.filter((e) => inRange(e.resignation_date)) : [];
     const transfersInRange = transfers.filter((t) => inRange(t.effectiveDate));
     return { newHires, exits, hasResignationDates, transfersInRange };
@@ -423,13 +423,13 @@ export const SafetyDashboardTab = ({
         if (laborGroupFilter !== "all" && String(e.สถานะกลุ่มงาน || "").trim() !== laborGroupFilter) return false;
         if (projectFilter !== "all" && !parseProjectList(e.สถานะโครงการ).includes(projectFilter)) return false;
         const startDate = resolveEmployeeStartDate(e);
-        if (!startDate || startDate > monthEndStr) return false;
+        if (e.สถานะพนักงาน === "ไม่มาเริ่มงาน" || !startDate || startDate > monthEndStr) return false;
         if (e.resignation_date && e.resignation_date <= monthEndStr) return false;
         return true;
       }).length;
 
       const newHiresCount = allEmployees.filter(
-        (e) => monthKeyFromDate(resolveEmployeeStartDate(e) || undefined) === mKey
+        (e) => e.สถานะพนักงาน !== "ไม่มาเริ่มงาน" && monthKeyFromDate(resolveEmployeeStartDate(e) || undefined) === mKey
       ).length;
       const exitsCount = hasResignationDates
         ? allEmployees.filter((e) => monthKeyFromDate(e.resignation_date) === mKey).length

@@ -135,7 +135,7 @@ export interface EmployeeRow {
 
 import { GMTP_MATRIX_COURSES, GMTP_ROLE_OPTIONS, getGmtpRoleCourses, getGmtpCourseEnrollments, resolveGmtpMatrixRole, gmtpRoundDocumentRequirements } from "./gmtpTrainingMatrix";
 
-const INACTIVE_STATUSES = ["ลาออก", "เลิกจ้าง"];
+const INACTIVE_STATUSES = ["ลาออก", "เลิกจ้าง", "ไม่มาเริ่มงาน"];
 
 // จำค่าผู้ขออบรม (Requestor) ล่าสุดไว้ใน localStorage เพราะปกติเป็นคนเดิมทุกรอบ (เช่น Safety Officer
 // ประจำโครงการ) ไม่ต้องให้กรอกใหม่ทุกครั้ง — ใช้เฉพาะโครงการที่ต้องใช้ใบปะหน้าแบบ GMTP (ดู isGmtpTrainingRequestProject)

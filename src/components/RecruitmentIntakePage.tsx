@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { collection, doc, getDoc, getFirestore, onSnapshot, setDoc, updateDoc } from "firebase/firestore";
+import { collection, doc, getDoc, getFirestore, onSnapshot, runTransaction, setDoc, updateDoc } from "firebase/firestore";
 import {
   AlertTriangle,
   CheckCircle2,
@@ -115,6 +115,7 @@ export const RecruitmentIntakePage = ({ projectOptions = [] }: { projectOptions?
   const [formTarget, setFormTarget] = useState<RecruitmentPendingEmployee | null>(null);
   const [form, setForm] = useState<IntakeFormState | null>(null);
   const [saving, setSaving] = useState(false);
+  const [statusSaving, setStatusSaving] = useState<string | null>(null);
   const [duplicateWarning, setDuplicateWarning] = useState<string | null>(null);
 
   // แผงดูรายละเอียด (ข้อมูลที่ไม่ได้โชว์ในตารางแล้ว เช่น ที่อยู่ ผู้ติดต่อฉุกเฉิน การศึกษา ประสบการณ์ ฯลฯ)
@@ -200,6 +201,44 @@ export const RecruitmentIntakePage = ({ projectOptions = [] }: { projectOptions?
   // ------------------------------------------------------------------------
   // ส่วนที่ 1: เพิ่มเข้าระบบพนักงาน
   // ------------------------------------------------------------------------
+
+  const markNoShow = async (candidate: RecruitmentPendingEmployee) => {
+    if (!canManage || statusSaving || !candidate.importedEmployeeId || candidate.source === "internal_transfer") return;
+    const reason = window.prompt(`ระบุเหตุผลที่ ${buildFullName(candidate)} ไม่มาเริ่มงาน\nระบบจะเปลี่ยนสถานะใน Data เป็น “ไม่มาเริ่มงาน” และเก็บประวัติเดิมไว้`);
+    if (reason === null) return;
+    if (!reason.trim()) {
+      window.alert("กรุณาระบุเหตุผลก่อนบันทึก");
+      return;
+    }
+    setStatusSaving(candidate.id);
+    try {
+      const db = getFirestore();
+      const pendingRef = doc(db, "CMG-HR-Database", "root", RECRUITMENT_PENDING_EMPLOYEES_COLLECTION, candidate.id);
+      await runTransaction(db, async (transaction) => {
+        const pending = await transaction.get(pendingRef);
+        const data = pending.data();
+        if (!data?.importedEmployeeId || data.source === "internal_transfer") throw new Error("รายการนี้ไม่สามารถเปลี่ยนสถานะได้");
+        if (data.intakeStatus === "no_show") throw new Error("รายการนี้บันทึกไม่มาเริ่มงานแล้ว");
+        const employeeRef = doc(db, "CMG-HR-Database", "root", "employee_data", String(data.importedEmployeeId));
+        const employee = await transaction.get(employeeRef);
+        if (!employee.exists()) throw new Error("ไม่พบพนักงานที่เชื่อมกันใน Data");
+        if (employee.data()?.recruitmentSourceId !== candidate.id) throw new Error("ข้อมูลใน Data เชื่อมกับรายการ Recruit อื่นแล้ว กรุณาตรวจสอบก่อนดำเนินการ");
+        if (employee.data()?.สถานะพนักงาน !== "ทำงาน") throw new Error("สถานะใน Data เปลี่ยนไปแล้ว กรุณาตรวจสอบก่อนดำเนินการ");
+        const audit = {
+          noShowReason: reason.trim(),
+          noShowAt: Date.now(),
+          noShowByUid: firebaseUser?.uid || "",
+          noShowByName: `${userProfile?.firstName || ""} ${userProfile?.lastName || ""}`.trim(),
+        };
+        transaction.update(employeeRef, { สถานะพนักงาน: "ไม่มาเริ่มงาน", employment_status_reason: reason.trim(), ...audit });
+        transaction.update(pendingRef, { intakeStatus: "no_show", ...audit });
+      });
+    } catch (err) {
+      window.alert(`บันทึกไม่สำเร็จ: ${err instanceof Error ? err.message : "เกิดข้อผิดพลาด"}`);
+    } finally {
+      setStatusSaving(null);
+    }
+  };
 
   const openIntakeForm = (candidate: RecruitmentPendingEmployee) => {
     const groupStatus = (candidate.สถานะกลุ่มงาน as string) || "Staff";
@@ -510,7 +549,11 @@ export const RecruitmentIntakePage = ({ projectOptions = [] }: { projectOptions?
                     <td className="p-3 text-gray-600 whitespace-nowrap">{c.แผนก || "-"}</td>
                     <td className="p-3 text-gray-600 whitespace-nowrap">{c.โครงการ || "-"}</td>
                     <td className="p-3 whitespace-nowrap">
-                      {imported ? (
+                      {c.intakeStatus === "no_show" ? (
+                        <span className="inline-flex px-2 py-0.5 rounded-full border text-xs font-semibold bg-red-50 text-red-700 border-red-200" title={String(c.noShowReason || "")}>
+                          ไม่มาเริ่มงาน
+                        </span>
+                      ) : imported ? (
                         <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-xs font-semibold bg-emerald-50 text-emerald-700 border-emerald-200">
                           <CheckCircle2 size={12} /> เพิ่มแล้ว
                         </span>
@@ -531,6 +574,11 @@ export const RecruitmentIntakePage = ({ projectOptions = [] }: { projectOptions?
                         >
                           ดูรายละเอียด
                         </button>
+                        {canManage && imported && c.intakeStatus !== "no_show" && c.source !== "internal_transfer" && (
+                          <button disabled={statusSaving !== null} onClick={() => markNoShow(c)} className="px-3 py-1.5 bg-red-50 text-red-700 rounded-lg text-xs font-semibold hover:bg-red-100 whitespace-nowrap disabled:opacity-50">
+                            {statusSaving === c.id ? "กำลังบันทึก..." : "ไม่มาเริ่มงาน"}
+                          </button>
+                        )}
                         {canManage && !imported && (
                           <button
                             onClick={() => openIntakeForm(c)}
@@ -859,6 +907,12 @@ export const RecruitmentIntakePage = ({ projectOptions = [] }: { projectOptions?
               <DetailSection title="ข้อมูลงาน">
                 <DetailRow label="โครงการ" value={viewTarget.โครงการ} />
                 <DetailRow label="สถานะกลุ่มงาน" value={viewTarget.สถานะกลุ่มงาน} />
+                {viewTarget.intakeStatus === "no_show" && <>
+                  <DetailRow label="สถานะเริ่มงาน" value="ไม่มาเริ่มงาน" />
+                  <DetailRow label="เหตุผล" value={viewTarget.noShowReason} />
+                  <DetailRow label="ผู้บันทึก" value={viewTarget.noShowByName} />
+                  <DetailRow label="วันที่บันทึก" value={formatDate(viewTarget.noShowAt)} />
+                </>}
                 <DetailRow label="วันเริ่มงาน" value={viewTarget.วันเริ่มงาน} />
                 <DetailRow label="รหัสพนักงานเดิม" value={viewTarget.รหัสพนักงานเดิม as string} />
               </DetailSection>

@@ -211,7 +211,7 @@ export const ProjectTransferPage = ({ projectOptions }: { projectOptions: string
   const filteredEmployees = useMemo(() => {
     let list = employees.filter((e) => {
       const status = String(e.สถานะพนักงาน || "").toLowerCase();
-      return !status.includes("ลาออก") && !status.includes("พ้นสภาพ");
+      return status !== "ไม่มาเริ่มงาน" && !status.includes("ลาออก") && !status.includes("พ้นสภาพ");
     });
     if (isAdminSiteOnly && myAssignedProjects.length > 0) {
       list = list.filter((e) =>
