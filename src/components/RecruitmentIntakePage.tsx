@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { collection, doc, getDoc, getFirestore, onSnapshot, runTransaction, setDoc, updateDoc } from "firebase/firestore";
+import { collection, deleteDoc, doc, getDoc, getFirestore, onSnapshot, runTransaction, setDoc, updateDoc } from "firebase/firestore";
 import {
   AlertTriangle,
   CheckCircle2,
@@ -9,12 +9,14 @@ import {
   Lock,
   Paperclip,
   Search,
+  Trash2,
   UserPlus,
   X,
 } from "lucide-react";
 import { useAuth } from "../auth/AuthContext";
 import {
   appendAttachmentToRecruitmentPending,
+  removeAttachmentFromRecruitmentPending,
   uploadHiringDocumentFile,
 } from "../utils/hiringDocsAttachments";
 import { IdCardPhotoGuideButton, isIdCardDocType } from "./IdCardPhotoGuide";
@@ -117,6 +119,8 @@ export const RecruitmentIntakePage = ({ projectOptions = [] }: { projectOptions?
   const [saving, setSaving] = useState(false);
   const [statusSaving, setStatusSaving] = useState<string | null>(null);
   const [duplicateWarning, setDuplicateWarning] = useState<string | null>(null);
+  const [deletingCandidateId, setDeletingCandidateId] = useState<string | null>(null);
+  const [deletingAttachmentKey, setDeletingAttachmentKey] = useState<string | null>(null);
 
   // แผงดูรายละเอียด (ข้อมูลที่ไม่ได้โชว์ในตารางแล้ว เช่น ที่อยู่ ผู้ติดต่อฉุกเฉิน การศึกษา ประสบการณ์ ฯลฯ)
   const [viewTarget, setViewTarget] = useState<RecruitmentPendingEmployee | null>(null);
@@ -237,6 +241,46 @@ export const RecruitmentIntakePage = ({ projectOptions = [] }: { projectOptions?
       window.alert(`บันทึกไม่สำเร็จ: ${err instanceof Error ? err.message : "เกิดข้อผิดพลาด"}`);
     } finally {
       setStatusSaving(null);
+    }
+  };
+
+  // ลบรายการออกจาก "รอเพิ่มเข้าระบบ" (ลบ document ใน recruitment_pending_employees)
+  // ไม่แตะ employee_data เลย — ถ้ารายการนี้นำเข้าเป็นพนักงานไปแล้ว ต้องเตือนให้ชัดว่าการลบนี้
+  // ไม่ลบพนักงานออกจากระบบ (แค่ตัดรายการต้นทางออกจากคิว ป้องกันเข้าใจผิดว่าลบพนักงานด้วย)
+  const deleteCandidate = async (candidate: RecruitmentPendingEmployee) => {
+    if (!canManage || deletingCandidateId) return;
+    const name = buildFullName(candidate);
+    const warnImported = candidate.importedEmployeeId
+      ? `\n\n⚠️ รายการนี้นำเข้าเป็นพนักงานแล้ว (รหัส: ${candidate.importedEmployeeId}) การลบนี้จะลบแค่รายการในคิว "รอเพิ่มเข้าระบบ" เท่านั้น ไม่ลบพนักงานออกจาก Data`
+      : "";
+    const confirmed = window.confirm(`ยืนยันลบ "${name}" ออกจากรายชื่อรอเพิ่มจาก Recruitment?${warnImported}`);
+    if (!confirmed) return;
+    setDeletingCandidateId(candidate.id);
+    try {
+      const db = getFirestore();
+      await deleteDoc(doc(db, "CMG-HR-Database", "root", RECRUITMENT_PENDING_EMPLOYEES_COLLECTION, candidate.id));
+      if (viewTarget?.id === candidate.id) setViewTarget(null);
+      if (docsTarget?.id === candidate.id) closeDocsPanel();
+    } catch (err) {
+      window.alert(`ลบไม่สำเร็จ: ${err instanceof Error ? err.message : "เกิดข้อผิดพลาดที่ไม่คาดคิด"}`);
+    } finally {
+      setDeletingCandidateId(null);
+    }
+  };
+
+  // ลบเอกสารแนบ 1 รายการ (ตัดลิงก์ออกจาก attachments array — ไม่ลบไฟล์จริงบน Drive)
+  const deleteAttachment = async (candidate: RecruitmentPendingEmployee, attachment: HiringAttachment) => {
+    if (deletingAttachmentKey) return;
+    const confirmed = window.confirm(`ยืนยันลบเอกสาร "${attachment.name}"? (ไม่ลบไฟล์จริงบน Google Drive แค่ตัดออกจากระบบ)`);
+    if (!confirmed) return;
+    const key = `${candidate.id}:${attachment.url}`;
+    setDeletingAttachmentKey(key);
+    try {
+      await removeAttachmentFromRecruitmentPending(candidate.id, attachment);
+    } catch (err) {
+      window.alert(`ลบไม่สำเร็จ: ${err instanceof Error ? err.message : "เกิดข้อผิดพลาดที่ไม่คาดคิด"}`);
+    } finally {
+      setDeletingAttachmentKey(null);
     }
   };
 
@@ -595,6 +639,16 @@ export const RecruitmentIntakePage = ({ projectOptions = [] }: { projectOptions?
                             <Paperclip size={14} /> เอกสารแนบ ({attachmentCount})
                           </button>
                         )}
+                        {canManage && (
+                          <button
+                            onClick={() => deleteCandidate(c)}
+                            disabled={deletingCandidateId === c.id}
+                            title="ลบออกจากรายชื่อรอเพิ่ม"
+                            className="flex items-center gap-1 px-2 py-1.5 bg-red-50 text-red-600 rounded-lg text-xs font-semibold hover:bg-red-100 whitespace-nowrap disabled:opacity-50"
+                          >
+                            {deletingCandidateId === c.id ? <Loader2 className="animate-spin" size={14} /> : <Trash2 size={14} />}
+                          </button>
+                        )}
                       </div>
                     </td>
                   </tr>
@@ -820,24 +874,38 @@ export const RecruitmentIntakePage = ({ projectOptions = [] }: { projectOptions?
                   <p className="text-sm text-gray-400">ยังไม่มีเอกสารแนบ</p>
                 ) : (
                   <ul className="flex flex-col gap-1.5">
-                    {((docsTarget.attachments as HiringAttachment[]) || []).map((a, idx) => (
-                      <li key={`${a.url}-${idx}`} className="flex items-center justify-between gap-2 text-sm bg-gray-50 rounded-lg px-3 py-2">
-                        <div className="min-w-0">
-                          <div className="font-medium text-gray-700 truncate">{a.name}</div>
-                          <div className="text-[11px] text-gray-400">
-                            {documentTypeOptions.find((o) => o.value === a.docType)?.label || a.docType}
+                    {((docsTarget.attachments as HiringAttachment[]) || []).map((a, idx) => {
+                      const key = `${docsTarget.id}:${a.url}`;
+                      return (
+                        <li key={`${a.url}-${idx}`} className="flex items-center justify-between gap-2 text-sm bg-gray-50 rounded-lg px-3 py-2">
+                          <div className="min-w-0">
+                            <div className="font-medium text-gray-700 truncate">{a.name}</div>
+                            <div className="text-[11px] text-gray-400">
+                              {documentTypeOptions.find((o) => o.value === a.docType)?.label || a.docType}
+                            </div>
                           </div>
-                        </div>
-                        <a
-                          href={a.url}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="text-blue-600 hover:underline text-xs font-semibold whitespace-nowrap shrink-0"
-                        >
-                          เปิดไฟล์
-                        </a>
-                      </li>
-                    ))}
+                          <div className="flex items-center gap-2 shrink-0">
+                            <a
+                              href={a.url}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="text-blue-600 hover:underline text-xs font-semibold whitespace-nowrap"
+                            >
+                              เปิดไฟล์
+                            </a>
+                            <button
+                              type="button"
+                              onClick={() => deleteAttachment(docsTarget, a)}
+                              disabled={deletingAttachmentKey === key}
+                              title="ลบเอกสารนี้"
+                              className="text-red-500 hover:text-red-700 disabled:opacity-50 p-0.5"
+                            >
+                              {deletingAttachmentKey === key ? <Loader2 className="animate-spin" size={14} /> : <Trash2 size={14} />}
+                            </button>
+                          </div>
+                        </li>
+                      );
+                    })}
                   </ul>
                 )}
               </div>
@@ -1000,21 +1068,32 @@ export const RecruitmentIntakePage = ({ projectOptions = [] }: { projectOptions?
               </DetailSection>
             </div>
 
-            <div className="p-4 border-t bg-gray-50 flex justify-end gap-2">
-              <button
-                onClick={() => { openDocsPanel(viewTarget); setViewTarget(null); }}
-                className="flex items-center gap-1 px-4 py-2 bg-gray-100 text-gray-700 rounded-lg text-sm font-semibold hover:bg-gray-200"
-              >
-                <Paperclip size={14} /> เอกสารแนบ
-              </button>
-              {canManage && !viewTarget.importedEmployeeId && (
+            <div className="p-4 border-t bg-gray-50 flex justify-between items-center gap-2">
+              {canManage && (
                 <button
-                  onClick={() => { openIntakeForm(viewTarget); setViewTarget(null); }}
-                  className="flex items-center gap-1 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-semibold hover:bg-blue-700"
+                  onClick={() => deleteCandidate(viewTarget)}
+                  disabled={deletingCandidateId === viewTarget.id}
+                  className="flex items-center gap-1 px-4 py-2 bg-red-50 text-red-600 rounded-lg text-sm font-semibold hover:bg-red-100 disabled:opacity-50"
                 >
-                  <UserPlus size={14} /> เพิ่มเข้าระบบ
+                  {deletingCandidateId === viewTarget.id ? <Loader2 className="animate-spin" size={14} /> : <Trash2 size={14} />} ลบรายการนี้
                 </button>
               )}
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => { openDocsPanel(viewTarget); setViewTarget(null); }}
+                  className="flex items-center gap-1 px-4 py-2 bg-gray-100 text-gray-700 rounded-lg text-sm font-semibold hover:bg-gray-200"
+                >
+                  <Paperclip size={14} /> เอกสารแนบ
+                </button>
+                {canManage && !viewTarget.importedEmployeeId && (
+                  <button
+                    onClick={() => { openIntakeForm(viewTarget); setViewTarget(null); }}
+                    className="flex items-center gap-1 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-semibold hover:bg-blue-700"
+                  >
+                    <UserPlus size={14} /> เพิ่มเข้าระบบ
+                  </button>
+                )}
+              </div>
             </div>
           </div>
         </div>

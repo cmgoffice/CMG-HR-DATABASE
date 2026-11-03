@@ -1,4 +1,4 @@
-import { arrayUnion, doc, getFirestore, updateDoc } from "firebase/firestore";
+import { arrayRemove, arrayUnion, doc, getFirestore, updateDoc } from "firebase/firestore";
 import { HIRING_DOCS_MAX_FILE_SIZE_BYTES, HiringAttachment } from "../components/recruitmentIntakeConfig";
 
 // ---------------------------------------------------------------------------
@@ -116,6 +116,21 @@ export const appendAttachmentToRecruitmentPending = async (
   const db = getFirestore();
   const ref = doc(db, "CMG-HR-Database", "root", "recruitment_pending_employees", hiringPacketId);
   await updateDoc(ref, { attachments: arrayUnion(attachment) });
+};
+
+/**
+ * ลบ attachment ออกจาก `recruitment_pending_employees/{hiringPacketId}.attachments`
+ * ใช้ arrayRemove โดยต้องส่ง object เดิมเป๊ะ ๆ ที่ดึงมาจาก array (ห้ามสร้างใหม่/แก้ field)
+ * เพราะ arrayRemove เทียบแบบ exact match ทุก field — ถ้าไม่ตรงจะลบไม่ออก
+ * (ไม่ลบไฟล์จริงบน Google Drive แค่ตัดลิงก์ออกจาก Firestore)
+ */
+export const removeAttachmentFromRecruitmentPending = async (
+  hiringPacketId: string,
+  attachment: HiringAttachment
+): Promise<void> => {
+  const db = getFirestore();
+  const ref = doc(db, "CMG-HR-Database", "root", "recruitment_pending_employees", hiringPacketId);
+  await updateDoc(ref, { attachments: arrayRemove(attachment) });
 };
 
 /**
