@@ -983,6 +983,7 @@ const TrainingBatchDetail = ({
   const { firebaseUser, userProfile } = useAuth();
   const db = getFirestore();
   const [showPicker, setShowPicker] = useState(openEmployeePicker && canManage);
+  const [detailTab, setDetailTab] = useState<"roster" | "forms">("roster");
   const [healthRecords, setHealthRecords] = useState<HealthCheckRecord[]>([]);
   const [clinicLinkCopied, setClinicLinkCopied] = useState(false);
   const [generatingLink, setGeneratingLink] = useState(false);
@@ -1502,7 +1503,7 @@ const TrainingBatchDetail = ({
             >
               <UserPlus size={16} className="sm:hidden" /><UserPlus size={14} className="hidden sm:block" /> เพิ่มรายชื่อ
             </button>
-            {isGmtpTrainingRequestProject(batch.project) ? (
+            {isGmtpTrainingRequestProject(batch.project) ? (detailTab === "forms" && (
               <>
                 <button onClick={openGmtpHeader} className="px-3 py-2 rounded-lg border border-indigo-300 text-indigo-700 text-sm font-semibold hover:bg-indigo-50">
                   ข้อมูลผู้ขอ / ส่วนหัวใบปะหน้า
@@ -1516,7 +1517,7 @@ const TrainingBatchDetail = ({
                   {generatingGmtpXlsx ? <Loader2 className="animate-spin" size={16} /> : <Download size={14} />} ดาวน์โหลดชุดส่งอบรมทุกคอร์ส
                 </button>
               </>
-            ) : (
+            )) : (
               <>
                 <button
                   onClick={handlePreviewTrainingNameListPdf}
@@ -1572,7 +1573,14 @@ const TrainingBatchDetail = ({
         )}
       </div>
 
-      {canManage && (
+      {isGmtpTrainingRequestProject(batch.project) && (
+        <div role="tablist" aria-label="ข้อมูลรอบอบรม J74" className="flex gap-2 border-b border-gray-200 shrink-0">
+          <button id="j74-roster-tab" role="tab" aria-selected={detailTab === "roster"} aria-controls="j74-roster-panel" onClick={() => setDetailTab("roster")} className={`px-4 py-3 text-sm font-semibold border-b-2 ${detailTab === "roster" ? "border-blue-600 text-blue-700" : "border-transparent text-gray-500"}`}>รายชื่อผู้เข้าอบรม ({enrollments.length} คน)</button>
+          <button id="j74-forms-tab" role="tab" aria-selected={detailTab === "forms"} aria-controls="j74-forms-panel" onClick={() => setDetailTab("forms")} className={`px-4 py-3 text-sm font-semibold border-b-2 ${detailTab === "forms" ? "border-indigo-600 text-indigo-700" : "border-transparent text-gray-500"}`}>ใบปะหน้า / ชุดส่งอบรม ({gmtpCourseGroups.length} คอร์ส)</button>
+        </div>
+      )}
+
+      {canManage && detailTab === "roster" && (
         <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
           <div className="flex-1 min-w-0 bg-sky-50 border border-sky-200 rounded-xl px-4 py-2.5 flex items-center justify-between gap-2">
             <span className="text-sm font-bold text-sky-800 flex items-center gap-1.5 flex-wrap min-w-0">
@@ -1796,13 +1804,14 @@ const TrainingBatchDetail = ({
         </div>
       )}
 
-      <div className="flex items-center gap-2 text-sm text-gray-500">
+      {detailTab === "roster" && <div id="j74-roster-panel" role={isGmtpTrainingRequestProject(batch.project) ? "tabpanel" : undefined} aria-labelledby={isGmtpTrainingRequestProject(batch.project) ? "j74-roster-tab" : undefined} className="flex flex-col flex-1 min-h-0 gap-3">
+      <div className="flex items-center gap-2 text-sm text-gray-500 shrink-0">
         <Users size={16} />
         รายชื่อในรอบนี้: {enrollments.length}
         {batch.capacity ? ` / ${batch.capacity}` : ""} คน
       </div>
 
-      <div className="flex-1 overflow-auto bg-white rounded-xl border border-gray-200 shadow-sm">
+      <div className="flex-1 min-h-[240px] overflow-auto bg-white rounded-xl border border-gray-200 shadow-sm">
         {enrollments.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-48 text-gray-400 gap-2">
             <Inbox size={28} />
@@ -1848,8 +1857,10 @@ const TrainingBatchDetail = ({
         )}
       </div>
 
-      {isGmtpTrainingRequestProject(batch.project) && (
-        <section className="border rounded-xl bg-white p-4">
+      </div>}
+
+      {isGmtpTrainingRequestProject(batch.project) && detailTab === "forms" && (
+        <section id="j74-forms-panel" role="tabpanel" aria-labelledby="j74-forms-tab" className="flex-1 min-h-0 overflow-auto border rounded-xl bg-white p-4">
           <h3 className="font-bold text-gray-800">ใบปะหน้าแยกตามคอร์สใน Training Matrix 74</h3>
           <p className="text-sm text-gray-500 my-2">รายชื่อคนเดิมอยู่ได้หลายคอร์สตามตำแหน่ง กำหนดการส่วนหัวใช้ร่วมกันทั้งรอบ</p>
           {gmtpCourseGroups.length === 0 && <p className="text-sm text-gray-500">เพิ่มรายชื่อและจับคู่ตำแหน่งเพื่อจัดคอร์ส</p>}
@@ -1885,7 +1896,7 @@ const TrainingBatchDetail = ({
         );
       })()}
 
-      {canManage && enrollments.length > 0 && (
+      {canManage && detailTab === "roster" && enrollments.length > 0 && (
         <div>
           {!showSharedUpload ? (
             <button
