@@ -6,7 +6,9 @@
 // เขียนทับบน PDF จริงของลูกค้า (ถ้าใช้ไลบรารี xlsx อ่าน-เขียนไฟล์ใหม่ทั้งไฟล์ รูปภาพ/โลโก้ที่ฝังไว้จะหายไปทันที)
 import JSZip from "jszip";
 import { resolveEmployeeDateOfBirth } from "./employeeDates";
-import { GMTP_MATRIX_COURSES, getGmtpCourseEnrollments, getGmtpMatrixCourse, resolveGmtpMatrixRole } from "../components/gmtpTrainingMatrix";
+import { GMTP_MATRIX_COURSES, getGmtpCourseEnrollments, getGmtpMatrixCourse, resolveGmtpMatrixRole, gmtpDocumentRequirements } from "../components/gmtpTrainingMatrix";
+import { groupRequirements, getApplicableRequirements } from "../components/projectDocumentConfig";
+import type { ProjectDocumentRequirement } from "../components/projectDocumentConfig";
 import type { TrainingBatch, TrainingEnrollment } from "../components/trainingBatchConfig";
 import type { EmployeeRow } from "../components/TrainingBatchPage";
 
@@ -221,6 +223,46 @@ const writePhotosRow = (xml: string, rowIndex: number, values: { no: number; nam
   return out;
 };
 
+const embedGmtpPhotos = async (zip: JSZip, language: "th" | "mm", people: TrainingEnrollment[], employees: Map<string, EmployeeRow>): Promise<void> => {
+  const drawing = language === "th" ? "drawing3" : "drawing2";
+  const drawingRelsPath = `xl/drawings/_rels/${drawing}.xml.rels`;
+  const originalRels = await zip.file(drawingRelsPath)?.async("text") || "";
+  const originalImages = (originalRels.match(/Target="\.\.\/media\/[^"]+"/g) || []).map((target) => target.replace('Target="../media/', "").replace(/"$/, ""));
+  const anchors: string[] = [];
+  const relationships: string[] = [];
+  for (const [index, en] of Array.from(people.entries())) {
+    const photo = employees.get(en.employeeId)?.attachments?.find((item) => item.url && /photo|รูปถ่าย/i.test(item.docType || ""));
+    if (!photo?.url) throw new Error(`กรุณาแนบรูปถ่ายทำบัตร: ${en.employeeName}`);
+    const response = await fetch(photo.url);
+    if (!response.ok) throw new Error(`โหลดรูปถ่ายไม่สำเร็จ: ${en.employeeName}`);
+    const blob = await response.blob();
+    const bytes = new Uint8Array(await blob.arrayBuffer());
+    const extension = bytes[0] === 0x89 && bytes[1] === 0x50 ? "png" : bytes[0] === 0xff && bytes[1] === 0xd8 ? "jpeg" : "";
+    if (!extension) throw new Error(`รูปถ่ายของ ${en.employeeName} ต้องเป็น PNG หรือ JPEG`);
+    const bitmap = await createImageBitmap(blob);
+    const scale = Math.min(76 / bitmap.width, 110 / bitmap.height);
+    const cx = Math.round(bitmap.width * scale * 9525);
+    const cy = Math.round(bitmap.height * scale * 9525);
+    bitmap.close();
+    const id = index + 1;
+    const imageName = `gmtp_photo_${id}.${extension}`;
+    zip.file(`xl/media/${imageName}`, bytes);
+    relationships.push(`<Relationship Id="rId${id}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="../media/${imageName}"/>`);
+    anchors.push(`<xdr:oneCellAnchor><xdr:from><xdr:col>4</xdr:col><xdr:colOff>38100</xdr:colOff><xdr:row>${index + PHOTOS_FIRST_ROW - 1}</xdr:row><xdr:rowOff>38100</xdr:rowOff></xdr:from><xdr:ext cx="${cx}" cy="${cy}"/><xdr:pic><xdr:nvPicPr><xdr:cNvPr id="${id}" name="${escapeXml(en.employeeName)}"/><xdr:cNvPicPr><a:picLocks noChangeAspect="1"/></xdr:cNvPicPr></xdr:nvPicPr><xdr:blipFill><a:blip r:embed="rId${id}"/><a:stretch><a:fillRect/></a:stretch></xdr:blipFill><xdr:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="${cx}" cy="${cy}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></xdr:spPr></xdr:pic><xdr:clientData/></xdr:oneCellAnchor>`);
+  }
+  zip.file(`xl/drawings/${drawing}.xml`, `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><xdr:wsDr xmlns:xdr="http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">${anchors.join("")}</xdr:wsDr>`);
+  zip.file(drawingRelsPath, `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${relationships.join("")}</Relationships>`);
+  const allRels = (await Promise.all(zip.filter((path) => path.endsWith(".rels")).map((file) => file.async("text")))).join("\n");
+  originalImages.forEach((name) => {
+    if (!allRels.includes(`media/${name}"`)) zip.remove(`xl/media/${name}`);
+  });
+  let contentTypes = await zip.file("[Content_Types].xml")!.async("text");
+  for (const [extension, mime] of [["png", "image/png"], ["jpeg", "image/jpeg"]]) {
+    if (!contentTypes.includes(`Extension="${extension}"`)) contentTypes = contentTypes.replace("</Types>", `<Default Extension="${extension}" ContentType="${mime}"/></Types>`);
+  }
+  zip.file("[Content_Types].xml", contentTypes);
+};
+
 export const generateGmtpTrainingRequestFormXlsx = async (
   batch: TrainingBatch,
   enrollments: TrainingEnrollment[],
@@ -298,8 +340,7 @@ export const generateGmtpTrainingRequestFormXlsx = async (
     offset += layout.rows;
   }
 
-  // ชีต "Photos" — เติมให้แค่ชื่อ/ตำแหน่ง/กรุ๊ปเลือด (ข้อความ) ส่วนรูปถ่ายจริงยังต้องให้ HR แปะเองหลังดาวน์โหลด
-  // (ไฟล์รูปในระบบยังไม่ได้เชื่อมต่อให้ฝังอัตโนมัติ) ตามที่พี่บอกว่า "ไฟล์รูปไม่ปริ้น" อยู่แล้วจึงไม่กระทบขั้นตอนพิมพ์
+  // Photos uses the same people and order as the cover sheets. Photos remain digital for card production.
   const photosFile = zip.file(sheetPaths.photos);
   if (photosFile) {
     let xml = await photosFile.async("text");
@@ -321,6 +362,7 @@ export const generateGmtpTrainingRequestFormXlsx = async (
     zip.file(sheetPaths.photos, xml);
   }
 
+  await embedGmtpPhotos(zip, language, filtered, employeeById);
   return zip.generateAsync({ type: "uint8array" });
 };
 
@@ -389,15 +431,57 @@ export const generateGmtpRoundFiles = async (
 
 export const downloadGmtpRoundForms = async (
   batch: TrainingBatch, enrollments: TrainingEnrollment[], employees: EmployeeRow[],
-  requestor: GmtpRequestorInfo, courseName?: string, language?: "th" | "mm"
+  requestor: GmtpRequestorInfo, courseName?: string, language?: "th" | "mm",
+  requirements: ProjectDocumentRequirement[] = [],
+  healthFiles: Map<string, { fileUrl?: string; fileName?: string }> = new Map()
 ): Promise<void> => {
   const files = await generateGmtpRoundFiles(batch, enrollments, employees, requestor, courseName, language);
   if (!files.length) throw new Error("ยังไม่มีผู้เข้าอบรมตามตำแหน่งใน Matrix สำหรับคอร์สนี้");
-  if (files.length === 1) {
-    downloadBlob(files[0].bytes, files[0].name);
-    return;
-  }
   const zip = new JSZip();
-  files.forEach((file) => zip.file(file.name, file.bytes));
-  downloadBlob(await zip.generateAsync({ type: "uint8array" }), `GMTP_Training_Forms_${batch.date}.zip`);
+  const employeeById = new Map(employees.map((emp) => [emp.id, emp]));
+  const downloads = new Map<string, ArrayBuffer>();
+  const missing: string[] = [];
+  const safeName = (value: string) => value.replace(/[\\/:*?"<>|]/g, "_").replace(/^[. ]+|[. ]+$/g, "") || "document";
+  for (const file of files) {
+    const course = GMTP_MATRIX_COURSES.find((item) => file.name.startsWith(`${String(item.id).padStart(2, "0")}_`))!;
+    const lang = file.name.includes("_Thai_") ? "th" : "mm";
+    const page = Number(file.name.match(/_(\d+)\.xlsx$/)?.[1] || 1);
+    const capacity = SHEET_LAYOUTS[lang].reduce((total, layout) => total + layout.rows, 0);
+    const people = getGmtpCourseEnrollments(enrollments, course.name)
+      .filter((en) => resolveGmtpGroup(resolveNationality(en, employeeById.get(en.employeeId))) === lang)
+      .slice((page - 1) * capacity, page * capacity);
+    const folder = file.name.replace(/\.xlsx$/, "");
+    zip.file(`${folder}/00_${file.name}`, file.bytes);
+    for (const [index, en] of Array.from(people.entries())) {
+      const emp = employeeById.get(en.employeeId);
+      const health = healthFiles.get(en.employeeId);
+      const attachments = [...(emp?.attachments || [])];
+      const applicable = getApplicableRequirements(gmtpDocumentRequirements(requirements, course.name, resolveGmtpMatrixRole(en.position, en.matrixRole)), !isThaiNationality(resolveNationality(en, emp)))
+        .filter((req) => req.fulfillmentType !== "generated_by_system");
+      const units = groupRequirements(applicable).sort((a, b) =>
+        Math.min(...a.options.map((req) => applicable.indexOf(req))) - Math.min(...b.options.map((req) => applicable.indexOf(req))));
+      for (const [docIndex, unit] of Array.from(units.entries())) {
+        let attachment = attachments.find((item) => item.url && unit.options.some((req) => req.docType === item.docType));
+        if (!attachment && health?.fileUrl && unit.options.some((req) => /health_cert|medical|รับรองแพทย์/i.test(`${req.docType} ${req.label}`))) {
+          attachment = { url: health.fileUrl, name: health.fileName || "medical.pdf" };
+        }
+        if (!attachment?.url) {
+          missing.push(`${en.employeeName} — ${unit.label} (${course.name})`);
+          continue;
+        }
+        let bytes = downloads.get(attachment.url);
+        if (!bytes) {
+          const response = await fetch(attachment.url);
+          if (!response.ok) throw new Error(`ดาวน์โหลดเอกสารไม่สำเร็จ: ${en.employeeName} — ${unit.label}`);
+          bytes = await response.arrayBuffer();
+          downloads.set(attachment.url, bytes);
+        }
+        const personFolder = `${String(index + 1).padStart(2, "0")}_${safeName(en.employeeName)}_${safeName(en.employeeId)}`;
+        const photo = unit.options.some((req) => /photo|รูปถ่าย/i.test(`${req.docType} ${req.label}`));
+        zip.file(`${folder}/${personFolder}/${String(docIndex + 1).padStart(2, "0")}_${photo ? "รูปถ่าย_ไฟล์ส่งทำบัตร_" : ""}${safeName(attachment.name || `${unit.label}.pdf`)}`, bytes);
+      }
+    }
+  }
+  if (missing.length) throw new Error(`เอกสารยังไม่ครบ กรุณาแนบก่อนดาวน์โหลดชุดส่งอบรม:\n${Array.from(new Set(missing)).join("\n")}`);
+  downloadBlob(await zip.generateAsync({ type: "uint8array" }), `GMTP_Training_Submission_${batch.date}.zip`);
 };

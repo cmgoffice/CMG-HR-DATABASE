@@ -109,7 +109,7 @@ export interface EmployeeRow {
   โครงการปัจจุบัน?: string;
   สถานะโครงการ?: string | string[];
   employee_type?: string;
-  attachments?: Array<{ docType?: string }>;
+  attachments?: Array<{ docType?: string; name?: string; url?: string }>;
   // เอกสารแรงงานต่างด้าว (ใบอนุญาตทำงาน/บัตรอนุญาตทำงาน/พาสปอร์ต/วีซ่า ฯลฯ) — ดู migrantWorkerConfig.ts
   // ใช้คำนวณช่อง "Identity verification document" ในใบปะหน้าแบบ HUASHI (J-078) อัตโนมัติ
   migrant_documents?: Record<string, { docNumber?: string; expiryDate?: string } | undefined>;
@@ -1388,13 +1388,13 @@ const TrainingBatchDetail = ({
   const [editingGmtpHeader, setEditingGmtpHeader] = useState(false);
   const [savingGmtpHeader, setSavingGmtpHeader] = useState(false);
   const [gmtpHeader, setGmtpHeader] = useState({
-    courseName: "", date: "", timeSlot: "", location: "", trainer: "",
+    date: "", timeSlot: "", location: "", trainer: "",
     requestorName: "", requestorPosition: "", requestorMobile: "", requestorEmail: "",
     gmtpConfirmedBy: "", gmtpConfirmedDate: "",
   });
   const openGmtpHeader = () => {
     setGmtpHeader({
-      courseName: batch.courseName || "", date: batch.date || "", timeSlot: batch.timeSlot || "",
+      date: batch.date || "", timeSlot: batch.timeSlot || "",
       location: batch.location || "", trainer: batch.trainer || "",
       requestorName: batch.requestorName || "", requestorPosition: batch.requestorPosition || "",
       requestorMobile: batch.requestorMobile || "", requestorEmail: batch.requestorEmail || "",
@@ -1404,11 +1404,11 @@ const TrainingBatchDetail = ({
   };
   const saveGmtpHeader = async (event: React.FormEvent) => {
     event.preventDefault();
-    if (!canManage || savingGmtpHeader || !gmtpHeader.courseName.trim() || !gmtpHeader.date) return;
+    if (!canManage || savingGmtpHeader || !gmtpHeader.date) return;
     setSavingGmtpHeader(true);
     try {
       await updateDoc(doc(db, "CMG-HR-Database", "root", TRAINING_BATCHES_COLLECTION, batch.id), {
-        ...gmtpHeader, courseName: gmtpHeader.courseName.trim(), updatedAt: Date.now(),
+        ...gmtpHeader, updatedAt: Date.now(),
       });
       saveLastGmtpRequestorInfo(gmtpHeader);
       setEditingGmtpHeader(false);
@@ -1427,7 +1427,7 @@ const TrainingBatchDetail = ({
         requestorPosition: batch.requestorPosition || "",
         requestorMobile: batch.requestorMobile || "",
         requestorEmail: batch.requestorEmail || "",
-      }, courseName, language);
+      }, courseName, language, documentRequirements, recordByEmployee);
     } catch (err) {
       window.alert(`สร้างใบปะหน้าไม่สำเร็จ: ${err instanceof Error ? err.message : "เกิดข้อผิดพลาดที่ไม่คาดคิด"}`);
     } finally {
@@ -1438,6 +1438,7 @@ const TrainingBatchDetail = ({
   const [generatingBadgeRequestPdf, setGeneratingBadgeRequestPdf] = useState(false);
 
   const handlePreviewAccessBadgeRequestPdf = async () => {
+    if (isGmtpTrainingRequestProject(batch.project)) return;
     if (enrollments.length === 0) {
       window.alert("ยังไม่มีรายชื่อในรอบนี้ให้สร้างใบรายคน");
       return;
@@ -1453,6 +1454,7 @@ const TrainingBatchDetail = ({
   };
 
   const handleDownloadAccessBadgeRequestPdf = async () => {
+    if (isGmtpTrainingRequestProject(batch.project)) return;
     if (enrollments.length === 0) {
       window.alert("ยังไม่มีรายชื่อในรอบนี้ให้สร้างใบรายคน");
       return;
@@ -1503,15 +1505,15 @@ const TrainingBatchDetail = ({
             {isGmtpTrainingRequestProject(batch.project) ? (
               <>
                 <button onClick={openGmtpHeader} className="px-3 py-2 rounded-lg border border-indigo-300 text-indigo-700 text-sm font-semibold hover:bg-indigo-50">
-                  แก้ไขข้อมูลใบปะหน้า / ชื่อรอบ
+                  ข้อมูลผู้ขอ / ส่วนหัวใบปะหน้า
                 </button>
                 <button
                   onClick={() => handleDownloadGmtpXlsx()}
                   disabled={enrollments.length === 0 || generatingGmtpXlsx}
-                  title="รวมใบปะหน้าทุกคอร์ส แยกไฟล์ไทยและพม่าใน ZIP"
+                  title="รวมใบปะหน้าและเอกสารแนบผู้เข้าอบรม แยกคอร์สและไทย–พม่าใน ZIP"
                   className="flex items-center gap-1.5 sm:gap-1 px-3 py-2 sm:px-2.5 sm:py-1.5 bg-indigo-700 text-white rounded-lg text-sm sm:text-xs font-semibold hover:bg-indigo-800 disabled:opacity-50 whitespace-nowrap shrink-0"
                 >
-                  {generatingGmtpXlsx ? <Loader2 className="animate-spin" size={16} /> : <Download size={14} />} ดาวน์โหลดใบปะหน้าทุกคอร์ส
+                  {generatingGmtpXlsx ? <Loader2 className="animate-spin" size={16} /> : <Download size={14} />} ดาวน์โหลดชุดส่งอบรมทุกคอร์ส
                 </button>
               </>
             ) : (
@@ -1541,6 +1543,7 @@ const TrainingBatchDetail = ({
                 </button>
               </>
             )}
+            {!isGmtpTrainingRequestProject(batch.project) && <>
             <button
               onClick={handlePreviewAccessBadgeRequestPdf}
               disabled={enrollments.length === 0 || generatingBadgeRequestPdf}
@@ -1564,6 +1567,7 @@ const TrainingBatchDetail = ({
             >
               <Download size={16} className="sm:hidden" /><Download size={14} className="hidden sm:block" /> ดาวน์โหลดใบรายคน (PDF)
             </button>
+            </>}
           </div>
         )}
       </div>
@@ -1856,7 +1860,7 @@ const TrainingBatchDetail = ({
                 <p className="text-xs text-gray-600 my-1">{course.people.map((en) => en.employeeName).join(", ")}</p>
                 {course.note && <p className="text-xs text-amber-700 mb-2">{course.note}</p>}
                 {canManage && <div className="flex gap-2">
-                  {(["th", "mm"] as const).map((lang) => <button key={lang} disabled={generatingGmtpXlsx || course.counts[lang] === 0} onClick={() => handleDownloadGmtpXlsx(course.name, lang)} className="text-xs border rounded px-3 py-2 text-indigo-700 disabled:opacity-40">ใบปะหน้า {lang === "th" ? "ไทย" : "พม่า"} ({course.counts[lang]} คน)</button>)}
+                  {(["th", "mm"] as const).map((lang) => <button key={lang} disabled={generatingGmtpXlsx || course.counts[lang] === 0} onClick={() => handleDownloadGmtpXlsx(course.name, lang)} className="text-xs border rounded px-3 py-2 text-indigo-700 disabled:opacity-40">ชุดส่งอบรม {lang === "th" ? "ไทย" : "พม่า"} ({course.counts[lang]} คน)</button>)}
                 </div>}
               </div>
             ))}
@@ -1899,11 +1903,10 @@ const TrainingBatchDetail = ({
       {editingGmtpHeader && (
         <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4">
           <form onSubmit={saveGmtpHeader} className="bg-white rounded-xl shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto p-5">
-            <h3 className="font-bold text-lg mb-2">ข้อมูลใบปะหน้า J74</h3>
+            <h3 className="font-bold text-lg mb-2">ข้อมูลผู้ขอและส่วนหัวใบปะหน้า J74</h3>
             <p className="text-sm text-gray-500 mb-4">ข้อมูลส่วนหัวและกำหนดการนี้ใช้ร่วมกันทุกคอร์สในรอบ ชื่อคอร์สในแต่ละใบมาจาก Training Matrix 74 วันที่ยืนยันให้กรอกเมื่อได้รับการยืนยันแล้ว</p>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               {([
-                ["courseName", "ชื่อรอบอบรม", "text"],
                 ["date", "วันที่อบรม (ส่วนหัวและท้ายใบ)", "date"],
                 ["requestorName", "ผู้ขออบรม (Requestor)", "text"],
                 ["requestorPosition", "ตำแหน่งผู้ขออบรม", "text"],
@@ -1917,7 +1920,7 @@ const TrainingBatchDetail = ({
               ] as const).map(([field, label, type]) => (
                 <label key={field} className="text-sm text-gray-700">
                   {label}
-                  <input type={type} value={gmtpHeader[field]} required={field === "date" || field === "courseName"}
+                  <input type={type} value={gmtpHeader[field]} required={field === "date"}
                     disabled={savingGmtpHeader}
                     onChange={(e) => setGmtpHeader((current) => ({ ...current, [field]: e.target.value }))}
                     className="mt-1 w-full border border-gray-300 rounded-lg px-3 py-2" />
