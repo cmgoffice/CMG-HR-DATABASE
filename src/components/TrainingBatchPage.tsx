@@ -2778,6 +2778,7 @@ const EmployeePickerModal = ({
   const [language, setLanguage] = useState<TrainingLanguage>("th");
   const [matrixRoles, setMatrixRoles] = useState<Record<string, string>>({});
   const isGmtp = isGmtpTrainingRequestProject(batch.project);
+  const selectedEmployees = useMemo(() => employees.filter((employee) => selected.has(employee.id)), [employees, selected]);
 
   const filtered = useMemo(() => {
     const kw = search.trim().toLowerCase();
@@ -2792,6 +2793,7 @@ const EmployeePickerModal = ({
         return name.includes(kw) || (e.รหัสพนักงาน || "").toLowerCase().includes(kw) || (e.ตำแหน่ง || "").toLowerCase().includes(kw);
       });
   }, [employees, enrolledIds, onlySameProject, batch.project, search, projectAliasGroups]);
+  const allVisibleSelected = filtered.length > 0 && filtered.every((employee) => selected.has(employee.id));
 
   const toggle = (id: string) => {
     setSelected((prev) => {
@@ -2803,7 +2805,15 @@ const EmployeePickerModal = ({
   };
 
   const toggleAll = () => {
-    setSelected((prev) => (prev.size === filtered.length ? new Set() : new Set(filtered.map((e) => e.id))));
+    setSelected((previous) => {
+      const next = new Set(previous);
+      const removeVisible = filtered.length > 0 && filtered.every((employee) => previous.has(employee.id));
+      filtered.forEach((employee) => {
+        if (removeVisible) next.delete(employee.id);
+        else next.add(employee.id);
+      });
+      return next;
+    });
   };
 
   const handleConfirm = () => {
@@ -2821,7 +2831,7 @@ const EmployeePickerModal = ({
 
   return (
     <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[90] flex items-center justify-center p-4">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[90vh] flex flex-col">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-7xl h-[90vh] flex flex-col overflow-hidden">
         <div className="p-5 border-b flex items-start justify-between">
           <div>
             <h3 className="text-lg font-bold text-gray-800 flex items-center gap-2">
@@ -2860,7 +2870,8 @@ const EmployeePickerModal = ({
           </label>
         </div>
 
-        <div className="flex-1 overflow-auto">
+        <div className="flex flex-col lg:flex-row flex-1 min-h-0">
+        <div className="flex-1 min-w-0 min-h-0 overflow-auto">
           {filtered.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-40 text-gray-400 gap-2">
               <Inbox size={28} />
@@ -2871,7 +2882,7 @@ const EmployeePickerModal = ({
               <thead className="bg-gray-50 sticky top-0 z-10">
                 <tr>
                   <th className="p-3 text-center w-10">
-                    <input type="checkbox" checked={selected.size > 0 && selected.size === filtered.length} onChange={toggleAll} />
+                    <input type="checkbox" aria-label="เลือกหรือยกเลิกรายชื่อที่แสดงทั้งหมด" checked={allVisibleSelected} onChange={toggleAll} />
                   </th>
                   <th className="p-3 text-left font-semibold text-gray-600 border-b whitespace-nowrap">ชื่อ-สกุล</th>
                   <th className="p-3 text-left font-semibold text-gray-600 border-b whitespace-nowrap">รหัส</th>
@@ -2892,7 +2903,7 @@ const EmployeePickerModal = ({
                   );
                   const hasAnyRequirement = requirements.length > 0;
                   return (
-                    <tr key={e.id} className="hover:bg-gray-50 cursor-pointer" onClick={() => toggle(e.id)}>
+                    <tr key={e.id} className={`${selected.has(e.id) ? "bg-blue-50 hover:bg-blue-100" : "hover:bg-gray-50"} cursor-pointer`} onClick={() => toggle(e.id)}>
                       <td className="p-3 text-center" onClick={(ev) => ev.stopPropagation()}>
                         <input type="checkbox" checked={selected.has(e.id)} onChange={() => toggle(e.id)} />
                       </td>
@@ -2927,6 +2938,32 @@ const EmployeePickerModal = ({
               </tbody>
             </table>
           )}
+        </div>
+
+        <aside aria-label="รายชื่อพนักงานที่เลือกแล้ว" className="flex flex-col shrink-0 w-full lg:w-80 border-t lg:border-t-0 lg:border-l bg-blue-50/40 max-h-[30vh] lg:max-h-none min-h-0">
+          <div className="flex items-center justify-between gap-2 p-3 border-b shrink-0">
+            <h4 className="text-sm font-bold text-blue-800" aria-live="polite">เลือกแล้ว {selectedEmployees.length} คน</h4>
+            <button type="button" disabled={selected.size === 0} onClick={() => setSelected(new Set())} className="text-xs text-red-600 disabled:opacity-40">ล้างการเลือก</button>
+          </div>
+          <div className="flex-1 overflow-y-auto min-h-0 p-3">
+            {selectedEmployees.length === 0 ? <p className="text-sm text-gray-500 py-3">รายชื่อที่เลือกจะแสดงที่นี่</p> : (
+              <ol className="space-y-2">
+                {selectedEmployees.map((employee, index) => (
+                  <li key={employee.id} className="rounded-lg bg-white border border-blue-100 p-3">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="text-sm font-semibold text-gray-800 break-words">{index + 1}. {buildEmployeeFullName(employee)}</p>
+                        <p className="text-xs text-gray-500 mt-1">{employee.รหัสพนักงาน || "-"} • {employee.ตำแหน่ง || "-"}</p>
+                      </div>
+                      <button type="button" aria-label={`เอา ${buildEmployeeFullName(employee)} ออกจากรายการที่เลือก`} onClick={() => toggle(employee.id)} className="text-gray-400 hover:text-red-600 p-1 shrink-0"><X size={16} /></button>
+                    </div>
+                    {isGmtp && <GmtpMatrixRoleField courseName={batch.courseName} value={resolveGmtpMatrixRole(employee.ตำแหน่ง, matrixRoles[employee.id])} onChange={(value) => setMatrixRoles((current) => ({ ...current, [employee.id]: value }))} />}
+                  </li>
+                ))}
+              </ol>
+            )}
+          </div>
+        </aside>
         </div>
 
         <div className="p-5 border-t bg-gray-50 flex justify-between items-center">
