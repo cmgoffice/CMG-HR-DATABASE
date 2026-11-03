@@ -53,6 +53,7 @@ import { generateTrainingNameListPdf, generateAndDownloadTrainingNameListPdf, ge
 import { generateAccessBadgeRequestPdf, generateAndDownloadAccessBadgeRequestPdf, generateAndPreviewAccessBadgeRequestPdf } from "../utils/accessBadgeRequestPdf";
 import { generateTrainingSubmissionZip } from "../utils/trainingSubmissionZip";
 import { DrugTestReportPanel } from "./DrugTestReportPanel";
+import { downloadCardReceiptFormXlsx } from "../utils/cardReceiptFormXlsx";
 import {
   generateAndDownloadHuashiTrainingRequestFormPdf,
   generateAndPreviewHuashiTrainingRequestFormPdf,
@@ -1386,6 +1387,18 @@ const TrainingBatchDetail = ({
   };
 
   const [generatingGmtpXlsx, setGeneratingGmtpXlsx] = useState(false);
+  const [generatingCardReceipt, setGeneratingCardReceipt] = useState(false);
+  const handleDownloadCardReceipt = async () => {
+    if (!canManage || generatingCardReceipt || !enrollments.length) return;
+    setGeneratingCardReceipt(true);
+    try {
+      await downloadCardReceiptFormXlsx(batch, enrollments, employees);
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : "สร้างใบลงชื่อรับบัตรไม่สำเร็จ");
+    } finally {
+      setGeneratingCardReceipt(false);
+    }
+  };
   const gmtpCourseGroups = useMemo(() => GMTP_MATRIX_COURSES.map((course) => {
     const people = getGmtpCourseEnrollments(enrollments, course.name);
     return { ...course, people, counts: countGmtpEnrollmentsByLanguage(people, employees) };
@@ -1893,6 +1906,10 @@ const TrainingBatchDetail = ({
       {isGmtpTrainingRequestProject(batch.project) && detailTab === "forms" && (
         <section id="training-forms-panel" role="tabpanel" aria-labelledby="training-forms-tab" className="flex-1 min-h-0 overflow-auto border rounded-xl bg-white p-4">
           <h3 className="font-bold text-gray-800">ใบปะหน้าแยกตามคอร์สใน Training Matrix 74</h3>
+          {canManage && <button type="button" onClick={handleDownloadCardReceipt} disabled={!enrollments.length || generatingCardReceipt} className="my-3 flex items-center gap-2 px-4 py-2 border border-indigo-300 rounded-lg text-indigo-700 text-sm font-semibold disabled:opacity-50">
+            {generatingCardReceipt ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} />}
+            {generatingCardReceipt ? "กำลังสร้างใบลงชื่อรับบัตร..." : `ดาวน์โหลดใบลงชื่อรับบัตร (${enrollments.length} คน)`}
+          </button>}
           {canManage && <DrugTestReportPanel project={batch.project} enrollments={enrollments} employees={employees} />}
           <p className="text-sm text-gray-500 my-2">รายชื่อคนเดิมอยู่ได้หลายคอร์สตามตำแหน่ง กำหนดการส่วนหัวใช้ร่วมกันทั้งรอบ</p>
           {gmtpCourseGroups.length === 0 && <p className="text-sm text-gray-500">เพิ่มรายชื่อและจับคู่ตำแหน่งเพื่อจัดคอร์ส</p>}
