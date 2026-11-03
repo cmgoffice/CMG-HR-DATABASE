@@ -5,12 +5,13 @@
 // (xl/drawings, xl/media) คงเดิมเป๊ะทุกอย่าง เหมือนกับที่ huashiTrainingRequestFormPdf.ts ใช้วิธี "overlay"
 // เขียนทับบน PDF จริงของลูกค้า (ถ้าใช้ไลบรารี xlsx อ่าน-เขียนไฟล์ใหม่ทั้งไฟล์ รูปภาพ/โลโก้ที่ฝังไว้จะหายไปทันที)
 import JSZip from "jszip";
+import { resolveEmployeeDateOfBirth } from "./employeeDates";
 import type { TrainingBatch, TrainingEnrollment } from "../components/trainingBatchConfig";
 import type { EmployeeRow } from "../components/TrainingBatchPage";
 
 // โครงการที่ใช้แบบฟอร์มนี้ — จับคู่แบบ "มีคำนี้อยู่ใน batch.project" (ไม่สนตัวพิมพ์เล็ก/ใหญ่) เหมือนกับ
 // isHuashiTrainingRequestProject ใน huashiTrainingRequestFormPdf.ts
-const GMTP_PROJECT_MATCH_KEYWORDS = ["J-074", "J074", "GMTP"];
+const GMTP_PROJECT_MATCH_KEYWORDS = ["J-074", "J074", "J74", "GMTP"];
 
 export function isGmtpTrainingRequestProject(project: string | undefined | null): boolean {
   const value = String(project || "").toUpperCase();
@@ -31,14 +32,17 @@ const TEMPLATE_URL: Record<"th" | "mm", string> = {
   mm: asset("/templates/training/gmtp-training-request-form-mm.xlsx"),
 };
 
-// ชื่อไฟล์ภายใน .xlsx (เทียบจากโครงสร้างจริงที่แกะดูแล้ว) — ไฟล์ไทยมี 2 ชีตข้อมูล (SHE 1 / SHE (2)) รองรับ
-// ได้ถึง 30 คน (ชีตละ 15 แถว) ส่วนไฟล์เมียนมามีชีตข้อมูลเดียว (In) รองรับ 15 คน และชีตรูปถ่ายคนละชื่อไฟล์
+// ไฟล์ไทยมี 2 ชีตข้อมูล (15 และ 11 คน) ส่วนไฟล์เมียนมามีชีตข้อมูลเดียว (10 คน)
+// ตำแหน่งส่วนยืนยันอบรมต่างกันในแต่ละชีต ต้องเว้นไว้จากตารางรายชื่อ
 const SHEET_PATHS: Record<"th" | "mm", { data: string[]; photos: string }> = {
   th: { data: ["xl/worksheets/sheet1.xml", "xl/worksheets/sheet2.xml"], photos: "xl/worksheets/sheet3.xml" },
   mm: { data: ["xl/worksheets/sheet1.xml"], photos: "xl/worksheets/sheet2.xml" },
 };
 
-const ROWS_PER_SHEET = 15;
+const SHEET_LAYOUTS = {
+  th: [{ rows: 15, confirmationRow: 28 }, { rows: 11, confirmationRow: 24 }],
+  mm: [{ rows: 10, confirmationRow: 23 }],
+};
 const DATA_FIRST_ROW = 12; // แถวแรกของตารางรายชื่อ (แถว 1-11 เป็นหัวฟอร์ม/ป้ายหัวตาราง)
 const PHOTOS_FIRST_ROW = 3;
 const PHOTOS_MAX_ROWS = 26;
@@ -120,6 +124,21 @@ const isThaiNationality = (nationality: string | undefined): boolean => {
 };
 
 const resolveGmtpCompanyLabel = (nationality: string | undefined): string => (isThaiNationality(nationality) ? "CAZ-CMG" : "CMG");
+
+const resolveNationality = (en: TrainingEnrollment, emp?: EmployeeRow): string =>
+  String(emp?.สัญชาติ || en.nationality || "").trim();
+
+const resolveGmtpGroup = (nationality: string): "th" | "mm" | null => {
+  if (isThaiNationality(nationality)) return "th";
+  if (["พม่า", "เมียนมา", "เมียนมาร์", "myanmar", "burmese", "burma"].includes(nationality.toLowerCase())) return "mm";
+  return null;
+};
+
+const displayDate = (iso: string | undefined): string => {
+  if (!iso) return "";
+  const [year, month, day] = iso.split("-");
+  return `${day}/${month}/${year}`;
+};
 
 // ที่อยู่ของแรงงานเมียนมาในใบปะหน้า GMTP ใช้ที่พัก/แคมป์ที่บริษัทจัดให้เสมอ (ไม่ใช่ที่อยู่ตามทะเบียนบ้านจริงที่
 // เมียนมาซึ่งเก็บไว้ในโปรไฟล์พนักงาน) ยืนยันกับ HR แล้วว่าใช้ที่อยู่คงที่นี้ไปก่อนจนกว่าจะแจ้งเปลี่ยน
@@ -212,11 +231,13 @@ export const generateGmtpTrainingRequestFormXlsx = async (
   const zip = await JSZip.loadAsync(templateBytes);
   const employeeById = new Map(employees.map((e) => [e.id, e]));
 
-  // GMTP แยกใบปะหน้าเป็น 2 เวอร์ชันตามสัญชาติ (คนละไฟล์ ไม่ปนกัน) — ใบไทยใช้คนที่ language === "th",
-  // ใบเมียนมาใช้คนที่ language === "mm"
-  const filtered = enrollments.filter((en) => en.language === language);
+  // แยกตามสัญชาติปัจจุบันของพนักงาน โดยใช้ข้อมูลตอนลงทะเบียนเมื่อไม่มีข้อมูลพนักงาน
+  const unresolved = enrollments.filter((en) => !resolveGmtpGroup(resolveNationality(en, employeeById.get(en.employeeId))));
+  if (unresolved.length) throw new Error(`กรุณาตรวจสัญชาติไทย/เมียนมาในข้อมูลพนักงาน: ${unresolved.map((en) => en.employeeName).join(", ")}`);
+  const filtered = enrollments.filter((en) => resolveGmtpGroup(resolveNationality(en, employeeById.get(en.employeeId))) === language);
   const sheetPaths = SHEET_PATHS[language];
-  const maxCapacity = sheetPaths.data.length * ROWS_PER_SHEET;
+  const layouts = SHEET_LAYOUTS[language];
+  const maxCapacity = layouts.reduce((total, layout) => total + layout.rows, 0);
   if (filtered.length > maxCapacity) {
     throw new Error(
       `รอบนี้มีคนภาษา${language === "th" ? "ไทย" : "เมียนมา"}ทั้งหมด ${filtered.length} คน เกินความสามารถของไฟล์แบบฟอร์ม (${maxCapacity} คน/ไฟล์) กรุณาแยกส่งออกเป็นหลายรอบ`
@@ -225,22 +246,34 @@ export const generateGmtpTrainingRequestFormXlsx = async (
 
   const languageLabel = language === "th" ? "THAI" : "Myanmar";
 
+  let offset = 0;
   for (let sheetIdx = 0; sheetIdx < sheetPaths.data.length; sheetIdx += 1) {
     const path = sheetPaths.data[sheetIdx];
     const file = zip.file(path);
     if (!file) continue;
     let xml = await file.async("text");
     xml = writeHeaderFields(xml, batch, languageLabel, requestor);
+    const layout = layouts[sheetIdx];
+    const footer = layout.confirmationRow;
+    xml = text(xml, `C${footer}`, batch.gmtpConfirmedBy || "");
+    xml = text(xml, `K${footer}`, displayDate(batch.gmtpConfirmedDate));
+    xml = text(xml, `C${footer + 1}`, batch.trainer || "");
+    xml = text(xml, `K${footer + 1}`, displayDate(batch.date));
+    xml = text(xml, `C${footer + 2}`, batch.location || "");
+    xml = text(xml, `K${footer + 2}`, batch.timeSlot || "");
 
-    for (let i = 0; i < ROWS_PER_SHEET; i += 1) {
-      const globalIndex = sheetIdx * ROWS_PER_SHEET + i;
+    for (let i = 0; i < layout.rows; i += 1) {
+      const globalIndex = offset + i;
       const en = filtered[globalIndex];
       const rowNum = DATA_FIRST_ROW + i;
+      xml = text(xml, `O${rowNum}`, "");
+      xml = text(xml, `P${rowNum}`, "");
       if (!en) {
         xml = writeDataRow(xml, rowNum, null);
         continue;
       }
       const emp = employeeById.get(en.employeeId);
+      const nationality = resolveNationality(en, emp);
       xml = writeDataRow(xml, rowNum, {
         no: globalIndex + 1,
         nameEn: buildEnglishName(emp, en.employeeName),
@@ -248,14 +281,15 @@ export const generateGmtpTrainingRequestFormXlsx = async (
         section: emp?.แผนก || "",
         position: en.position || "",
         idCard: en.idCardNumber || "",
-        company: resolveGmtpCompanyLabel(en.nationality),
-        nationality: en.nationality || "",
-        dobSerial: excelSerialFromIso(emp?.วันเกิดปีเดือนวัน_คศ),
-        address: resolveGmtpAddress(emp, en.nationality),
+        company: resolveGmtpCompanyLabel(nationality),
+        nationality,
+        dobSerial: excelSerialFromIso(resolveEmployeeDateOfBirth(emp) || undefined),
+        address: resolveGmtpAddress(emp, nationality),
         gender: translateGender(en.gender),
       });
     }
     zip.file(path, xml);
+    offset += layout.rows;
   }
 
   // ชีต "Photos" — เติมให้แค่ชื่อ/ตำแหน่ง/กรุ๊ปเลือด (ข้อความ) ส่วนรูปถ่ายจริงยังต้องให้ HR แปะเองหลังดาวน์โหลด
@@ -308,13 +342,15 @@ export const generateAndDownloadGmtpTrainingRequestFormXlsx = async (
   downloadBlob(bytes, `GMTP_Training_Request_Form_${label}_${batch.date || ""}.xlsx`);
 };
 
-/** จำนวนคนแยกตามภาษา — ใช้ซ่อน/แสดงปุ่มดาวน์โหลดแต่ละเวอร์ชันในหน้ารอบอบรม (ไม่ต้องกดดาวน์โหลดไฟล์ที่ไม่มีคนเลย) */
-export const countGmtpEnrollmentsByLanguage = (enrollments: TrainingEnrollment[]): { th: number; mm: number } => {
+/** จำนวนคนแยกตามสัญชาติ สำหรับปุ่มดาวน์โหลดใบไทยและใบเมียนมา */
+export const countGmtpEnrollmentsByLanguage = (enrollments: TrainingEnrollment[], employees: EmployeeRow[] = []): { th: number; mm: number } => {
+  const employeeById = new Map(employees.map((emp) => [emp.id, emp]));
   let th = 0;
   let mm = 0;
   enrollments.forEach((en) => {
-    if (en.language === "th") th += 1;
-    else if (en.language === "mm") mm += 1;
+    const group = resolveGmtpGroup(resolveNationality(en, employeeById.get(en.employeeId)));
+    if (group === "th") th += 1;
+    else if (group === "mm") mm += 1;
   });
   return { th, mm };
 };

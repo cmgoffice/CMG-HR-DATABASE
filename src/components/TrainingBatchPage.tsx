@@ -1372,7 +1372,40 @@ const TrainingBatchDetail = ({
   };
 
   const [generatingGmtpXlsx, setGeneratingGmtpXlsx] = useState(false);
-  const gmtpLanguageCounts = useMemo(() => countGmtpEnrollmentsByLanguage(enrollments), [enrollments]);
+  const gmtpLanguageCounts = useMemo(() => countGmtpEnrollmentsByLanguage(enrollments, employees), [enrollments, employees]);
+  const [editingGmtpHeader, setEditingGmtpHeader] = useState(false);
+  const [savingGmtpHeader, setSavingGmtpHeader] = useState(false);
+  const [gmtpHeader, setGmtpHeader] = useState({
+    courseName: "", date: "", timeSlot: "", location: "", trainer: "",
+    requestorName: "", requestorPosition: "", requestorMobile: "", requestorEmail: "",
+    gmtpConfirmedBy: "", gmtpConfirmedDate: "",
+  });
+  const openGmtpHeader = () => {
+    setGmtpHeader({
+      courseName: batch.courseName || "", date: batch.date || "", timeSlot: batch.timeSlot || "",
+      location: batch.location || "", trainer: batch.trainer || "",
+      requestorName: batch.requestorName || "", requestorPosition: batch.requestorPosition || "",
+      requestorMobile: batch.requestorMobile || "", requestorEmail: batch.requestorEmail || "",
+      gmtpConfirmedBy: batch.gmtpConfirmedBy || "", gmtpConfirmedDate: batch.gmtpConfirmedDate || "",
+    });
+    setEditingGmtpHeader(true);
+  };
+  const saveGmtpHeader = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!canManage || savingGmtpHeader || !gmtpHeader.courseName.trim() || !gmtpHeader.date) return;
+    setSavingGmtpHeader(true);
+    try {
+      await updateDoc(doc(db, "CMG-HR-Database", "root", TRAINING_BATCHES_COLLECTION, batch.id), {
+        ...gmtpHeader, courseName: gmtpHeader.courseName.trim(), updatedAt: Date.now(),
+      });
+      saveLastGmtpRequestorInfo(gmtpHeader);
+      setEditingGmtpHeader(false);
+    } catch (err) {
+      window.alert(`บันทึกข้อมูลใบปะหน้าไม่สำเร็จ: ${err instanceof Error ? err.message : "กรุณาลองอีกครั้ง"}`);
+    } finally {
+      setSavingGmtpHeader(false);
+    }
+  };
 
   const handleDownloadGmtpXlsx = async (language: "th" | "mm") => {
     const count = language === "th" ? gmtpLanguageCounts.th : gmtpLanguageCounts.mm;
@@ -1461,6 +1494,9 @@ const TrainingBatchDetail = ({
             </button>
             {isGmtpTrainingRequestProject(batch.project) ? (
               <>
+                <button onClick={openGmtpHeader} className="px-3 py-2 rounded-lg border border-indigo-300 text-indigo-700 text-sm font-semibold hover:bg-indigo-50">
+                  แก้ไขข้อมูลใบปะหน้า / ชื่อคอร์ส
+                </button>
                 <button
                   onClick={() => handleDownloadGmtpXlsx("th")}
                   disabled={gmtpLanguageCounts.th === 0 || generatingGmtpXlsx}
@@ -1836,6 +1872,42 @@ const TrainingBatchDetail = ({
           ) : (
             <SharedFileUploadPanel enrollments={enrollments} source="hr_manual" actorName={`${userProfile?.firstName || ""} ${userProfile?.lastName || ""}`.trim()} actorUid={firebaseUser?.uid} />
           )}
+        </div>
+      )}
+
+      {editingGmtpHeader && (
+        <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4">
+          <form onSubmit={saveGmtpHeader} className="bg-white rounded-xl shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto p-5">
+            <h3 className="font-bold text-lg mb-2">ข้อมูลใบปะหน้า J74</h3>
+            <p className="text-sm text-gray-500 mb-4">กรอกชื่อคอร์สพิเศษได้โดยตรง ข้อมูลนี้บันทึกกับรอบอบรมและใช้ทั้งใบไทยและใบพม่า วันที่ยืนยันให้กรอกเมื่อได้รับการยืนยันแล้ว</p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {([
+                ["courseName", "ชื่อคอร์ส / หัวข้ออบรม", "text"],
+                ["date", "วันที่อบรม (ส่วนหัวและท้ายใบ)", "date"],
+                ["requestorName", "ผู้ขออบรม (Requestor)", "text"],
+                ["requestorPosition", "ตำแหน่งผู้ขออบรม", "text"],
+                ["requestorMobile", "เบอร์โทรศัพท์", "tel"],
+                ["requestorEmail", "อีเมล", "email"],
+                ["trainer", "วิทยากร", "text"],
+                ["location", "ห้อง / สถานที่อบรม", "text"],
+                ["timeSlot", "เวลาอบรม เช่น 08:00-11:00", "text"],
+                ["gmtpConfirmedBy", "ผู้ยืนยัน (Confirmed by)", "text"],
+                ["gmtpConfirmedDate", "วันที่ยืนยัน (Date confirmed)", "date"],
+              ] as const).map(([field, label, type]) => (
+                <label key={field} className="text-sm text-gray-700">
+                  {label}
+                  <input type={type} value={gmtpHeader[field]} required={field === "courseName" || field === "date"}
+                    disabled={savingGmtpHeader}
+                    onChange={(e) => setGmtpHeader((current) => ({ ...current, [field]: e.target.value }))}
+                    className="mt-1 w-full border border-gray-300 rounded-lg px-3 py-2" />
+                </label>
+              ))}
+            </div>
+            <div className="flex justify-end gap-2 mt-5">
+              <button type="button" disabled={savingGmtpHeader} onClick={() => setEditingGmtpHeader(false)} className="px-4 py-2 rounded-lg border">ยกเลิก</button>
+              <button type="submit" disabled={savingGmtpHeader} className="px-4 py-2 rounded-lg bg-indigo-700 text-white disabled:opacity-50">{savingGmtpHeader ? "กำลังบันทึก..." : "บันทึกข้อมูลใบปะหน้า"}</button>
+            </div>
+          </form>
         </div>
       )}
 

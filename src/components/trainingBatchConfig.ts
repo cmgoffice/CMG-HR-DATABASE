@@ -87,6 +87,8 @@ export interface TrainingBatch {
   requestorPosition?: string;
   requestorMobile?: string;
   requestorEmail?: string;
+  gmtpConfirmedBy?: string;
+  gmtpConfirmedDate?: string;
 }
 
 export const DEFAULT_TRAINING_COURSE_OPTIONS: string[] = [
