@@ -90,7 +90,7 @@ import {
   TrainingPendingMember,
 } from "./contractorPortalConfig";
 import { useDocumentTypeCatalog } from "./documentTypeCatalog";
-import { EMPLOYEE_TYPE_OPTIONS, HiringAttachment } from "./recruitmentIntakeConfig";
+import { HiringAttachment } from "./recruitmentIntakeConfig";
 import { appendAttachmentToEmployee, uploadHiringDocumentFile } from "../utils/hiringDocsAttachments";
 import { IdCardPhotoGuideButton, isIdCardDocType } from "./IdCardPhotoGuide";
 
@@ -210,14 +210,10 @@ export const TrainingBatchPage = ({ projectOptions = [] }: { projectOptions?: st
   const [newBatchId, setNewBatchId] = useState<string | null>(null);
 
   // ----- ลิงก์เก็บเอกสารล่วงหน้า (ไม่ผูกรอบอบรม) -----
-  // "invited" = เลือกชื่อพนักงานที่มีอยู่แล้วในระบบ (ของเดิม) / "self_entry" = ผู้รับเหมาที่ "ยังไม่มีชื่อ"
-  // ในระบบเลย กรอกชื่อ+แนบเอกสารเองผ่านฟอร์มสาธารณะ (ดูรายละเอียดที่ ContractorPortal.tsx)
   const [generalContractorLinks, setGeneralContractorLinks] = useState<TrainingContractorLink[]>([]);
   const [showGeneralLinkForm, setShowGeneralLinkForm] = useState(false);
-  const [generalLinkMode, setGeneralLinkMode] = useState<"invited" | "self_entry">("invited");
   const [generalLinkProject, setGeneralLinkProject] = useState("");
   const [generalLinkCompany, setGeneralLinkCompany] = useState("");
-  const [generalLinkEmployeeType, setGeneralLinkEmployeeType] = useState("");
   const [showGeneralLinkPicker, setShowGeneralLinkPicker] = useState(false);
   const [creatingGeneralLink, setCreatingGeneralLink] = useState(false);
   const [copiedGeneralLinkId, setCopiedGeneralLinkId] = useState<string | null>(null);
@@ -380,38 +376,6 @@ export const TrainingBatchPage = ({ projectOptions = [] }: { projectOptions?: st
       setShowGeneralLinkForm(false);
       setGeneralLinkProject("");
       setGeneralLinkCompany("");
-    } catch (err) {
-      window.alert(`สร้างลิงก์ไม่สำเร็จ: ${err instanceof Error ? err.message : "เกิดข้อผิดพลาดที่ไม่คาดคิด"}`);
-    } finally {
-      setCreatingGeneralLink(false);
-    }
-  };
-
-  // ลิงก์สำหรับ "ผู้รับเหมาใหม่ที่ยังไม่มีชื่ออยู่ในระบบ" — ระบุแค่โครงการ + ชื่อบริษัทผู้รับเหมาเอง
-  // (พิมพ์เอง ไม่ได้เลือกจากรายชื่อพนักงานที่มีอยู่แล้ว เพราะยังไม่มีใครอยู่ในระบบเลย) ไม่ต้องเลือกรายชื่อ
-  // ผู้รับเหมาจะกรอกชื่อ+แนบเอกสารเองหน้า public แล้วเข้าคิว "รอเพิ่มเข้าระบบ" ที่หน้า RecruitmentIntakePage
-  const handleCreateSelfEntryLink = async () => {
-    const project = generalLinkProject.trim();
-    const company = generalLinkCompany.trim();
-    if (!project || !company) return;
-    setCreatingGeneralLink(true);
-    try {
-      const token = createContractorLinkToken();
-      const record: Omit<TrainingContractorLink, "id"> = {
-        project,
-        company,
-        employeeType: (generalLinkEmployeeType as ContractorEmployeeType) || "",
-        mode: "self_entry",
-        createdAt: Date.now(),
-        createdByUid: firebaseUser?.uid || "",
-        createdByName: `${userProfile?.firstName || ""} ${userProfile?.lastName || ""}`.trim(),
-      };
-      await setDoc(doc(db, "CMG-HR-Database", "root", TRAINING_CONTRACTOR_LINKS_COLLECTION, token), record);
-      setShowGeneralLinkForm(false);
-      setGeneralLinkProject("");
-      setGeneralLinkCompany("");
-      setGeneralLinkEmployeeType("");
-      setGeneralLinkMode("invited");
     } catch (err) {
       window.alert(`สร้างลิงก์ไม่สำเร็จ: ${err instanceof Error ? err.message : "เกิดข้อผิดพลาดที่ไม่คาดคิด"}`);
     } finally {
@@ -670,13 +634,7 @@ export const TrainingBatchPage = ({ projectOptions = [] }: { projectOptions?: st
                 {link.employeeType && (
                   <span className="text-gray-400 whitespace-nowrap">({CONTRACTOR_EMPLOYEE_TYPE_LABELS[link.employeeType]})</span>
                 )}
-                {link.mode === "self_entry" ? (
-                  <span className="inline-flex items-center px-1.5 py-0.5 rounded-full bg-sky-100 text-sky-700 font-semibold whitespace-nowrap">
-                    ผู้รับเหมาใหม่ (กรอกชื่อเอง)
-                  </span>
-                ) : (
-                  <span className="text-gray-400 whitespace-nowrap">{(link.invitedEmployeeIds || []).length} คน</span>
-                )}
+                <span className="text-gray-400 whitespace-nowrap">{(link.invitedEmployeeIds || []).length} คน</span>
                 <code className="text-gray-500 break-all flex-1 min-w-[160px]">{buildContractorPortalUrl(link.id)}</code>
                 <button
                   onClick={() => handleCopyGeneralLink(link)}
@@ -780,37 +738,16 @@ export const TrainingBatchPage = ({ projectOptions = [] }: { projectOptions?: st
                   <Link2 className="text-sky-600" size={20} />
                   สร้างลิงก์เก็บเอกสารล่วงหน้า
                 </h3>
-                <p className="text-xs text-gray-500 mt-1">
-                  {generalLinkMode === "invited"
-                    ? "เลือกโครงการ + บริษัทผู้รับเหมา แล้วเลือกรายชื่อทีมงาน (ต้องมีชื่ออยู่ในระบบแล้วเท่านั้น)"
-                    : "สำหรับผู้รับเหมา/Supply manpower ที่ยังไม่มีชื่อในระบบเลย — ผู้รับเหมากรอกชื่อ+แนบเอกสารเองผ่านลิงก์นี้"}
-                </p>
+                <p className="text-xs text-gray-500 mt-1">เลือกโครงการ + บริษัทผู้รับเหมา แล้วเลือกรายชื่อทีมงาน (ต้องมีชื่ออยู่ในระบบแล้วเท่านั้น)</p>
               </div>
               <button
-                onClick={() => { setShowGeneralLinkForm(false); setGeneralLinkProject(""); setGeneralLinkCompany(""); setGeneralLinkEmployeeType(""); setGeneralLinkMode("invited"); }}
+                onClick={() => { setShowGeneralLinkForm(false); setGeneralLinkProject(""); setGeneralLinkCompany(""); }}
                 className="text-gray-400 hover:text-red-500 p-1 shrink-0"
               >
                 <X size={18} />
               </button>
             </div>
             <div className="p-5 flex flex-col gap-3">
-              <div className="flex rounded-lg border border-gray-200 overflow-hidden text-xs font-semibold">
-                <button
-                  type="button"
-                  onClick={() => { setGeneralLinkMode("invited"); setGeneralLinkCompany(""); }}
-                  className={`flex-1 px-3 py-2 ${generalLinkMode === "invited" ? "bg-sky-600 text-white" : "bg-white text-gray-600 hover:bg-gray-50"}`}
-                >
-                  เลือกชื่อที่มีในระบบแล้ว
-                </button>
-                <button
-                  type="button"
-                  onClick={() => { setGeneralLinkMode("self_entry"); setGeneralLinkCompany(""); }}
-                  className={`flex-1 px-3 py-2 ${generalLinkMode === "self_entry" ? "bg-sky-600 text-white" : "bg-white text-gray-600 hover:bg-gray-50"}`}
-                >
-                  ผู้รับเหมาใหม่ (ยังไม่มีชื่อในระบบ)
-                </button>
-              </div>
-
               <Field label="โครงการ *">
                 <select
                   className="input"
@@ -823,78 +760,39 @@ export const TrainingBatchPage = ({ projectOptions = [] }: { projectOptions?: st
                   ))}
                 </select>
               </Field>
-
-              {generalLinkMode === "invited" ? (
-                <>
-                  <Field label="บริษัทผู้รับเหมา/Supply manpower *">
-                    <select
-                      className="input"
-                      value={generalLinkCompany}
-                      onChange={(e) => setGeneralLinkCompany(e.target.value)}
-                      disabled={!generalLinkProject}
-                    >
-                      <option value="">เลือกบริษัท</option>
-                      {generalLinkCompanies.map((c) => (
-                        <option key={c} value={c}>{c}</option>
-                      ))}
-                    </select>
-                  </Field>
-                  {generalLinkProject && generalLinkCompanies.length === 0 && (
-                    <p className="text-xs text-amber-600">
-                      ไม่พบบริษัทผู้รับเหมา/Supply manpower ของโครงการนี้ในระบบ — กรุณาเพิ่มชื่อพนักงานเข้าระบบก่อน หรือสลับไปแท็บ "ผู้รับเหมาใหม่" ด้านบน
-                    </p>
-                  )}
-                </>
-              ) : (
-                <>
-                  <Field label="ชื่อบริษัทผู้รับเหมา/Supply manpower *">
-                    <input
-                      className="input"
-                      value={generalLinkCompany}
-                      onChange={(e) => setGeneralLinkCompany(e.target.value)}
-                      placeholder="พิมพ์ชื่อบริษัทผู้รับเหมา"
-                    />
-                  </Field>
-                  <Field label="ประเภทพนักงาน">
-                    <select className="input" value={generalLinkEmployeeType} onChange={(e) => setGeneralLinkEmployeeType(e.target.value)}>
-                      <option value="">ไม่ระบุ</option>
-                      {CONTRACTOR_EMPLOYEE_TYPES.map((t) => (
-                        <option key={t} value={t}>{CONTRACTOR_EMPLOYEE_TYPE_LABELS[t]}</option>
-                      ))}
-                    </select>
-                  </Field>
-                  <p className="text-xs text-gray-400">
-                    ลิงก์นี้จะให้ผู้รับเหมากรอกชื่อ+ข้อมูลส่วนตัว+แนบเอกสารเอง รายชื่อที่กรอกจะไปรอ HR ตรวจสอบที่หน้า
-                    "รายชื่อรอเพิ่ม" (แท็บผู้รับเหมา) เหมือนรายชื่อที่มาจากระบบ Recruitment
-                  </p>
-                </>
+              <Field label="บริษัทผู้รับเหมา/Supply manpower *">
+                <select
+                  className="input"
+                  value={generalLinkCompany}
+                  onChange={(e) => setGeneralLinkCompany(e.target.value)}
+                  disabled={!generalLinkProject}
+                >
+                  <option value="">เลือกบริษัท</option>
+                  {generalLinkCompanies.map((c) => (
+                    <option key={c} value={c}>{c}</option>
+                  ))}
+                </select>
+              </Field>
+              {generalLinkProject && generalLinkCompanies.length === 0 && (
+                <p className="text-xs text-amber-600">
+                  ไม่พบบริษัทผู้รับเหมา/Supply manpower ของโครงการนี้ในระบบ — กรุณาเพิ่มชื่อพนักงานเข้าระบบก่อน
+                </p>
               )}
             </div>
             <div className="p-5 border-t bg-gray-50 flex justify-end gap-2">
               <button
-                onClick={() => { setShowGeneralLinkForm(false); setGeneralLinkProject(""); setGeneralLinkCompany(""); setGeneralLinkEmployeeType(""); setGeneralLinkMode("invited"); }}
+                onClick={() => { setShowGeneralLinkForm(false); setGeneralLinkProject(""); setGeneralLinkCompany(""); }}
                 className="px-5 py-2 text-gray-600 hover:bg-gray-200 rounded-lg text-sm"
               >
                 ยกเลิก
               </button>
-              {generalLinkMode === "invited" ? (
-                <button
-                  onClick={() => setShowGeneralLinkPicker(true)}
-                  disabled={!generalLinkProject || !generalLinkCompany}
-                  className="px-5 py-2 bg-sky-600 text-white rounded-lg text-sm font-semibold hover:bg-sky-700 disabled:opacity-50"
-                >
-                  เลือกรายชื่อ →
-                </button>
-              ) : (
-                <button
-                  onClick={handleCreateSelfEntryLink}
-                  disabled={!generalLinkProject || !generalLinkCompany.trim() || creatingGeneralLink}
-                  className="flex items-center gap-2 px-5 py-2 bg-sky-600 text-white rounded-lg text-sm font-semibold hover:bg-sky-700 disabled:opacity-50"
-                >
-                  {creatingGeneralLink ? <Loader2 className="animate-spin" size={15} /> : <Link2 size={15} />}
-                  สร้างลิงก์
-                </button>
-              )}
+              <button
+                onClick={() => setShowGeneralLinkPicker(true)}
+                disabled={!generalLinkProject || !generalLinkCompany}
+                className="px-5 py-2 bg-sky-600 text-white rounded-lg text-sm font-semibold hover:bg-sky-700 disabled:opacity-50"
+              >
+                เลือกรายชื่อ →
+              </button>
             </div>
           </div>
         </div>
