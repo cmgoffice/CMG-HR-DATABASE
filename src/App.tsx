@@ -216,6 +216,7 @@ import {
   Globe2,
   GraduationCap,
   FileCheck2,
+  Megaphone,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
@@ -508,6 +509,7 @@ import { ClinicCheckupPortal } from './components/ClinicCheckupPortal';
 import { ContractorPortal } from './components/ContractorPortal';
 import { EmployeeDocumentPortal } from './components/EmployeeDocumentPortal';
 import { EmployeeDocumentsPage, OPEN_EMPLOYEE_DOCUMENTS_STORAGE_KEY } from './components/EmployeeDocumentsPage';
+import { AnnouncementsPage } from './components/AnnouncementsPage';
 import { ApprovalCenterPage } from './components/ApprovalCenterPage';
 import { InfoTooltip } from './components/InfoTooltip';
 import { ColumnMappingModal } from './components/ColumnMappingModal';
@@ -662,6 +664,9 @@ const Sidebar = ({ activeModule, setActiveModule, dbConnected, sidebarOpen, onTo
       : []),
     ...(canSee("employee_documents", dfManagement)
       ? [{ id: "employee_documents", label: "เอกสารพนักงาน", icon: FileText } as SidebarLinkItem]
+      : []),
+    ...(canSee("announcements", dfManagement)
+      ? [{ id: "announcements", label: "ประกาศภายในบริษัท", icon: Megaphone } as SidebarLinkItem]
       : []),
   ];
 
@@ -3188,6 +3193,7 @@ function MasterDatabaseApp() {
     recruitment_intake: "ข้อมูลผู้สมัคร/พนักงานโยกย้ายภายในจากระบบ Recruitment แบบ realtime (อ่านอย่างเดียว ยังไม่มีระบบอนุมัติ/นำเข้า)",
     training_batches: "สร้างรอบอบรมความปลอดภัยก่อนเข้างาน เลือกรายชื่อพนักงาน ตรวจสอบความครบถ้วนของเอกสาร และบันทึกผลการอบรม ใช้ได้ทุกโครงการ",
     employee_documents: "เก็บเอกสารรายคนของพนักงานทุกกลุ่มที่ไม่ได้มาจากระบบ Recruitment หรือเพิ่มเอกสารเพิ่มเติมภายหลัง กดเข้ามาจากปุ่ม 'เอกสารแนบ' ในตารางพนักงานได้โดยตรง",
+    announcements: "สร้าง/บันทึกประกาศภายในบริษัท ออกเลขที่เอกสารอัตโนมัติแยกตามหมวดหมู่ (รูปแบบ AN-HR-<หมวด>-ลำดับ/ปี พ.ศ.) เก็บไฟล์ PDF และประวัติการออกประกาศทั้งหมดไว้ในระบบ",
   };
   const moduleTooltipContent =
     moduleTooltipMap[activeModule] ||
@@ -3248,6 +3254,8 @@ function MasterDatabaseApp() {
                       ? 'ระบบจัดการแรงงานต่างด้าว'
                     : activeModule === 'employee_documents'
                       ? 'เอกสารพนักงาน'
+                    : activeModule === 'announcements'
+                      ? 'ประกาศภายในบริษัท'
                     : activeModule === 'evaluation'
                       ? 'ประเมินผลพนักงาน'
                     : activeModule === 'approval_center'
@@ -3272,7 +3280,7 @@ function MasterDatabaseApp() {
             </div>
           )}
           
-          {activeModule !== 'attendance' && activeModule !== 'overtime' && activeModule !== 'manpower_dashboard' && activeModule !== 'risk_monitoring' && activeModule !== 'project_transfer' && activeModule !== 'evaluation' && activeModule !== 'approval_center' && activeModule !== 'recruitment_intake' && activeModule !== 'employee_documents' && activeModule !== 'training_batches' && activeModule !== 'activity_logs' && (
+          {activeModule !== 'attendance' && activeModule !== 'overtime' && activeModule !== 'manpower_dashboard' && activeModule !== 'risk_monitoring' && activeModule !== 'project_transfer' && activeModule !== 'evaluation' && activeModule !== 'approval_center' && activeModule !== 'recruitment_intake' && activeModule !== 'employee_documents' && activeModule !== 'announcements' && activeModule !== 'training_batches' && activeModule !== 'activity_logs' && (
             <>
               <div className="w-px h-5 bg-gray-200 shrink-0" />
 
@@ -3577,6 +3585,8 @@ function MasterDatabaseApp() {
               <TrainingBatchPage projectOptions={projectStatusOptions} />
             ) : activeModule === 'employee_documents' ? (
               <EmployeeDocumentsPage />
+            ) : activeModule === 'announcements' ? (
+              <AnnouncementsPage />
             ) : activeModule === 'attendance' ? (
               <div className="p-6">
                 <AttendancePage projectOptions={projectStatusOptions} />

@@ -59,6 +59,7 @@ export const ROLE_PERMISSION_MODULES: RolePermissionModule[] = [
   { key: "project_transfer", label: "ย้ายโครงการ" },
   { key: "migrant_workers", label: "แรงงานต่างด้าว" },
   { key: "employee_documents", label: "เอกสารพนักงาน" },
+  { key: "announcements", label: "ประกาศภายในบริษัท" },
   { key: "recruitment_intake", label: "รายชื่อรอเพิ่มจาก Recruitment" },
   { key: "training_batches", label: "ส่งพนักงานอบรมก่อนเข้างาน" },
   { key: "activity_logs", label: "Activity Logs" },
@@ -112,6 +113,8 @@ export const MODULE_DEFAULT_ROLES: Record<string, UserRole[] | "*"> = {
   migrant_workers: ["MasterAdmin", "MD", "GM", "PD", "HRM", "HR", "Admin Site", "Safety", "PM", "CM"],
   // เอกสารพนักงานทั่วไป (ไม่ใช่แรงงานต่างด้าว): สิทธิ์เดียวกับหน้าพนักงานหลัก
   employee_documents: ["MasterAdmin", "MD", "GM", "PD", "HRM", "HR"],
+  // ประกาศภายในบริษัท: สิทธิ์เดียวกับเอกสารพนักงาน (สร้าง/ออกประกาศ + ดูเลขที่เอกสาร)
+  announcements: ["MasterAdmin", "MD", "GM", "PD", "HRM", "HR"],
   // รายชื่อผู้สมัครรอเพิ่มเข้าระบบจาก Recruitment system: HR/HRM เท่านั้น (ตามที่ตกลงกันไว้)
   recruitment_intake: ["MasterAdmin", "HRM", "HR"],
   // ส่งพนักงานอบรมก่อนเข้างาน: HR/Safety มีสิทธิ์เท่ากัน, Admin Site เลือกคนส่งอบรมได้เช่นกัน
