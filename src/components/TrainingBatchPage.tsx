@@ -1979,7 +1979,7 @@ const TrainingBatchDetail = ({
             <p className="text-sm text-gray-500 mb-4">ข้อมูลส่วนหัวและกำหนดการนี้ใช้ร่วมกันทุกคอร์สในรอบ ชื่อคอร์สในแต่ละใบมาจาก Training Matrix 74 วันที่ยืนยันให้กรอกเมื่อได้รับการยืนยันแล้ว</p>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               {([
-                ["date", "วันที่อบรม (ส่วนหัวและท้ายใบ)", "date"],
+                ["date", "วันที่ของรอบ (ไม่ใส่ในใบปะหน้า J74)", "date"],
                 ["requestorName", "ผู้ขออบรม (Requestor)", "text"],
                 ["requestorPosition", "ตำแหน่งผู้ขออบรม", "text"],
                 ["requestorMobile", "เบอร์โทรศัพท์", "tel"],

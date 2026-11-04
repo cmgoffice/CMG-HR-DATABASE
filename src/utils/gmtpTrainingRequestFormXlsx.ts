@@ -161,7 +161,7 @@ const writeHeaderFields = (
   let out = xml;
   out = text(out, "C4", batch.courseName || "");
   out = text(out, "C5", languageLabel);
-  out = num(out, "M5", excelSerialFromIso(batch.date));
+  out = text(out, "M5", "");
   out = text(out, "C7", requestor.requestorName || "");
   out = text(out, "M7", "CMG");
   out = text(out, "C8", requestor.requestorPosition || "");
@@ -310,7 +310,7 @@ export const generateGmtpTrainingRequestFormXlsx = async (
     xml = text(xml, `C${footer}`, batch.gmtpConfirmedBy || "");
     xml = text(xml, `K${footer}`, displayDate(batch.gmtpConfirmedDate));
     xml = text(xml, `C${footer + 1}`, batch.trainer || "");
-    xml = text(xml, `K${footer + 1}`, displayDate(batch.date));
+    xml = text(xml, `K${footer + 1}`, "");
     xml = text(xml, `C${footer + 2}`, batch.location || "");
     xml = text(xml, `K${footer + 2}`, batch.timeSlot || "");
 
