@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { collection, doc, getFirestore, onSnapshot, setDoc, updateDoc, deleteDoc, query, where } from "firebase/firestore";
+import { collection, doc, getFirestore, onSnapshot, setDoc, updateDoc, deleteDoc, deleteField, query, where } from "firebase/firestore";
 import {
   AlertTriangle,
   Calendar,
@@ -90,7 +90,7 @@ import {
   TrainingPendingMember,
 } from "./contractorPortalConfig";
 import { useDocumentTypeCatalog } from "./documentTypeCatalog";
-import { HiringAttachment } from "./recruitmentIntakeConfig";
+import { EMPLOYEE_TYPE_OPTIONS, HiringAttachment } from "./recruitmentIntakeConfig";
 import { appendAttachmentToEmployee, uploadHiringDocumentFile } from "../utils/hiringDocsAttachments";
 import { IdCardPhotoGuideButton, isIdCardDocType } from "./IdCardPhotoGuide";
 
@@ -175,7 +175,6 @@ const emptyBatchForm = (defaultProject: string) => ({
   timeSlot: "",
   location: "",
   trainer: "",
-  capacity: "",
   note: "",
   // นัดตรวจสุขภาพ — แยกจากวันอบรม ไม่บังคับกรอกตอนสร้างรอบ (มากรอกทีหลังตอนจะสร้างลิงก์คลินิกก็ได้)
   healthCheckDate: "",
@@ -201,6 +200,9 @@ export const TrainingBatchPage = ({ projectOptions = [] }: { projectOptions?: st
   const [statusFilter, setStatusFilter] = useState<"all" | TrainingBatchStatus>("all");
 
   const [showCreateForm, setShowCreateForm] = useState(false);
+  const [editingBatchId, setEditingBatchId] = useState<string | null>(null);
+  const [editingOriginalBatch, setEditingOriginalBatch] = useState<TrainingBatch | null>(null);
+  const [editReturnBatchId, setEditReturnBatchId] = useState<string | null>(null);
   const [batchForm, setBatchForm] = useState(emptyBatchForm(projectOptions[0] || ""));
   const [saving, setSaving] = useState(false);
 
@@ -208,10 +210,14 @@ export const TrainingBatchPage = ({ projectOptions = [] }: { projectOptions?: st
   const [newBatchId, setNewBatchId] = useState<string | null>(null);
 
   // ----- ลิงก์เก็บเอกสารล่วงหน้า (ไม่ผูกรอบอบรม) -----
+  // "invited" = เลือกชื่อพนักงานที่มีอยู่แล้วในระบบ (ของเดิม) / "self_entry" = ผู้รับเหมาที่ "ยังไม่มีชื่อ"
+  // ในระบบเลย กรอกชื่อ+แนบเอกสารเองผ่านฟอร์มสาธารณะ (ดูรายละเอียดที่ ContractorPortal.tsx)
   const [generalContractorLinks, setGeneralContractorLinks] = useState<TrainingContractorLink[]>([]);
   const [showGeneralLinkForm, setShowGeneralLinkForm] = useState(false);
+  const [generalLinkMode, setGeneralLinkMode] = useState<"invited" | "self_entry">("invited");
   const [generalLinkProject, setGeneralLinkProject] = useState("");
   const [generalLinkCompany, setGeneralLinkCompany] = useState("");
+  const [generalLinkEmployeeType, setGeneralLinkEmployeeType] = useState("");
   const [showGeneralLinkPicker, setShowGeneralLinkPicker] = useState(false);
   const [creatingGeneralLink, setCreatingGeneralLink] = useState(false);
   const [copiedGeneralLinkId, setCopiedGeneralLinkId] = useState<string | null>(null);
@@ -381,6 +387,38 @@ export const TrainingBatchPage = ({ projectOptions = [] }: { projectOptions?: st
     }
   };
 
+  // ลิงก์สำหรับ "ผู้รับเหมาใหม่ที่ยังไม่มีชื่ออยู่ในระบบ" — ระบุแค่โครงการ + ชื่อบริษัทผู้รับเหมาเอง
+  // (พิมพ์เอง ไม่ได้เลือกจากรายชื่อพนักงานที่มีอยู่แล้ว เพราะยังไม่มีใครอยู่ในระบบเลย) ไม่ต้องเลือกรายชื่อ
+  // ผู้รับเหมาจะกรอกชื่อ+แนบเอกสารเองหน้า public แล้วเข้าคิว "รอเพิ่มเข้าระบบ" ที่หน้า RecruitmentIntakePage
+  const handleCreateSelfEntryLink = async () => {
+    const project = generalLinkProject.trim();
+    const company = generalLinkCompany.trim();
+    if (!project || !company) return;
+    setCreatingGeneralLink(true);
+    try {
+      const token = createContractorLinkToken();
+      const record: Omit<TrainingContractorLink, "id"> = {
+        project,
+        company,
+        employeeType: (generalLinkEmployeeType as ContractorEmployeeType) || "",
+        mode: "self_entry",
+        createdAt: Date.now(),
+        createdByUid: firebaseUser?.uid || "",
+        createdByName: `${userProfile?.firstName || ""} ${userProfile?.lastName || ""}`.trim(),
+      };
+      await setDoc(doc(db, "CMG-HR-Database", "root", TRAINING_CONTRACTOR_LINKS_COLLECTION, token), record);
+      setShowGeneralLinkForm(false);
+      setGeneralLinkProject("");
+      setGeneralLinkCompany("");
+      setGeneralLinkEmployeeType("");
+      setGeneralLinkMode("invited");
+    } catch (err) {
+      window.alert(`สร้างลิงก์ไม่สำเร็จ: ${err instanceof Error ? err.message : "เกิดข้อผิดพลาดที่ไม่คาดคิด"}`);
+    } finally {
+      setCreatingGeneralLink(false);
+    }
+  };
+
   const handleCopyGeneralLink = async (link: TrainingContractorLink) => {
     const url = buildContractorPortalUrl(link.id);
     try {
@@ -403,12 +441,44 @@ export const TrainingBatchPage = ({ projectOptions = [] }: { projectOptions?: st
 
   // ----- Create batch -----
   const openCreateForm = () => {
+    setEditingBatchId(null);
+    setEditingOriginalBatch(null);
+    setEditReturnBatchId(null);
     setBatchForm(emptyBatchForm(projectFilter !== "all" ? projectFilter : projectOptions[0] || ""));
     setShowCreateForm(true);
   };
 
+  const openEditForm = (batch: TrainingBatch, returnToDetail = false) => {
+    if (!canManage || saving) return;
+    const useCourseName = isGmtpTrainingRequestProject(batch.project) || DEFAULT_TRAINING_COURSE_OPTIONS.includes(batch.courseName);
+    setBatchForm({
+      project: batch.project,
+      courseName: useCourseName ? batch.courseName : "อื่นๆ (ระบุ)",
+      courseNameOther: useCourseName ? "" : batch.courseName,
+      date: batch.date || "", timeSlot: batch.timeSlot || "", location: batch.location || "", trainer: batch.trainer || "", note: batch.note || "",
+      healthCheckDate: batch.healthCheckDate || "", healthCheckTimeSlot: batch.healthCheckTimeSlot || "", healthCheckLocation: batch.healthCheckLocation || "",
+      requestorName: batch.requestorName || "", requestorPosition: batch.requestorPosition || "", requestorMobile: batch.requestorMobile || "", requestorEmail: batch.requestorEmail || "",
+    });
+    setEditingBatchId(batch.id);
+    setEditingOriginalBatch(batch);
+    setEditReturnBatchId(returnToDetail ? batch.id : null);
+    setNewBatchId(null);
+    setActiveBatchId(null);
+    setShowCreateForm(true);
+  };
+
+  const closeBatchForm = () => {
+    if (saving) return;
+    setShowCreateForm(false);
+    if (editReturnBatchId) setActiveBatchId(editReturnBatchId);
+    setEditingBatchId(null);
+    setEditingOriginalBatch(null);
+    setEditReturnBatchId(null);
+  };
+
   const handleCreateBatch = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!canManage || saving) return;
     if (!batchForm.project.trim()) {
       window.alert("กรุณาเลือกโครงการ");
       return;
@@ -425,7 +495,9 @@ export const TrainingBatchPage = ({ projectOptions = [] }: { projectOptions?: st
     }
     setSaving(true);
     try {
-      const ref = doc(collection(db, "CMG-HR-Database", "root", TRAINING_BATCHES_COLLECTION));
+      const ref = editingBatchId
+        ? doc(db, "CMG-HR-Database", "root", TRAINING_BATCHES_COLLECTION, editingBatchId)
+        : doc(collection(db, "CMG-HR-Database", "root", TRAINING_BATCHES_COLLECTION));
       const record: Record<string, unknown> = {
         project: batchForm.project.trim(),
         courseName,
@@ -433,27 +505,26 @@ export const TrainingBatchPage = ({ projectOptions = [] }: { projectOptions?: st
         timeSlot: batchForm.timeSlot.trim(),
         location: batchForm.location.trim(),
         trainer: batchForm.trainer.trim(),
-        status: "planned",
         note: batchForm.note.trim(),
-        createdByUid: firebaseUser?.uid || "",
-        createdByName: `${userProfile?.firstName || ""} ${userProfile?.lastName || ""}`.trim(),
-        createdAt: Date.now(),
         updatedAt: Date.now(),
+        healthCheckDate: batchForm.healthCheckDate,
+        healthCheckTimeSlot: batchForm.healthCheckTimeSlot.trim(),
+        healthCheckLocation: batchForm.healthCheckLocation.trim(),
+        requestorName: batchForm.requestorName.trim(),
+        requestorPosition: batchForm.requestorPosition.trim(),
+        requestorMobile: batchForm.requestorMobile.trim(),
+        requestorEmail: batchForm.requestorEmail.trim(),
       };
-      // Firestore ไม่รับ field value เป็น undefined — ใส่ capacity เฉพาะตอนที่กรอกมาเท่านั้น
-      if (batchForm.capacity.trim()) {
-        record.capacity = Number(batchForm.capacity);
+      if (editingBatchId) {
+        const original: Record<string, unknown> = { ...(editingOriginalBatch || {}) };
+        const changes = Object.fromEntries(Object.entries(record).filter(([key, value]) => key === "updatedAt" || value !== (original[key] ?? "")));
+        await updateDoc(ref, { ...changes, capacity: deleteField() });
+      } else {
+        await setDoc(ref, {
+          ...record, status: "planned", createdByUid: firebaseUser?.uid || "",
+          createdByName: `${userProfile?.firstName || ""} ${userProfile?.lastName || ""}`.trim(), createdAt: Date.now(),
+        });
       }
-      // นัดตรวจสุขภาพ — ไม่บังคับตอนสร้างรอบ ใส่เฉพาะตอนที่กรอกมา (จะมากรอกทีหลังก็ได้)
-      if (batchForm.healthCheckDate) record.healthCheckDate = batchForm.healthCheckDate;
-      if (batchForm.healthCheckTimeSlot.trim()) record.healthCheckTimeSlot = batchForm.healthCheckTimeSlot.trim();
-      if (batchForm.healthCheckLocation.trim()) record.healthCheckLocation = batchForm.healthCheckLocation.trim();
-      // ข้อมูลผู้ขออบรม — ใส่เฉพาะตอนที่กรอกมา (โครงการที่ไม่ใช้ใบปะหน้าแบบ GMTP ปล่อยว่างได้)
-      if (batchForm.requestorName.trim()) record.requestorName = batchForm.requestorName.trim();
-      if (batchForm.requestorPosition.trim()) record.requestorPosition = batchForm.requestorPosition.trim();
-      if (batchForm.requestorMobile.trim()) record.requestorMobile = batchForm.requestorMobile.trim();
-      if (batchForm.requestorEmail.trim()) record.requestorEmail = batchForm.requestorEmail.trim();
-      await setDoc(ref, record);
       if (isGmtpTrainingRequestProject(batchForm.project)) {
         saveLastGmtpRequestorInfo({
           requestorName: batchForm.requestorName.trim(),
@@ -463,10 +534,13 @@ export const TrainingBatchPage = ({ projectOptions = [] }: { projectOptions?: st
         });
       }
       setShowCreateForm(false);
-      setNewBatchId(ref.id);
+      setNewBatchId(editingBatchId ? null : ref.id);
       setActiveBatchId(ref.id);
+      setEditingBatchId(null);
+      setEditingOriginalBatch(null);
+      setEditReturnBatchId(null);
     } catch (err) {
-      window.alert(`สร้างรอบอบรมไม่สำเร็จ: ${err instanceof Error ? err.message : "เกิดข้อผิดพลาดที่ไม่คาดคิด"}`);
+      window.alert(`บันทึกรอบอบรมไม่สำเร็จ: ${err instanceof Error ? err.message : "เกิดข้อผิดพลาดที่ไม่คาดคิด"}`);
     } finally {
       setSaving(false);
     }
@@ -513,6 +587,7 @@ export const TrainingBatchPage = ({ projectOptions = [] }: { projectOptions?: st
         alreadyTrainedEmployeeIds={projectEnrolledEmployeeIds}
         onBack={() => { setActiveBatchId(null); setNewBatchId(null); }}
         onChangeStatus={(status) => handleChangeBatchStatus(activeBatch, status)}
+        onEdit={() => openEditForm(activeBatch, true)}
       />
     );
   }
@@ -595,7 +670,13 @@ export const TrainingBatchPage = ({ projectOptions = [] }: { projectOptions?: st
                 {link.employeeType && (
                   <span className="text-gray-400 whitespace-nowrap">({CONTRACTOR_EMPLOYEE_TYPE_LABELS[link.employeeType]})</span>
                 )}
-                <span className="text-gray-400 whitespace-nowrap">{(link.invitedEmployeeIds || []).length} คน</span>
+                {link.mode === "self_entry" ? (
+                  <span className="inline-flex items-center px-1.5 py-0.5 rounded-full bg-sky-100 text-sky-700 font-semibold whitespace-nowrap">
+                    ผู้รับเหมาใหม่ (กรอกชื่อเอง)
+                  </span>
+                ) : (
+                  <span className="text-gray-400 whitespace-nowrap">{(link.invitedEmployeeIds || []).length} คน</span>
+                )}
                 <code className="text-gray-500 break-all flex-1 min-w-[160px]">{buildContractorPortalUrl(link.id)}</code>
                 <button
                   onClick={() => handleCopyGeneralLink(link)}
@@ -664,7 +745,6 @@ export const TrainingBatchPage = ({ projectOptions = [] }: { projectOptions?: st
                     <td className="p-3 text-gray-600 whitespace-nowrap">{b.trainer || "-"}</td>
                     <td className="p-3 text-center text-gray-700 whitespace-nowrap">
                       {count}
-                      {b.capacity ? ` / ${b.capacity}` : ""}
                     </td>
                     <td className="p-3 whitespace-nowrap">
                       <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold ${meta.badge}`}>
@@ -673,6 +753,7 @@ export const TrainingBatchPage = ({ projectOptions = [] }: { projectOptions?: st
                     </td>
                     {canManage && (
                       <td className="p-3 text-center" onClick={(e) => e.stopPropagation()}>
+                        <button onClick={() => openEditForm(b)} className="text-blue-700 hover:bg-blue-50 rounded px-2 py-1 text-xs font-semibold" title="แก้ไขรอบอบรม">แก้ไข</button>
                         <button
                           onClick={() => handleDeleteBatch(b)}
                           className="text-gray-400 hover:text-red-500 p-1"
@@ -699,16 +780,37 @@ export const TrainingBatchPage = ({ projectOptions = [] }: { projectOptions?: st
                   <Link2 className="text-sky-600" size={20} />
                   สร้างลิงก์เก็บเอกสารล่วงหน้า
                 </h3>
-                <p className="text-xs text-gray-500 mt-1">เลือกโครงการ + บริษัทผู้รับเหมา แล้วเลือกรายชื่อทีมงาน (ต้องมีชื่ออยู่ในระบบแล้วเท่านั้น)</p>
+                <p className="text-xs text-gray-500 mt-1">
+                  {generalLinkMode === "invited"
+                    ? "เลือกโครงการ + บริษัทผู้รับเหมา แล้วเลือกรายชื่อทีมงาน (ต้องมีชื่ออยู่ในระบบแล้วเท่านั้น)"
+                    : "สำหรับผู้รับเหมา/Supply manpower ที่ยังไม่มีชื่อในระบบเลย — ผู้รับเหมากรอกชื่อ+แนบเอกสารเองผ่านลิงก์นี้"}
+                </p>
               </div>
               <button
-                onClick={() => { setShowGeneralLinkForm(false); setGeneralLinkProject(""); setGeneralLinkCompany(""); }}
+                onClick={() => { setShowGeneralLinkForm(false); setGeneralLinkProject(""); setGeneralLinkCompany(""); setGeneralLinkEmployeeType(""); setGeneralLinkMode("invited"); }}
                 className="text-gray-400 hover:text-red-500 p-1 shrink-0"
               >
                 <X size={18} />
               </button>
             </div>
             <div className="p-5 flex flex-col gap-3">
+              <div className="flex rounded-lg border border-gray-200 overflow-hidden text-xs font-semibold">
+                <button
+                  type="button"
+                  onClick={() => { setGeneralLinkMode("invited"); setGeneralLinkCompany(""); }}
+                  className={`flex-1 px-3 py-2 ${generalLinkMode === "invited" ? "bg-sky-600 text-white" : "bg-white text-gray-600 hover:bg-gray-50"}`}
+                >
+                  เลือกชื่อที่มีในระบบแล้ว
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setGeneralLinkMode("self_entry"); setGeneralLinkCompany(""); }}
+                  className={`flex-1 px-3 py-2 ${generalLinkMode === "self_entry" ? "bg-sky-600 text-white" : "bg-white text-gray-600 hover:bg-gray-50"}`}
+                >
+                  ผู้รับเหมาใหม่ (ยังไม่มีชื่อในระบบ)
+                </button>
+              </div>
+
               <Field label="โครงการ *">
                 <select
                   className="input"
@@ -721,39 +823,78 @@ export const TrainingBatchPage = ({ projectOptions = [] }: { projectOptions?: st
                   ))}
                 </select>
               </Field>
-              <Field label="บริษัทผู้รับเหมา/Supply manpower *">
-                <select
-                  className="input"
-                  value={generalLinkCompany}
-                  onChange={(e) => setGeneralLinkCompany(e.target.value)}
-                  disabled={!generalLinkProject}
-                >
-                  <option value="">เลือกบริษัท</option>
-                  {generalLinkCompanies.map((c) => (
-                    <option key={c} value={c}>{c}</option>
-                  ))}
-                </select>
-              </Field>
-              {generalLinkProject && generalLinkCompanies.length === 0 && (
-                <p className="text-xs text-amber-600">
-                  ไม่พบบริษัทผู้รับเหมา/Supply manpower ของโครงการนี้ในระบบ — กรุณาเพิ่มชื่อพนักงานเข้าระบบก่อน
-                </p>
+
+              {generalLinkMode === "invited" ? (
+                <>
+                  <Field label="บริษัทผู้รับเหมา/Supply manpower *">
+                    <select
+                      className="input"
+                      value={generalLinkCompany}
+                      onChange={(e) => setGeneralLinkCompany(e.target.value)}
+                      disabled={!generalLinkProject}
+                    >
+                      <option value="">เลือกบริษัท</option>
+                      {generalLinkCompanies.map((c) => (
+                        <option key={c} value={c}>{c}</option>
+                      ))}
+                    </select>
+                  </Field>
+                  {generalLinkProject && generalLinkCompanies.length === 0 && (
+                    <p className="text-xs text-amber-600">
+                      ไม่พบบริษัทผู้รับเหมา/Supply manpower ของโครงการนี้ในระบบ — กรุณาเพิ่มชื่อพนักงานเข้าระบบก่อน หรือสลับไปแท็บ "ผู้รับเหมาใหม่" ด้านบน
+                    </p>
+                  )}
+                </>
+              ) : (
+                <>
+                  <Field label="ชื่อบริษัทผู้รับเหมา/Supply manpower *">
+                    <input
+                      className="input"
+                      value={generalLinkCompany}
+                      onChange={(e) => setGeneralLinkCompany(e.target.value)}
+                      placeholder="พิมพ์ชื่อบริษัทผู้รับเหมา"
+                    />
+                  </Field>
+                  <Field label="ประเภทพนักงาน">
+                    <select className="input" value={generalLinkEmployeeType} onChange={(e) => setGeneralLinkEmployeeType(e.target.value)}>
+                      <option value="">ไม่ระบุ</option>
+                      {CONTRACTOR_EMPLOYEE_TYPES.map((t) => (
+                        <option key={t} value={t}>{CONTRACTOR_EMPLOYEE_TYPE_LABELS[t]}</option>
+                      ))}
+                    </select>
+                  </Field>
+                  <p className="text-xs text-gray-400">
+                    ลิงก์นี้จะให้ผู้รับเหมากรอกชื่อ+ข้อมูลส่วนตัว+แนบเอกสารเอง รายชื่อที่กรอกจะไปรอ HR ตรวจสอบที่หน้า
+                    "รายชื่อรอเพิ่ม" (แท็บผู้รับเหมา) เหมือนรายชื่อที่มาจากระบบ Recruitment
+                  </p>
+                </>
               )}
             </div>
             <div className="p-5 border-t bg-gray-50 flex justify-end gap-2">
               <button
-                onClick={() => { setShowGeneralLinkForm(false); setGeneralLinkProject(""); setGeneralLinkCompany(""); }}
+                onClick={() => { setShowGeneralLinkForm(false); setGeneralLinkProject(""); setGeneralLinkCompany(""); setGeneralLinkEmployeeType(""); setGeneralLinkMode("invited"); }}
                 className="px-5 py-2 text-gray-600 hover:bg-gray-200 rounded-lg text-sm"
               >
                 ยกเลิก
               </button>
-              <button
-                onClick={() => setShowGeneralLinkPicker(true)}
-                disabled={!generalLinkProject || !generalLinkCompany}
-                className="px-5 py-2 bg-sky-600 text-white rounded-lg text-sm font-semibold hover:bg-sky-700 disabled:opacity-50"
-              >
-                เลือกรายชื่อ →
-              </button>
+              {generalLinkMode === "invited" ? (
+                <button
+                  onClick={() => setShowGeneralLinkPicker(true)}
+                  disabled={!generalLinkProject || !generalLinkCompany}
+                  className="px-5 py-2 bg-sky-600 text-white rounded-lg text-sm font-semibold hover:bg-sky-700 disabled:opacity-50"
+                >
+                  เลือกรายชื่อ →
+                </button>
+              ) : (
+                <button
+                  onClick={handleCreateSelfEntryLink}
+                  disabled={!generalLinkProject || !generalLinkCompany.trim() || creatingGeneralLink}
+                  className="flex items-center gap-2 px-5 py-2 bg-sky-600 text-white rounded-lg text-sm font-semibold hover:bg-sky-700 disabled:opacity-50"
+                >
+                  {creatingGeneralLink ? <Loader2 className="animate-spin" size={15} /> : <Link2 size={15} />}
+                  สร้างลิงก์
+                </button>
+              )}
             </div>
           </div>
         </div>
@@ -776,10 +917,10 @@ export const TrainingBatchPage = ({ projectOptions = [] }: { projectOptions?: st
               <div>
                 <h3 className="text-lg font-bold text-gray-800 flex items-center gap-2">
                   <Plus className="text-blue-600" size={20} />
-                  สร้างรอบอบรมใหม่
+                  {editingBatchId ? "แก้ไขรอบอบรม" : "สร้างรอบอบรมใหม่"}
                 </h3>
               </div>
-              <button type="button" onClick={() => setShowCreateForm(false)} className="text-gray-400 hover:text-red-500 p-1">
+              <button type="button" disabled={saving} onClick={closeBatchForm} className="text-gray-400 hover:text-red-500 p-1">
                 <X size={18} />
               </button>
             </div>
@@ -788,16 +929,19 @@ export const TrainingBatchPage = ({ projectOptions = [] }: { projectOptions?: st
                 <select
                   required
                   value={batchForm.project}
+                  disabled={!!editingBatchId}
                   onChange={(e) => setBatchForm((f) => ({ ...f, project: e.target.value,
                     courseName: isGmtpTrainingRequestProject(e.target.value) ? "รอบอบรม J74" : DEFAULT_TRAINING_COURSE_OPTIONS[0],
                   }))}
                   className="input"
                 >
                   <option value="" disabled>เลือกโครงการ...</option>
+                  {editingBatchId && !projectOptions.includes(batchForm.project) && <option value={batchForm.project}>{batchForm.project}</option>}
                   {projectOptions.map((p) => (
                     <option key={p} value={p}>{p}</option>
                   ))}
                 </select>
+                {editingBatchId && <p className="text-xs text-gray-500 mt-1">โครงการผูกกับรายชื่อและเอกสารของรอบนี้</p>}
               </Field>
               <Field label="วันที่อบรม *">
                 <input
@@ -846,15 +990,7 @@ export const TrainingBatchPage = ({ projectOptions = [] }: { projectOptions?: st
               <Field label="วิทยากร">
                 <input value={batchForm.trainer} onChange={(e) => setBatchForm((f) => ({ ...f, trainer: e.target.value }))} className="input" />
               </Field>
-              <Field label="จำนวนรับสูงสุด (ไม่บังคับ)">
-                <input
-                  type="number"
-                  min={0}
-                  value={batchForm.capacity}
-                  onChange={(e) => setBatchForm((f) => ({ ...f, capacity: e.target.value }))}
-                  className="input"
-                />
-              </Field>
+              <p className="text-xs text-gray-500 sm:col-span-2">เพิ่มพนักงานเข้ารอบนี้ได้ไม่จำกัดจำนวน</p>
               {isGmtpTrainingRequestProject(batchForm.project) && (
                 <>
                   <div className="sm:col-span-2 border-t pt-3 mt-1">
@@ -935,7 +1071,7 @@ export const TrainingBatchPage = ({ projectOptions = [] }: { projectOptions?: st
               </div>
             </div>
             <div className="p-5 border-t bg-gray-50 flex justify-between items-center">
-              <button type="button" onClick={() => setShowCreateForm(false)} className="px-5 py-2 text-gray-600 hover:bg-gray-200 rounded-lg text-sm">
+              <button type="button" disabled={saving} onClick={closeBatchForm} className="px-5 py-2 text-gray-600 hover:bg-gray-200 rounded-lg text-sm">
                 ยกเลิก
               </button>
               <button
@@ -944,7 +1080,7 @@ export const TrainingBatchPage = ({ projectOptions = [] }: { projectOptions?: st
                 className="px-6 py-2 rounded-lg font-semibold flex items-center gap-2 bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 text-sm"
               >
                 {saving ? <Loader2 className="animate-spin" size={16} /> : <CheckCircle2 size={16} />}
-                สร้างรอบอบรม
+                {editingBatchId ? "บันทึกการแก้ไข" : "สร้างรอบอบรม"}
               </button>
             </div>
           </form>
@@ -971,6 +1107,7 @@ const TrainingBatchDetail = ({
   alreadyTrainedEmployeeIds,
   onBack,
   onChangeStatus,
+  onEdit,
 }: {
   batch: TrainingBatch;
   openEmployeePicker: boolean;
@@ -983,6 +1120,7 @@ const TrainingBatchDetail = ({
   alreadyTrainedEmployeeIds: Set<string>;
   onBack: () => void;
   onChangeStatus: (status: TrainingBatchStatus) => void;
+  onEdit: () => void;
 }) => {
   const { firebaseUser, userProfile } = useAuth();
   const db = getFirestore();
@@ -1534,6 +1672,7 @@ const TrainingBatchDetail = ({
         </div>
         {canManage && (
           <div className="flex flex-wrap items-center gap-2 sm:gap-1">
+            <button type="button" onClick={onEdit} className="px-3 py-2 border border-blue-300 rounded-lg text-blue-700 text-sm font-semibold hover:bg-blue-50">แก้ไขรอบอบรม</button>
             <select
               value={batch.status}
               onChange={(e) => onChangeStatus(e.target.value as TrainingBatchStatus)}
@@ -1852,7 +1991,7 @@ const TrainingBatchDetail = ({
       <div className="flex items-center gap-2 text-sm text-gray-500 shrink-0">
         <Users size={16} />
         รายชื่อในรอบนี้: {enrollments.length}
-        {batch.capacity ? ` / ${batch.capacity}` : ""} คน
+        คน
       </div>
 
       <div className="flex-1 min-h-[240px] overflow-auto bg-white rounded-xl border border-gray-200 shadow-sm">
