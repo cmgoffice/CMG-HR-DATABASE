@@ -60,6 +60,7 @@ export const EmployeeDocumentsPage = () => {
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [typeFilter, setTypeFilter] = useState<string>("all");
+  const [projectFilter, setProjectFilter] = useState<string>("all");
   const [showInactive, setShowInactive] = useState(false);
 
   const [docsTarget, setDocsTarget] = useState<EmployeeRecord | null>(null);
@@ -123,11 +124,22 @@ export const EmployeeDocumentsPage = () => {
     if (fresh && fresh !== docsTarget) setDocsTarget(fresh);
   }, [employees, docsTarget]);
 
+  // รายชื่อโครงการทั้งหมดที่มีพนักงานอยู่ (สำหรับตัวกรองโครงการ)
+  const projectOptions = useMemo(() => {
+    const names = new Set<string>();
+    employees.forEach((e) => {
+      const project = (e.โครงการ || "").toString().trim();
+      if (project) names.add(project);
+    });
+    return Array.from(names).sort();
+  }, [employees]);
+
   const filtered = useMemo(() => {
     const kw = search.trim().toLowerCase();
     return employees
       .filter((e) => (showInactive ? true : !INACTIVE_STATUSES.includes(String(e.สถานะพนักงาน || ""))))
       .filter((e) => (typeFilter === "all" ? true : e.employee_type === typeFilter))
+      .filter((e) => (projectFilter === "all" ? true : (e.โครงการ || "").toString().trim() === projectFilter))
       .filter((e) => {
         if (!kw) return true;
         return (
@@ -137,7 +149,7 @@ export const EmployeeDocumentsPage = () => {
           (e.โครงการ || "").toLowerCase().includes(kw)
         );
       });
-  }, [employees, search, typeFilter, showInactive]);
+  }, [employees, search, typeFilter, projectFilter, showInactive]);
 
   const openDocsPanel = (e: EmployeeRecord) => {
     setDocsTarget(e);
@@ -272,6 +284,16 @@ export const EmployeeDocumentsPage = () => {
             <option key={value} value={value}>{label}</option>
           ))}
         </select>
+        <select
+          value={projectFilter}
+          onChange={(e) => setProjectFilter(e.target.value)}
+          className="border rounded-lg text-sm px-3 py-1.5 outline-none focus:ring-2 focus:ring-blue-100"
+        >
+          <option value="all">ทุกโครงการ</option>
+          {projectOptions.map((p) => (
+            <option key={p} value={p}>{p}</option>
+          ))}
+        </select>
         <label className="flex items-center gap-1.5 text-xs text-gray-600">
           <input type="checkbox" checked={showInactive} onChange={(e) => setShowInactive(e.target.checked)} />
           แสดงพ้นสภาพด้วย
@@ -298,14 +320,13 @@ export const EmployeeDocumentsPage = () => {
           <table className="w-full text-sm border-collapse">
             <thead className="bg-gray-50 sticky top-0 z-10">
               <tr>
+                <th className="p-3 text-center font-semibold text-gray-600 border-b whitespace-nowrap">จัดการ</th>
                 <th className="p-3 text-left font-semibold text-gray-600 border-b whitespace-nowrap">รหัสพนักงาน</th>
                 <th className="p-3 text-left font-semibold text-gray-600 border-b whitespace-nowrap">ชื่อเต็ม</th>
                 <th className="p-3 text-left font-semibold text-gray-600 border-b whitespace-nowrap">ตำแหน่ง</th>
                 <th className="p-3 text-left font-semibold text-gray-600 border-b whitespace-nowrap">แผนก</th>
                 <th className="p-3 text-left font-semibold text-gray-600 border-b whitespace-nowrap">โครงการ</th>
                 <th className="p-3 text-left font-semibold text-gray-600 border-b whitespace-nowrap">ประเภท</th>
-                <th className="p-3 text-left font-semibold text-gray-600 border-b whitespace-nowrap">สถานะ</th>
-                <th className="p-3 text-center font-semibold text-gray-600 border-b whitespace-nowrap">จัดการ</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
@@ -313,13 +334,6 @@ export const EmployeeDocumentsPage = () => {
                 const count = (e.attachments || []).length;
                 return (
                   <tr key={e.id} className="hover:bg-gray-50">
-                    <td className="p-3 text-gray-700 font-mono whitespace-nowrap">{e.รหัสพนักงาน || e.id}</td>
-                    <td className="p-3 text-gray-800 font-medium whitespace-nowrap">{buildFullName(e)}</td>
-                    <td className="p-3 text-gray-600 whitespace-nowrap">{e.ตำแหน่ง || "-"}</td>
-                    <td className="p-3 text-gray-600 whitespace-nowrap">{e.แผนก || "-"}</td>
-                    <td className="p-3 text-gray-600 whitespace-nowrap">{e.โครงการ || "-"}</td>
-                    <td className="p-3 text-gray-600 whitespace-nowrap">{EMPLOYEE_TYPE_LABEL[e.employee_type || ""] || e.employee_type || "-"}</td>
-                    <td className="p-3 text-gray-600 whitespace-nowrap">{e.สถานะพนักงาน || "-"}</td>
                     <td className="p-3 text-center">
                       <button
                         onClick={() => openDocsPanel(e)}
@@ -330,6 +344,12 @@ export const EmployeeDocumentsPage = () => {
                         <Paperclip size={14} /> เอกสารแนบ ({count})
                       </button>
                     </td>
+                    <td className="p-3 text-gray-700 font-mono whitespace-nowrap">{e.รหัสพนักงาน || e.id}</td>
+                    <td className="p-3 text-gray-800 font-medium whitespace-nowrap">{buildFullName(e)}</td>
+                    <td className="p-3 text-gray-600 whitespace-nowrap">{e.ตำแหน่ง || "-"}</td>
+                    <td className="p-3 text-gray-600 whitespace-nowrap">{e.แผนก || "-"}</td>
+                    <td className="p-3 text-gray-600 whitespace-nowrap">{e.โครงการ || "-"}</td>
+                    <td className="p-3 text-gray-600 whitespace-nowrap">{EMPLOYEE_TYPE_LABEL[e.employee_type || ""] || e.employee_type || "-"}</td>
                   </tr>
                 );
               })}
