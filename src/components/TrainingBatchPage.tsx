@@ -1157,6 +1157,17 @@ const TrainingBatchDetail = ({
     !!(batch.healthCheckTimeSlot || "").trim() &&
     !!(batch.healthCheckLocation || "").trim();
   const enrolledIds = useMemo(() => new Set(enrollments.map((e) => e.employeeId)), [enrollments]);
+  const [rosterSearch, setRosterSearch] = useState("");
+  const filteredEnrollments = useMemo(() => {
+    const kw = rosterSearch.trim().toLowerCase();
+    if (!kw) return enrollments;
+    return enrollments.filter(
+      (en) =>
+        en.employeeName.toLowerCase().includes(kw) ||
+        (en.employeeCode || "").toLowerCase().includes(kw) ||
+        (en.position || "").toLowerCase().includes(kw)
+    );
+  }, [enrollments, rosterSearch]);
   // ใช้ join สดกับข้อมูลพนักงานล่าสุด (employee_data) แทนการพึ่ง documentSnapshot ที่ freeze ไว้ตอนเพิ่มเข้ารอบ
   // เพื่อให้เอกสารที่อัปโหลดเพิ่มทีหลัง (ไม่ว่าจะอัปจากหน้าเอกสารพนักงาน หรือจากหน้านี้เอง) อัปเดตสถานะทันที
   const employeeById = useMemo(() => {
@@ -1496,7 +1507,7 @@ const TrainingBatchDetail = ({
       if (isHuashiTrainingRequestProject(batch.project)) {
         await generateAndPreviewHuashiTrainingRequestFormPdf(batch, enrollments, employees);
       } else {
-        await generateAndPreviewTrainingNameListPdf(batch, enrollments);
+        await generateAndPreviewTrainingNameListPdf(batch, enrollments, employees);
       }
     } catch (err) {
       window.alert(`สร้าง PDF ไม่สำเร็จ: ${err instanceof Error ? err.message : "เกิดข้อผิดพลาดที่ไม่คาดคิด"}`);
@@ -1515,7 +1526,7 @@ const TrainingBatchDetail = ({
       if (isHuashiTrainingRequestProject(batch.project)) {
         await generateAndDownloadHuashiTrainingRequestFormPdf(batch, enrollments, employees);
       } else {
-        await generateAndDownloadTrainingNameListPdf(batch, enrollments);
+        await generateAndDownloadTrainingNameListPdf(batch, enrollments, employees);
       }
     } catch (err) {
       window.alert(`สร้าง PDF ไม่สำเร็จ: ${err instanceof Error ? err.message : "เกิดข้อผิดพลาดที่ไม่คาดคิด"}`);
@@ -1597,7 +1608,7 @@ const TrainingBatchDetail = ({
     try {
       const cover = isHuashiTrainingRequestProject(batch.project)
         ? await generateHuashiTrainingRequestFormPdf(batch, enrollments, employees)
-        : await generateTrainingNameListPdf(batch, enrollments);
+        : await generateTrainingNameListPdf(batch, enrollments, employees);
       const individualForms = await generateAccessBadgeRequestPdf(batch, enrollments, employees, recordByEmployee);
       const warnings: string[] = [];
       const bytes = await generateTrainingSubmissionZip([
@@ -1988,10 +1999,19 @@ const TrainingBatchDetail = ({
       )}
 
       {detailTab === "roster" && <div id="training-roster-panel" role="tabpanel" aria-labelledby="training-roster-tab" className="flex flex-col flex-1 min-h-0 gap-3">
-      <div className="flex items-center gap-2 text-sm text-gray-500 shrink-0">
+      <div className="flex flex-wrap items-center gap-2 text-sm text-gray-500 shrink-0">
         <Users size={16} />
         รายชื่อในรอบนี้: {enrollments.length}
         คน
+        <div className="relative flex-1 min-w-[180px] max-w-xs ml-auto">
+          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" size={14} />
+          <input
+            value={rosterSearch}
+            onChange={(e) => setRosterSearch(e.target.value)}
+            placeholder="ค้นหาชื่อ / รหัส / ตำแหน่ง..."
+            className="w-full pl-8 pr-3 py-1.5 border rounded-lg text-xs outline-none focus:ring-2 focus:ring-blue-100"
+          />
+        </div>
       </div>
 
       <div className="flex-1 min-h-[240px] overflow-auto bg-white rounded-xl border border-gray-200 shadow-sm">
@@ -1999,6 +2019,11 @@ const TrainingBatchDetail = ({
           <div className="flex flex-col items-center justify-center h-48 text-gray-400 gap-2">
             <Inbox size={28} />
             <p className="text-sm">ยังไม่มีรายชื่อในรอบนี้</p>
+          </div>
+        ) : filteredEnrollments.length === 0 ? (
+          <div className="flex flex-col items-center justify-center h-48 text-gray-400 gap-2">
+            <Inbox size={28} />
+            <p className="text-sm">ไม่พบรายชื่อที่ตรงกับคำค้นหา</p>
           </div>
         ) : (
           <table className="w-full text-sm border-collapse">
@@ -2020,7 +2045,7 @@ const TrainingBatchDetail = ({
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
-              {enrollments.map((en) => (
+              {filteredEnrollments.map((en) => (
                 <EnrollmentRow
                   key={en.id}
                   enrollment={en}

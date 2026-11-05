@@ -6,6 +6,24 @@ import { PDFDocument, PDFFont, PDFPage, PageSizes, rgb } from "pdf-lib";
 import fontkit from "@pdf-lib/fontkit";
 import { sarabunLatinRegularUrl, sarabunLatinBoldUrl } from "./thaiFonts";
 import type { TrainingBatch, TrainingEnrollment } from "../components/trainingBatchConfig";
+import type { EmployeeRow } from "../components/TrainingBatchPage";
+
+// ลำดับการแสดงรายชื่อในใบปะหน้า: รายเดือน -> DC -> SP -> SC (คนที่หา employee_type ไม่พบให้ต่อท้ายสุด)
+const EMPLOYEE_TYPE_SORT_ORDER = ["Indirect", "Direct_TeamLeader", "Direct_SupplyDC", "Direct_SubContractor"];
+const sortEnrollmentsByEmployeeType = (
+  enrollments: TrainingEnrollment[],
+  employees: EmployeeRow[] = []
+): TrainingEnrollment[] => {
+  const employeeTypeById = new Map(employees.map((employee) => [employee.id, employee.employee_type || ""]));
+  const rank = (enrollment: TrainingEnrollment): number => {
+    const idx = EMPLOYEE_TYPE_SORT_ORDER.indexOf(employeeTypeById.get(enrollment.employeeId) || "");
+    return idx === -1 ? EMPLOYEE_TYPE_SORT_ORDER.length : idx;
+  };
+  return [...enrollments]
+    .map((enrollment, index) => ({ enrollment, index, rank: rank(enrollment) }))
+    .sort((a, b) => (a.rank !== b.rank ? a.rank - b.rank : a.index - b.index))
+    .map((item) => item.enrollment);
+};
 
 const asset = (path: string): string => `${process.env.PUBLIC_URL || ""}${path}`;
 const FONT_REGULAR_URL = asset("/fonts/sarabun-thai-400-normal.woff");
@@ -285,10 +303,12 @@ const drawTrainerSignature = (page: PDFPage, regular: PdfFontSet, bold: PdfFontS
 
 export const generateTrainingNameListPdf = async (
   batch: TrainingBatch,
-  enrollments: TrainingEnrollment[]
+  enrollments: TrainingEnrollment[],
+  employees: EmployeeRow[] = []
 ): Promise<Uint8Array> => {
   const { pdfDoc, regular, bold } = await loadPdfWithFonts();
-  const pages = Math.max(1, Math.ceil(enrollments.length / ROWS_PER_PAGE));
+  const sortedEnrollments = sortEnrollmentsByEmployeeType(enrollments, employees);
+  const pages = Math.max(1, Math.ceil(sortedEnrollments.length / ROWS_PER_PAGE));
 
   for (let p = 0; p < pages; p += 1) {
     const page = pdfDoc.addPage(PageSizes.A4);
@@ -299,7 +319,7 @@ export const generateTrainingNameListPdf = async (
     }
 
     y = drawTableHeaderRow(page, bold, y);
-    const pageEnrollments = enrollments.slice(p * ROWS_PER_PAGE, (p + 1) * ROWS_PER_PAGE);
+    const pageEnrollments = sortedEnrollments.slice(p * ROWS_PER_PAGE, (p + 1) * ROWS_PER_PAGE);
     // วาดให้ครบ 15 แถวเสมอต่อหน้า (เหมือนแบบฟอร์มต้นฉบับ) แถวที่เกินจำนวนคนจริงจะเว้นว่างไว้สำหรับเพิ่มชื่อหน้างาน
     for (let i = 0; i < ROWS_PER_PAGE; i += 1) {
       const en = pageEnrollments[i];
@@ -313,7 +333,7 @@ export const generateTrainingNameListPdf = async (
 
     y -= 14;
     if (p === pages - 1) {
-      y = drawFooterSummary(page, regular, bold, y, enrollments.length);
+      y = drawFooterSummary(page, regular, bold, y, sortedEnrollments.length);
       drawTrainerSignature(page, regular, bold, y, batch.trainer || "");
     }
   }
@@ -323,16 +343,18 @@ export const generateTrainingNameListPdf = async (
 
 export const generateAndDownloadTrainingNameListPdf = async (
   batch: TrainingBatch,
-  enrollments: TrainingEnrollment[]
+  enrollments: TrainingEnrollment[],
+  employees: EmployeeRow[] = []
 ): Promise<void> => {
-  const bytes = await generateTrainingNameListPdf(batch, enrollments);
+  const bytes = await generateTrainingNameListPdf(batch, enrollments, employees);
   downloadBlob(bytes, `ใบปะหน้ารายชื่อเข้าอบรม_${batch.project}_${batch.date || ""}.pdf`);
 };
 
 export const generateAndPreviewTrainingNameListPdf = async (
   batch: TrainingBatch,
-  enrollments: TrainingEnrollment[]
+  enrollments: TrainingEnrollment[],
+  employees: EmployeeRow[] = []
 ): Promise<void> => {
-  const bytes = await generateTrainingNameListPdf(batch, enrollments);
+  const bytes = await generateTrainingNameListPdf(batch, enrollments, employees);
   openPdfInNewTab(bytes);
 };
