@@ -23,11 +23,12 @@ import { IdCardPhotoGuideButton, isIdCardDocType } from "./IdCardPhotoGuide";
 import {
   buildFullName,
   canManageRecruitmentIntake,
-  EMPLOYEE_TYPE_BY_GROUP_STATUS,
   EMPLOYEE_TYPE_OPTIONS,
+  getIntakeStatus,
   getSourceGroup,
-  GROUP_STATUS_BY_EMPLOYEE_TYPE,
   HiringAttachment,
+  IntakeStatusFilter,
+  INTAKE_STATUS_META,
   RecruitmentPendingEmployee,
   RECRUITMENT_PENDING_EMPLOYEES_COLLECTION,
   RecruitmentSourceGroup,
@@ -101,6 +102,8 @@ interface IntakeFormState {
   สาขา: string;
 }
 
+import { intakeEmployeeType, intakeWorkGroup } from "../utils/recruitmentEmployeeClassification";
+
 export const RecruitmentIntakePage = ({ projectOptions = [] }: { projectOptions?: string[] }) => {
   const { firebaseUser, userProfile } = useAuth();
   const canViewSalary = canViewSalaryInfo(userProfile?.role);
@@ -112,6 +115,11 @@ export const RecruitmentIntakePage = ({ projectOptions = [] }: { projectOptions?
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [groupFilter, setGroupFilter] = useState<"all" | RecruitmentSourceGroup>("all");
+  // ค่าเริ่มต้นของหน้านี้ต้องเป็น "รอเพิ่มเข้าระบบ" เสมอ เพราะเป็นงานหลักที่ HR ต้องตามทำต่อ
+  const [statusFilter, setStatusFilter] = useState<"all" | IntakeStatusFilter>("pending");
+  const [employeeTypeFilter, setEmployeeTypeFilter] = useState<string>("all");
+  const [projectFilter, setProjectFilter] = useState<string>("all");
+  const [departmentFilter, setDepartmentFilter] = useState<string>("all");
 
   // ฟอร์มเพิ่มเข้าระบบ
   const [formTarget, setFormTarget] = useState<RecruitmentPendingEmployee | null>(null);
@@ -172,10 +180,26 @@ export const RecruitmentIntakePage = ({ projectOptions = [] }: { projectOptions?
     if (fresh && fresh !== viewTarget) setViewTarget(fresh);
   }, [items, viewTarget]);
 
+  const projectOptionsInData = useMemo(
+    () => Array.from(new Set(items.map((c) => (c.โครงการ || "").trim()).filter(Boolean))).sort(),
+    [items]
+  );
+  const departmentOptionsInData = useMemo(
+    () => Array.from(new Set(items.map((c) => (c.แผนก || "").trim()).filter(Boolean))).sort(),
+    [items]
+  );
+  const employeeTypeOptionsInData = useMemo(() => {
+    const types = new Set(items.map(intakeEmployeeType));
+    return EMPLOYEE_TYPE_OPTIONS.filter((option) => types.has(option.value));
+  }, [items]);
   const filtered = useMemo(() => {
     const kw = search.trim().toLowerCase();
     return items
       .filter((c) => (groupFilter === "all" ? true : getSourceGroup(c.source) === groupFilter))
+      .filter((c) => (statusFilter === "all" ? true : getIntakeStatus(c) === statusFilter))
+      .filter((c) => (employeeTypeFilter === "all" ? true : intakeEmployeeType(c) === employeeTypeFilter))
+      .filter((c) => (projectFilter === "all" ? true : (c.โครงการ || "").trim() === projectFilter))
+      .filter((c) => (departmentFilter === "all" ? true : (c.แผนก || "").trim() === departmentFilter))
       .filter((c) => {
         if (!kw) return true;
         const name = buildFullName(c).toLowerCase();
@@ -186,18 +210,27 @@ export const RecruitmentIntakePage = ({ projectOptions = [] }: { projectOptions?
           (c.โครงการ || "").toLowerCase().includes(kw)
         );
       });
-  }, [items, groupFilter, search]);
+  }, [items, groupFilter, statusFilter, employeeTypeFilter, projectFilter, departmentFilter, search]);
 
   const counts = useMemo(() => {
     const result: Record<"all" | RecruitmentSourceGroup, number> = {
       all: items.length,
       external: 0,
       internal_transfer: 0,
+      contractor: 0,
       other: 0,
     };
     items.forEach((c) => {
       const g = getSourceGroup(c.source);
       result[g] += 1;
+    });
+    return result;
+  }, [items]);
+
+  const statusCounts = useMemo(() => {
+    const result: Record<"all" | IntakeStatusFilter, number> = { all: items.length, pending: 0, imported: 0, no_show: 0 };
+    items.forEach((c) => {
+      result[getIntakeStatus(c)] += 1;
     });
     return result;
   }, [items]);
@@ -285,8 +318,7 @@ export const RecruitmentIntakePage = ({ projectOptions = [] }: { projectOptions?
   };
 
   const openIntakeForm = (candidate: RecruitmentPendingEmployee) => {
-    const groupStatus = (candidate.สถานะกลุ่มงาน as string) || "Staff";
-    const empType = EMPLOYEE_TYPE_BY_GROUP_STATUS[groupStatus] || "Indirect";
+    const empType = intakeEmployeeType(candidate);
     setFormTarget(candidate);
     setDuplicateWarning(null);
     setForm({
@@ -353,11 +385,15 @@ export const RecruitmentIntakePage = ({ projectOptions = [] }: { projectOptions?
       window.alert("กรุณาระบุโครงการที่จะเข้าทำงาน");
       return;
     }
+    const groupStatus = intakeWorkGroup(form.employee_type, formTarget.สถานะกลุ่มงาน);
+    if (!EMPLOYEE_TYPE_OPTIONS.some((option) => option.value === form.employee_type) || !groupStatus) {
+      window.alert("กรุณาตรวจสอบประเภทพนักงานและสถานะกลุ่มงาน Staff/Worker จาก Recruitment ให้ครบก่อนนำเข้า");
+      return;
+    }
     setSaving(true);
     try {
       const db = getFirestore();
       const empCode = form.รหัสพนักงาน.trim();
-      const groupStatus = GROUP_STATUS_BY_EMPLOYEE_TYPE[form.employee_type] || "Staff";
 
       const employeeRecord: Record<string, unknown> = {
         id: empCode,
@@ -507,34 +543,89 @@ export const RecruitmentIntakePage = ({ projectOptions = [] }: { projectOptions?
         </p>
       </div>
 
+      {/* สถานะ "รอเพิ่มเข้าระบบ" คือค่า default เสมอ — ตั้งใจให้ HR เห็นงานที่ต้องตามทำต่อก่อน */}
       <div className="flex items-center gap-2 border-b border-gray-200 overflow-x-auto">
+        {([
+          { key: "pending", label: INTAKE_STATUS_META.pending.label },
+          { key: "imported", label: INTAKE_STATUS_META.imported.label },
+          { key: "no_show", label: INTAKE_STATUS_META.no_show.label },
+          { key: "all", label: "ทั้งหมด" },
+        ] as { key: "all" | IntakeStatusFilter; label: string }[]).map((t) => (
+          <button
+            key={t.key}
+            onClick={() => setStatusFilter(t.key)}
+            className={`px-4 py-2 text-sm font-semibold border-b-2 -mb-px whitespace-nowrap transition-colors ${
+              statusFilter === t.key ? "border-blue-600 text-blue-600" : "border-transparent text-gray-500 hover:text-gray-700"
+            }`}
+          >
+            {t.label} <span className="ml-1 text-xs font-bold text-gray-400">({statusCounts[t.key] || 0})</span>
+          </button>
+        ))}
+      </div>
+
+      <div className="flex items-center gap-2 overflow-x-auto">
         {([
           { key: "all", label: "ทั้งหมด" },
           { key: "external", label: SOURCE_GROUP_META.external.label },
           { key: "internal_transfer", label: SOURCE_GROUP_META.internal_transfer.label },
+          { key: "contractor", label: SOURCE_GROUP_META.contractor.label },
           { key: "other", label: SOURCE_GROUP_META.other.label },
         ] as { key: "all" | RecruitmentSourceGroup; label: string }[]).map((t) => (
           <button
             key={t.key}
             onClick={() => setGroupFilter(t.key)}
-            className={`px-4 py-2 text-sm font-semibold border-b-2 -mb-px whitespace-nowrap transition-colors ${
-              groupFilter === t.key ? "border-blue-600 text-blue-600" : "border-transparent text-gray-500 hover:text-gray-700"
+            className={`px-3 py-1 rounded-full text-xs font-semibold border whitespace-nowrap transition-colors ${
+              groupFilter === t.key ? "bg-blue-600 text-white border-blue-600" : "bg-white text-gray-500 border-gray-200 hover:bg-gray-50"
             }`}
           >
-            {t.label} <span className="ml-1 text-xs font-bold text-gray-400">({counts[t.key] || 0})</span>
+            {t.label} ({counts[t.key] || 0})
           </button>
         ))}
       </div>
 
-      <div className="relative max-w-sm">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
-        <input
-          type="text"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder="ค้นหาชื่อ / ตำแหน่ง / แผนก / โครงการ..."
-          className="w-full pl-9 pr-3 py-1.5 border rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-100"
-        />
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="relative max-w-sm">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
+          <input
+            type="text"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="ค้นหาชื่อ / ตำแหน่ง / แผนก / โครงการ..."
+            className="w-full pl-9 pr-3 py-1.5 border rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-100"
+          />
+        </div>
+        <select
+          value={employeeTypeFilter}
+          onChange={(e) => setEmployeeTypeFilter(e.target.value)}
+          className="border rounded-lg text-sm px-2.5 py-1.5 outline-none focus:ring-2 focus:ring-blue-100 bg-white"
+        >
+          <option value="all">ทุกประเภทพนักงาน</option>
+          {employeeTypeOptionsInData.map((o) => (
+            <option key={o.value} value={o.value}>
+              {o.label}
+            </option>
+          ))}
+        </select>
+        <select
+          value={projectFilter}
+          onChange={(e) => setProjectFilter(e.target.value)}
+          className="border rounded-lg text-sm px-2.5 py-1.5 outline-none focus:ring-2 focus:ring-blue-100 bg-white"
+        >
+          <option value="all">ทุกโครงการ</option>
+          {projectOptionsInData.map((p) => (
+            <option key={p} value={p}>{p}</option>
+          ))}
+        </select>
+        <select
+          value={departmentFilter}
+          onChange={(e) => setDepartmentFilter(e.target.value)}
+          className="border rounded-lg text-sm px-2.5 py-1.5 outline-none focus:ring-2 focus:ring-blue-100 bg-white"
+        >
+          <option value="all">ทุกแผนก/บริษัท</option>
+          {departmentOptionsInData.map((d) => (
+            <option key={d} value={d}>{d}</option>
+          ))}
+        </select>
       </div>
 
       <div className="flex-1 overflow-auto bg-white rounded-xl border border-gray-200 shadow-sm">
@@ -689,14 +780,18 @@ export const RecruitmentIntakePage = ({ projectOptions = [] }: { projectOptions?
               </Field>
               <Field label="ประเภทพนักงาน">
                 <select
-                  value={form.employee_type}
+                  required value={form.employee_type}
                   onChange={(e) => setForm((f) => (f ? { ...f, employee_type: e.target.value } : f))}
                   className="input"
                 >
+                  <option value="" disabled>เลือกประเภทพนักงาน</option>
                   {EMPLOYEE_TYPE_OPTIONS.map((o) => (
                     <option key={o.value} value={o.value}>{o.label}</option>
                   ))}
                 </select>
+              </Field>
+              <Field label="สถานะกลุ่มงานที่จะบันทึก">
+                <input readOnly value={intakeWorkGroup(form.employee_type, formTarget.สถานะกลุ่มงาน) || "กรุณาตรวจสอบกลุ่มงานจาก Recruitment"} className="input bg-gray-50" />
               </Field>
               <Field label="คำนำหน้า">
                 <input value={form.คำนำหน้า} onChange={(e) => setForm((f) => (f ? { ...f, คำนำหน้า: e.target.value } : f))} className="input" />
@@ -1057,6 +1152,7 @@ export const RecruitmentIntakePage = ({ projectOptions = [] }: { projectOptions?
 
               <DetailSection title="เอกสาร / ที่มา">
                 <DetailRow label="แหล่งที่มา" value={viewTarget.source as string} />
+                {viewTarget.contractorCompany ? <DetailRow label="บริษัทผู้รับเหมา" value={viewTarget.contractorCompany} /> : null}
                 <DetailRow label="สร้างเมื่อ" value={formatDate(viewTarget.createdAt)} />
                 <DetailRow label="สร้างโดย" value={viewTarget.createdByName as string} />
                 <DetailRow label="จำนวนเอกสารแนบ" value={String((viewTarget.attachments as HiringAttachment[] | undefined)?.length || 0)} />

@@ -25,9 +25,12 @@ export interface RecruitmentBenefit {
   label?: string;
 }
 
-/** source ที่รู้จักแล้ว (ใช้แยกประเภทการแสดงผล) ค่าที่ไม่ตรงกับ 2 ค่านี้ (เช่น "online")
- * จะถูกจัดไว้ในกลุ่ม "อื่น ๆ" เพื่อไม่ให้ข้อมูลหายไปจากหน้าจอ */
-export type RecruitmentSource = "external" | "internal_transfer" | string;
+/** source ที่รู้จักแล้ว (ใช้แยกประเภทการแสดงผล) ค่าที่ไม่ตรงกับค่าที่รู้จัก (เช่น "online")
+ * จะถูกจัดไว้ในกลุ่ม "อื่น ๆ" เพื่อไม่ให้ข้อมูลหายไปจากหน้าจอ
+ * "contractor_new" = ผู้รับเหมา/Supply manpower ที่กรอกชื่อตัวเองผ่านลิงก์สาธารณะ
+ * (ลิงก์ "เก็บเอกสารล่วงหน้า" โหมด self_entry ใน contractorPortalConfig.ts) — คนละ pipeline
+ * กับระบบ Recruitment แต่เก็บลง collection เดียวกันนี้เพื่อให้ HR บริหารจัดการที่เดียว */
+export type RecruitmentSource = "external" | "internal_transfer" | "contractor_new" | string;
 
 export interface RecruitmentPendingEmployee {
   id: string; // = hiringPacketId
@@ -109,6 +112,11 @@ export interface RecruitmentPendingEmployee {
   noShowAt?: number;
   noShowByUid?: string;
   noShowByName?: string;
+  importedEmployeeId?: string; // รหัสพนักงานที่สร้างใน employee_data แล้ว (เซ็ตตอน HR กดนำเข้า)
+
+  // ---- เฉพาะ source === "contractor_new" (กรอกเองผ่านลิงก์สาธารณะผู้รับเหมา) ----
+  contractorCompany?: string; // ชื่อบริษัทผู้รับเหมาที่ HR กำหนดตอนสร้างลิงก์
+  contractorLinkId?: string; // อ้างอิงกลับไปที่ training_contractor_links/{token}
 
   [key: string]: unknown;
 }
@@ -120,19 +128,40 @@ export const buildFullName = (c: Pick<RecruitmentPendingEmployee, "ชื่อ�
     .join(" ")
     .trim() || "(ไม่ระบุชื่อ)";
 
-/** จัดกลุ่มตาม source: external -> พนักงานใหม่, internal_transfer -> โยกย้ายภายใน, อื่น ๆ -> other */
-export type RecruitmentSourceGroup = "external" | "internal_transfer" | "other";
+/** จัดกลุ่มตาม source: external -> พนักงานใหม่, internal_transfer -> โยกย้ายภายใน,
+ * contractor_new -> ผู้รับเหมากรอกเอง, อื่น ๆ -> other */
+export type RecruitmentSourceGroup = "external" | "internal_transfer" | "contractor" | "other";
 
 export const getSourceGroup = (source: RecruitmentSource | undefined): RecruitmentSourceGroup => {
   if (source === "external") return "external";
   if (source === "internal_transfer") return "internal_transfer";
+  if (source === "contractor_new") return "contractor";
   return "other";
 };
 
 export const SOURCE_GROUP_META: Record<RecruitmentSourceGroup, { label: string; className: string }> = {
   external: { label: "พนักงานใหม่", className: "bg-blue-50 text-blue-700 border-blue-200" },
   internal_transfer: { label: "โยกย้ายภายใน", className: "bg-purple-50 text-purple-700 border-purple-200" },
+  contractor: { label: "ผู้รับเหมา (กรอกเอง)", className: "bg-sky-50 text-sky-700 border-sky-200" },
   other: { label: "อื่น ๆ", className: "bg-gray-100 text-gray-600 border-gray-200" },
+};
+
+// ---------------------------------------------------------------------------
+// สถานะ "รอเพิ่มเข้าระบบ" (เอาไว้เป็นตัวกรอง/แท็บหลักของหน้านี้ — ค่า default ที่ควรแสดงก่อน
+// คือ "pending" เสมอ เพราะเป็นงานที่ HR ต้องตามทำต่อ)
+// ---------------------------------------------------------------------------
+export type IntakeStatusFilter = "pending" | "imported" | "no_show";
+
+export const getIntakeStatus = (c: Pick<RecruitmentPendingEmployee, "importedEmployeeId" | "intakeStatus">): IntakeStatusFilter => {
+  if (c.intakeStatus === "no_show") return "no_show";
+  if (c.importedEmployeeId) return "imported";
+  return "pending";
+};
+
+export const INTAKE_STATUS_META: Record<IntakeStatusFilter, { label: string; className: string }> = {
+  pending: { label: "รอเพิ่มเข้าระบบ", className: "bg-amber-50 text-amber-700 border-amber-200" },
+  imported: { label: "เพิ่มแล้ว", className: "bg-emerald-50 text-emerald-700 border-emerald-200" },
+  no_show: { label: "ไม่มาเริ่มงาน", className: "bg-red-50 text-red-700 border-red-200" },
 };
 
 /** แปลง Firestore Timestamp (หรือ number/undefined) เป็น Date เพื่อแสดงผล */

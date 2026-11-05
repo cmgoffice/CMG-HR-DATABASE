@@ -33,6 +33,14 @@ export const CONTRACTOR_EMPLOYEE_TYPE_LABELS: Record<ContractorEmployeeType, str
   Direct_SubContractor: "Sub contractor",
 };
 
+// "invited" (ของเดิม/default เมื่อไม่มีค่า) = HR เลือกรายชื่อพนักงานที่มีอยู่แล้วในระบบไว้ล่วงหน้า
+//   ผู้รับเหมาเข้ามาแค่แนบเอกสารให้คนในรายชื่อนั้น
+// "self_entry" = สำหรับผู้รับเหมา/Supply manpower ที่ "ยังไม่มีชื่ออยู่ในระบบเลย" — หน้า public จะมี
+//   ฟอร์มให้กรอกชื่อ+ข้อมูลส่วนตัว+แนบเอกสารเอง (เก็บฟิลด์ชุดเดียวกับที่มาจากระบบ Recruitment) แล้วส่งเข้า
+//   recruitment_pending_employees ด้วย source="contractor_new" ให้ HR ไปกด "เพิ่มเข้าระบบ" ต่อที่หน้า
+//   "รายชื่อรอเพิ่ม" (RecruitmentIntakePage) เหมือนรายชื่อที่มาจาก Recruitment ทุกประการ
+export type ContractorLinkMode = "invited" | "self_entry";
+
 export interface TrainingContractorLink {
   id: string; // = token
   // ไม่มีค่า/undefined = ลิงก์ "เก็บเอกสารล่วงหน้า" ยังไม่ผูกรอบอบรมใดๆ (ดูหมายเหตุด้านบน)
@@ -40,9 +48,12 @@ export interface TrainingContractorLink {
   project: string;
   company: string; // ตรงกับฟิลด์ "แผนก" ของพนักงานกลุ่มนี้ (ใช้เป็นชื่อบริษัทผู้รับเหมา)
   employeeType: ContractorEmployeeType | "";
+  // ไม่มีค่า/undefined = "invited" (ของเดิม) — ดูความหมายแต่ละโหมดด้านบน
+  mode?: ContractorLinkMode;
   // รายชื่อพนักงาน (employee doc id) ที่ HR เลือกไว้ล่วงหน้าตอนสร้างลิงก์ — ผู้รับเหมาจะเห็น "เฉพาะ"
   // ชื่อในรายการนี้ (ชื่ออื่นที่ไม่อยู่ในนี้ต้องใช้ฟอร์ม "เพิ่มชื่อใหม่" ส่งให้ HR อนุมัติเท่านั้น)
   // ไม่มีค่า/undefined = ลิงก์เก่าก่อนมีฟีเจอร์นี้ (fallback แสดงพนักงานทุกคนที่ตรงบริษัท+โครงการ)
+  // ไม่ใช้เลยเมื่อ mode === "self_entry"
   invitedEmployeeIds?: string[];
   createdAt: number;
   createdByUid?: string;
@@ -55,6 +66,16 @@ export const buildContractorPortalUrl = (token: string): string => {
 };
 
 export const createContractorLinkToken = (): string => generatePublicToken();
+
+/** slug ชื่อบริษัทผู้รับเหมา ใช้ขึ้นต้น candidateKey ตอนอัปโหลดเอกสาร (โหมด self_entry) เพื่อให้
+ * โฟลเดอร์ Drive ของคนที่สมัครผ่านลิงก์เดียวกันแยกกลุ่มตามชื่อบริษัทผู้รับเหมาได้ชัดเจน
+ * (แต่ละคนยังได้โฟลเดอร์ของตัวเอง เพราะต่อท้ายด้วย doc id เสมอ ไม่ใช่โฟลเดอร์รวม) */
+export const slugifyContractorCompany = (company: string): string =>
+  company
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9ก-๙]+/g, "-")
+    .replace(/^-+|-+$/g, "") || "contractor";
 
 // ---------------------------------------------------------------------------
 // รายชื่อใหม่ที่ผู้รับเหมากรอกเองผ่านลิงก์ (ยังไม่มีในระบบ employee_data) — ต้องรอ
