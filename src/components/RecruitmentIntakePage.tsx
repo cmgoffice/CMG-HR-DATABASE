@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { collection, deleteDoc, doc, getDoc, getFirestore, onSnapshot, runTransaction, setDoc, updateDoc } from "firebase/firestore";
+import { collection, deleteDoc, doc, getDoc, getDocs, getFirestore, onSnapshot, runTransaction, setDoc, updateDoc } from "firebase/firestore";
 import {
   AlertTriangle,
   CheckCircle2,
@@ -134,9 +134,37 @@ export const RecruitmentIntakePage = ({
   const [saving, setSaving] = useState(false);
   const [statusSaving, setStatusSaving] = useState<string | null>(null);
   const [duplicateWarning, setDuplicateWarning] = useState<string | null>(null);
-  // เตือน HR เมื่อโครงการ/ตำแหน่งจาก Recruitment ไม่ตรงเป๊ะกับตัวเลือกในระบบ (ระบบเลือกใกล้เคียงที่สุดให้แล้ว)
+  // เตือน HR เมื่อโครงการ/ตำแหน่ง/แผนกจาก Recruitment ไม่ตรงเป๊ะกับตัวเลือกในระบบ (ระบบเลือกใกล้เคียงที่สุดให้แล้ว)
   const [projectMatchNote, setProjectMatchNote] = useState<string | null>(null);
   const [positionMatchNote, setPositionMatchNote] = useState<string | null>(null);
+  const [departmentMatchNote, setDepartmentMatchNote] = useState<string | null>(null);
+
+  // "position_labor" เป็น master list ที่ HR ต้องตั้งค่าเอง มักยังไม่ได้กรอกครบ/ยังว่าง จึงดึง
+  // ตำแหน่ง/แผนกที่ "มีอยู่จริง" จากพนักงานใน employee_data มาเสริมด้วย เพื่อให้มีตัวเลือกให้ใช้งานจริง
+  // ดึงครั้งเดียวตอนเข้าหน้านี้ (ไม่ realtime เพราะใช้แค่ประกอบตัวเลือก ไม่ต้องอัปเดตวินาทีต่อวินาที)
+  const [employeePositionOptions, setEmployeePositionOptions] = useState<string[]>([]);
+  const [employeeDepartmentOptions, setEmployeeDepartmentOptions] = useState<string[]>([]);
+  useEffect(() => {
+    (async () => {
+      try {
+        const db = getFirestore();
+        const snap = await getDocs(collection(db, "CMG-HR-Database", "root", "employee_data"));
+        const positions = new Set<string>();
+        const departments = new Set<string>();
+        snap.docs.forEach((d) => {
+          const data = d.data() as { ตำแหน่ง?: string; แผนก?: string };
+          const pos = (data.ตำแหน่ง || "").toString().trim();
+          const dep = (data.แผนก || "").toString().trim();
+          if (pos) positions.add(pos);
+          if (dep) departments.add(dep);
+        });
+        setEmployeePositionOptions(Array.from(positions).sort((a, b) => a.localeCompare(b, "th")));
+        setEmployeeDepartmentOptions(Array.from(departments).sort((a, b) => a.localeCompare(b, "th")));
+      } catch (err) {
+        console.error("[RecruitmentIntakePage] โหลดตัวเลือกตำแหน่ง/แผนกจาก employee_data ไม่สำเร็จ:", err);
+      }
+    })();
+  }, []);
   const [deletingCandidateId, setDeletingCandidateId] = useState<string | null>(null);
   const [deletingAttachmentKey, setDeletingAttachmentKey] = useState<string | null>(null);
 
@@ -202,6 +230,21 @@ export const RecruitmentIntakePage = ({
     const types = new Set(items.map(intakeEmployeeType));
     return EMPLOYEE_TYPE_OPTIONS.filter((option) => types.has(option.value));
   }, [items]);
+
+  // ตัวเลือก "ตำแหน่ง" ที่ใช้ในฟอร์มเพิ่มเข้าระบบ: รวม master list จาก position_labor (ถ้า HR ตั้งค่าไว้)
+  // + ตำแหน่งที่มีอยู่จริงในพนักงาน (employee_data) + ตำแหน่งที่เคยเห็นในคิวรอเพิ่มนี้เอง กันตกหล่น
+  const positionOptionsForForm = useMemo(() => {
+    const fromPending = items.map((c) => (c.ตำแหน่ง || "").trim()).filter(Boolean);
+    const merged = new Set<string>([...positionOptions, ...employeePositionOptions, ...fromPending]);
+    return Array.from(merged).sort((a, b) => a.localeCompare(b, "th"));
+  }, [positionOptions, employeePositionOptions, items]);
+
+  // ตัวเลือก "แผนก" ที่ใช้ในฟอร์มเพิ่มเข้าระบบ: ยังไม่มี master list แยกในระบบ จึงรวมจากแผนกที่มีอยู่จริง
+  // ในพนักงาน (employee_data) + แผนกที่เคยเห็นในคิวรอเพิ่มนี้เอง
+  const departmentOptionsForForm = useMemo(() => {
+    const merged = new Set<string>([...employeeDepartmentOptions, ...departmentOptionsInData]);
+    return Array.from(merged).sort((a, b) => a.localeCompare(b, "th"));
+  }, [employeeDepartmentOptions, departmentOptionsInData]);
   const filtered = useMemo(() => {
     const kw = search.trim().toLowerCase();
     return items
@@ -329,10 +372,11 @@ export const RecruitmentIntakePage = ({
 
   const openIntakeForm = (candidate: RecruitmentPendingEmployee) => {
     const empType = intakeEmployeeType(candidate);
-    // โครงการ/ตำแหน่งจาก Recruitment เป็นข้อความอิสระ -> จับคู่กับตัวเลือกจริงในระบบ (projects /
-    // position_labor) ส่วนใหญ่ควรตรงเป๊ะ ถ้าไม่ตรงให้เลือกตัวใกล้เคียงที่สุดแทน แล้วเตือน HR ให้ตรวจสอบ
+    // โครงการ/ตำแหน่ง/แผนกจาก Recruitment เป็นข้อความอิสระ -> จับคู่กับตัวเลือกจริงในระบบ
+    // ส่วนใหญ่ควรตรงเป๊ะ ถ้าไม่ตรงให้เลือกตัวใกล้เคียงที่สุดแทน แล้วเตือน HR ให้ตรวจสอบ
     const projectMatch = pickClosestOption(candidate.โครงการ, projectOptions);
-    const positionMatch = pickClosestOption(candidate.ตำแหน่ง, positionOptions);
+    const positionMatch = pickClosestOption(candidate.ตำแหน่ง, positionOptionsForForm);
+    const departmentMatch = pickClosestOption(candidate.แผนก, departmentOptionsForForm);
     setFormTarget(candidate);
     setDuplicateWarning(null);
     setProjectMatchNote(
@@ -345,13 +389,18 @@ export const RecruitmentIntakePage = ({
         ? `⚠️ ตำแหน่งจาก Recruitment คือ "${candidate.ตำแหน่ง}" — ระบบเลือกใกล้เคียงที่สุดให้ว่า "${positionMatch.value}" กรุณาตรวจสอบก่อนบันทึก`
         : null
     );
+    setDepartmentMatchNote(
+      candidate.แผนก && !departmentMatch.exact && departmentMatch.value
+        ? `⚠️ แผนกจาก Recruitment คือ "${candidate.แผนก}" — ระบบเลือกใกล้เคียงที่สุดให้ว่า "${departmentMatch.value}" กรุณาตรวจสอบก่อนบันทึก`
+        : null
+    );
     setForm({
       รหัสพนักงาน: (candidate.รหัสพนักงานเดิม as string) || "",
       คำนำหน้า: candidate.ชื่อต้น || "",
       ชื่อตัว: (candidate.ชื่อตัว || "").trim(),
       ชื่อสกุล: candidate.ชื่อสกุล || "",
       ตำแหน่ง: positionMatch.value || candidate.ตำแหน่ง || "",
-      แผนก: candidate.แผนก || "",
+      แผนก: departmentMatch.value || candidate.แผนก || "",
       โครงการ: projectMatch.value || candidate.โครงการ || "",
       employee_type: empType,
       start_date: candidate.วันเริ่มงาน || "",
@@ -384,6 +433,7 @@ export const RecruitmentIntakePage = ({
     setDuplicateWarning(null);
     setProjectMatchNote(null);
     setPositionMatchNote(null);
+    setDepartmentMatchNote(null);
   };
 
   const checkDuplicate = async (empCode: string) => {
@@ -829,17 +879,17 @@ export const RecruitmentIntakePage = ({
                 <input value={form.ชื่อสกุล} onChange={(e) => setForm((f) => (f ? { ...f, ชื่อสกุล: e.target.value } : f))} className="input" />
               </Field>
               <Field label="ตำแหน่ง">
-                {positionOptions.length > 0 ? (
+                {positionOptionsForForm.length > 0 ? (
                   <select
                     value={form.ตำแหน่ง}
                     onChange={(e) => setForm((f) => (f ? { ...f, ตำแหน่ง: e.target.value } : f))}
                     className="input"
                   >
                     <option value="">เลือกตำแหน่ง</option>
-                    {form.ตำแหน่ง && !positionOptions.includes(form.ตำแหน่ง) && (
+                    {form.ตำแหน่ง && !positionOptionsForForm.includes(form.ตำแหน่ง) && (
                       <option value={form.ตำแหน่ง}>{form.ตำแหน่ง} (ไม่อยู่ในระบบ)</option>
                     )}
-                    {positionOptions.map((o) => (
+                    {positionOptionsForForm.map((o) => (
                       <option key={o} value={o}>{o}</option>
                     ))}
                   </select>
@@ -851,7 +901,26 @@ export const RecruitmentIntakePage = ({
                 )}
               </Field>
               <Field label="แผนก">
-                <input value={form.แผนก} onChange={(e) => setForm((f) => (f ? { ...f, แผนก: e.target.value } : f))} className="input" />
+                {departmentOptionsForForm.length > 0 ? (
+                  <select
+                    value={form.แผนก}
+                    onChange={(e) => setForm((f) => (f ? { ...f, แผนก: e.target.value } : f))}
+                    className="input"
+                  >
+                    <option value="">เลือกแผนก</option>
+                    {form.แผนก && !departmentOptionsForForm.includes(form.แผนก) && (
+                      <option value={form.แผนก}>{form.แผนก} (ไม่อยู่ในระบบ)</option>
+                    )}
+                    {departmentOptionsForForm.map((d) => (
+                      <option key={d} value={d}>{d}</option>
+                    ))}
+                  </select>
+                ) : (
+                  <input value={form.แผนก} onChange={(e) => setForm((f) => (f ? { ...f, แผนก: e.target.value } : f))} className="input" />
+                )}
+                {departmentMatchNote && (
+                  <p className="text-[11px] font-medium text-amber-700 mt-1">{departmentMatchNote}</p>
+                )}
               </Field>
               <Field label="โครงการ *">
                 {projectOptions.length > 0 ? (
