@@ -150,6 +150,21 @@ const GMTP_MYANMAR_CAMP_ADDRESS = "27 ซอยหนองน้ำเย็น
 const resolveGmtpAddress = (emp: EmployeeRow | undefined, nationality: string | undefined): string =>
   isThaiNationality(nationality) ? buildAddress(emp) : GMTP_MYANMAR_CAMP_ADDRESS;
 
+// ลำดับการแสดงรายชื่อในใบปะหน้า/ใบรูปถ่าย: รหัสรายเดือน -> รหัส DC -> รหัส SP -> รหัส SC
+// (คนที่หา employee_type ไม่พบในฐานข้อมูลให้ต่อท้ายสุด ไม่กระทบคนที่จัดประเภทได้แล้ว)
+const EMPLOYEE_TYPE_SORT_ORDER = ["Indirect", "Direct_TeamLeader", "Direct_SupplyDC", "Direct_SubContractor"];
+const sortEnrollmentsByEmployeeType = (enrollments: TrainingEnrollment[], employees: EmployeeRow[]): TrainingEnrollment[] => {
+  const employeeTypeById = new Map(employees.map((employee) => [employee.id, employee.employee_type || ""]));
+  const rank = (en: TrainingEnrollment): number => {
+    const idx = EMPLOYEE_TYPE_SORT_ORDER.indexOf(employeeTypeById.get(en.employeeId) || "");
+    return idx === -1 ? EMPLOYEE_TYPE_SORT_ORDER.length : idx;
+  };
+  return [...enrollments]
+    .map((en, index) => ({ en, index, rank: rank(en) }))
+    .sort((a, b) => (a.rank !== b.rank ? a.rank - b.rank : a.index - b.index))
+    .map((item) => item.en);
+};
+
 /** เขียนข้อมูลหัวฟอร์ม (A1 GENERAL INFO + A2 REQUESTOR INFO) ลงในชีตข้อมูล 1 ชีต — ต้องเขียนซ้ำทุกชีต
  * เพราะไฟล์ต้นฉบับมีหัวฟอร์มซ้ำกันทุกหน้า/ทุกชีต (เหมือนโลโก้ที่ต้องมีครบทุกหน้าของ HUASHI) */
 const writeHeaderFields = (
@@ -284,7 +299,10 @@ export const generateGmtpTrainingRequestFormXlsx = async (
   // แยกตามสัญชาติปัจจุบันของพนักงาน โดยใช้ข้อมูลตอนลงทะเบียนเมื่อไม่มีข้อมูลพนักงาน
   const unresolved = enrollments.filter((en) => !resolveGmtpGroup(resolveNationality(en, employeeById.get(en.employeeId))));
   if (unresolved.length) throw new Error(`กรุณาตรวจสัญชาติไทย/เมียนมาในข้อมูลพนักงาน: ${unresolved.map((en) => en.employeeName).join(", ")}`);
-  const filtered = enrollments.filter((en) => resolveGmtpGroup(resolveNationality(en, employeeById.get(en.employeeId))) === language);
+  const filtered = sortEnrollmentsByEmployeeType(
+    enrollments.filter((en) => resolveGmtpGroup(resolveNationality(en, employeeById.get(en.employeeId))) === language),
+    employees
+  );
   const missingRoles = filtered.filter((en) => !resolveGmtpMatrixRole(en.position, en.matrixRole));
   if (missingRoles.length) throw new Error(`กรุณาจับคู่ตำแหน่งตาม Training Matrix 74: ${missingRoles.map((en) => en.employeeName).join(", ")}`);
   const sheetPaths = SHEET_PATHS[language];
@@ -421,7 +439,10 @@ export const generateGmtpRoundFiles = async (
   for (const course of courses) {
     const courseEnrollments = getGmtpCourseEnrollments(enrollments, course.name);
     for (const lang of languages) {
-      const people = courseEnrollments.filter((en) => resolveGmtpGroup(resolveNationality(en, employeeById.get(en.employeeId))) === lang);
+      const people = sortEnrollmentsByEmployeeType(
+        courseEnrollments.filter((en) => resolveGmtpGroup(resolveNationality(en, employeeById.get(en.employeeId))) === lang),
+        employees
+      );
       const capacity = SHEET_LAYOUTS[lang].reduce((total, layout) => total + layout.rows, 0);
       for (let offset = 0; offset < people.length; offset += capacity) {
         const bytes = await generateGmtpTrainingRequestFormXlsx({ ...batch, courseName: course.name }, people.slice(offset, offset + capacity), employees, lang, requestor, warnings);

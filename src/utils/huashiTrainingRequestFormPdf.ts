@@ -307,13 +307,29 @@ const drawHeaderFields = (page: PDFPage, regular: PdfFontSet, _bold: PdfFontSet,
 // y ขอบบนของ "แถวข้อมูลคนแรก" ในตาราง (ใต้หัวตาราง 2 แถวแล้ว) วัดจากไฟล์ต้นฉบับจริง — คงที่ทุกหน้า
 const TABLE_TOP_Y = 382.5;
 
+// ลำดับการแสดงรายชื่อในใบปะหน้า: รหัสรายเดือน -> รหัส DC -> รหัส SP -> รหัส SC
+// (คนที่หา employee_type ไม่พบในฐานข้อมูลให้ต่อท้ายสุด)
+const EMPLOYEE_TYPE_SORT_ORDER = ["Indirect", "Direct_TeamLeader", "Direct_SupplyDC", "Direct_SubContractor"];
+const sortEnrollmentsByEmployeeType = (enrollments: TrainingEnrollment[], employees: EmployeeRow[]): TrainingEnrollment[] => {
+  const employeeTypeById = new Map(employees.map((employee) => [employee.id, employee.employee_type || ""]));
+  const rank = (en: TrainingEnrollment): number => {
+    const idx = EMPLOYEE_TYPE_SORT_ORDER.indexOf(employeeTypeById.get(en.employeeId) || "");
+    return idx === -1 ? EMPLOYEE_TYPE_SORT_ORDER.length : idx;
+  };
+  return [...enrollments]
+    .map((en, index) => ({ en, index, rank: rank(en) }))
+    .sort((a, b) => (a.rank !== b.rank ? a.rank - b.rank : a.index - b.index))
+    .map((item) => item.en);
+};
+
 export const generateHuashiTrainingRequestFormPdf = async (
   batch: TrainingBatch,
-  enrollments: TrainingEnrollment[],
+  enrollmentsInput: TrainingEnrollment[],
   employees: EmployeeRow[]
 ): Promise<Uint8Array> => {
   const { pdfDoc, regular, bold } = await loadPdfWithFonts();
   const employeeById = new Map(employees.map((e) => [e.id, e]));
+  const enrollments = sortEnrollmentsByEmployeeType(enrollmentsInput, employees);
   const pages = Math.max(1, Math.ceil(enrollments.length / ROWS_PER_PAGE));
 
   // pdfDoc ตอนนี้มีแค่หน้า 1 ของต้นฉบับ (มีโลโก้+ตารางเปล่าพร้อมอยู่แล้ว) — ถ้าคนเกิน 20 คน
