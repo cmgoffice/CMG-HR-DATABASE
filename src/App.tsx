@@ -3586,7 +3586,7 @@ function MasterDatabaseApp() {
             ) : activeModule === 'approval_center' ? (
               <ApprovalCenterPage setActiveModule={setActiveModule} />
             ) : activeModule === 'recruitment_intake' ? (
-              <RecruitmentIntakePage projectOptions={projectStatusOptions} />
+              <RecruitmentIntakePage projectOptions={projectStatusOptions} positionOptions={positionOptions} />
             ) : activeModule === 'training_batches' ? (
               <TrainingBatchPage projectOptions={projectStatusOptions} />
             ) : activeModule === 'employee_documents' ? (

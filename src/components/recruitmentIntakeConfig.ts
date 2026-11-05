@@ -243,3 +243,87 @@ export const HIRING_DOC_TYPE_OPTIONS: { value: string; label: string }[] = [
 ];
 
 export const HIRING_DOCS_MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024; // ~10MB ตามสเปค
+
+// ---------------------------------------------------------------------------
+// จับคู่ "โครงการ"/"ตำแหน่ง" อิสระที่มาจาก Recruitment ให้ตรงกับตัวเลือกจริงในระบบ
+// (collection "projects" / "position_labor") เพื่อให้ฟอร์มเพิ่มเข้าระบบใน
+// RecruitmentIntakePage ใช้เป็น <select> จากระบบแทนช่องพิมพ์อิสระ — ส่วนใหญ่ควรตรงเป๊ะ
+// ถ้าไม่ตรงเป๊ะ ให้เลือกตัวที่ใกล้เคียงที่สุดแทน (ด้วย Levenshtein distance) แล้วเตือน HR
+// ให้ตรวจสอบอีกครั้งก่อนบันทึก
+// ---------------------------------------------------------------------------
+
+const normalizeForMatch = (value: string): string =>
+  value
+    .toString()
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, " ");
+
+/** ระยะห่างแบบ Levenshtein (จำนวนตัวอักษรที่ต้องแก้ไขให้ string หนึ่งกลายเป็นอีก string) */
+const levenshteinDistance = (a: string, b: string): number => {
+  const m = a.length;
+  const n = b.length;
+  if (m === 0) return n;
+  if (n === 0) return m;
+  const dp: number[] = new Array(n + 1);
+  for (let j = 0; j <= n; j++) dp[j] = j;
+  for (let i = 1; i <= m; i++) {
+    let prev = dp[0];
+    dp[0] = i;
+    for (let j = 1; j <= n; j++) {
+      const temp = dp[j];
+      dp[j] = a[i - 1] === b[j - 1] ? prev : 1 + Math.min(prev, dp[j], dp[j - 1]);
+      prev = temp;
+    }
+  }
+  return dp[n];
+};
+
+export interface ClosestOptionMatch {
+  value: string; // ตัวเลือกที่เลือกให้ ("" ถ้าไม่มีค่าต้นทางหรือไม่มีตัวเลือกให้เลือกเลย)
+  exact: boolean; // true = ตรงเป๊ะ (ไม่ต้องเตือน HR ให้ตรวจสอบซ้ำ)
+}
+
+/** หาตัวเลือกจาก `options` ที่ตรง/ใกล้เคียงกับ `rawValue` มากที่สุด
+ * - ตรงเป๊ะ (ไม่สนตัวพิมพ์เล็กใหญ่/ช่องว่าง) -> ใช้เลย
+ * - ตัวเลือกรูปแบบ "รหัส - ชื่อ" (เช่น โครงการ) -> ลองเทียบเฉพาะส่วนรหัส หรือเฉพาะส่วนชื่อด้วย
+ * - มีส่วนใดส่วนหนึ่งเป็น substring ของกันและกัน -> ถือว่าใกล้เคียงพอ
+ * - สุดท้ายเลือกตัวที่ระยะ Levenshtein (เทียบสัดส่วนความยาว) น้อยที่สุด เพื่อให้ได้ "ใกล้เคียงที่สุด"
+ *   เสมอเมื่อมีตัวเลือกให้เลือก (ไม่ปล่อยว่าง) */
+export const pickClosestOption = (
+  rawValue: string | undefined | null,
+  options: string[]
+): ClosestOptionMatch => {
+  const value = (rawValue || "").toString().trim();
+  if (options.length === 0) return { value: "", exact: !value };
+  if (!value) return { value: "", exact: true };
+
+  const normValue = normalizeForMatch(value);
+
+  const exactOpt = options.find((o) => normalizeForMatch(o) === normValue);
+  if (exactOpt) return { value: exactOpt, exact: true };
+
+  const partOpt = options.find((o) =>
+    o.split(" - ").some((part) => normalizeForMatch(part) === normValue)
+  );
+  if (partOpt) return { value: partOpt, exact: true };
+
+  const containsOpt = options.find((o) => {
+    const normOpt = normalizeForMatch(o);
+    return normOpt.includes(normValue) || normValue.includes(normOpt);
+  });
+  if (containsOpt) return { value: containsOpt, exact: false };
+
+  let best = options[0];
+  let bestScore = Infinity;
+  options.forEach((o) => {
+    const normOpt = normalizeForMatch(o);
+    const dist = levenshteinDistance(normValue, normOpt);
+    const score = dist / Math.max(normValue.length, normOpt.length, 1);
+    if (score < bestScore) {
+      bestScore = score;
+      best = o;
+    }
+  });
+  return { value: best, exact: false };
+};

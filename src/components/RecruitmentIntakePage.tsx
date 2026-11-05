@@ -29,6 +29,7 @@ import {
   HiringAttachment,
   IntakeStatusFilter,
   INTAKE_STATUS_META,
+  pickClosestOption,
   RecruitmentPendingEmployee,
   RECRUITMENT_PENDING_EMPLOYEES_COLLECTION,
   RecruitmentSourceGroup,
@@ -104,7 +105,13 @@ interface IntakeFormState {
 
 import { intakeEmployeeType, intakeWorkGroup } from "../utils/recruitmentEmployeeClassification";
 
-export const RecruitmentIntakePage = ({ projectOptions = [] }: { projectOptions?: string[] }) => {
+export const RecruitmentIntakePage = ({
+  projectOptions = [],
+  positionOptions = [],
+}: {
+  projectOptions?: string[];
+  positionOptions?: string[];
+}) => {
   const { firebaseUser, userProfile } = useAuth();
   const canViewSalary = canViewSalaryInfo(userProfile?.role);
   const canManage = canManageRecruitmentIntake(userProfile?.role);
@@ -127,6 +134,9 @@ export const RecruitmentIntakePage = ({ projectOptions = [] }: { projectOptions?
   const [saving, setSaving] = useState(false);
   const [statusSaving, setStatusSaving] = useState<string | null>(null);
   const [duplicateWarning, setDuplicateWarning] = useState<string | null>(null);
+  // เตือน HR เมื่อโครงการ/ตำแหน่งจาก Recruitment ไม่ตรงเป๊ะกับตัวเลือกในระบบ (ระบบเลือกใกล้เคียงที่สุดให้แล้ว)
+  const [projectMatchNote, setProjectMatchNote] = useState<string | null>(null);
+  const [positionMatchNote, setPositionMatchNote] = useState<string | null>(null);
   const [deletingCandidateId, setDeletingCandidateId] = useState<string | null>(null);
   const [deletingAttachmentKey, setDeletingAttachmentKey] = useState<string | null>(null);
 
@@ -319,16 +329,30 @@ export const RecruitmentIntakePage = ({ projectOptions = [] }: { projectOptions?
 
   const openIntakeForm = (candidate: RecruitmentPendingEmployee) => {
     const empType = intakeEmployeeType(candidate);
+    // โครงการ/ตำแหน่งจาก Recruitment เป็นข้อความอิสระ -> จับคู่กับตัวเลือกจริงในระบบ (projects /
+    // position_labor) ส่วนใหญ่ควรตรงเป๊ะ ถ้าไม่ตรงให้เลือกตัวใกล้เคียงที่สุดแทน แล้วเตือน HR ให้ตรวจสอบ
+    const projectMatch = pickClosestOption(candidate.โครงการ, projectOptions);
+    const positionMatch = pickClosestOption(candidate.ตำแหน่ง, positionOptions);
     setFormTarget(candidate);
     setDuplicateWarning(null);
+    setProjectMatchNote(
+      candidate.โครงการ && !projectMatch.exact && projectMatch.value
+        ? `⚠️ โครงการจาก Recruitment คือ "${candidate.โครงการ}" — ระบบเลือกใกล้เคียงที่สุดให้ว่า "${projectMatch.value}" กรุณาตรวจสอบก่อนบันทึก`
+        : null
+    );
+    setPositionMatchNote(
+      candidate.ตำแหน่ง && !positionMatch.exact && positionMatch.value
+        ? `⚠️ ตำแหน่งจาก Recruitment คือ "${candidate.ตำแหน่ง}" — ระบบเลือกใกล้เคียงที่สุดให้ว่า "${positionMatch.value}" กรุณาตรวจสอบก่อนบันทึก`
+        : null
+    );
     setForm({
       รหัสพนักงาน: (candidate.รหัสพนักงานเดิม as string) || "",
       คำนำหน้า: candidate.ชื่อต้น || "",
       ชื่อตัว: (candidate.ชื่อตัว || "").trim(),
       ชื่อสกุล: candidate.ชื่อสกุล || "",
-      ตำแหน่ง: candidate.ตำแหน่ง || "",
+      ตำแหน่ง: positionMatch.value || candidate.ตำแหน่ง || "",
       แผนก: candidate.แผนก || "",
-      โครงการ: candidate.โครงการ || "",
+      โครงการ: projectMatch.value || candidate.โครงการ || "",
       employee_type: empType,
       start_date: candidate.วันเริ่มงาน || "",
       เลขบัตรประชาชน: candidate.เลขบัตรประชาชน || "",
@@ -358,6 +382,8 @@ export const RecruitmentIntakePage = ({ projectOptions = [] }: { projectOptions?
     setFormTarget(null);
     setForm(null);
     setDuplicateWarning(null);
+    setProjectMatchNote(null);
+    setPositionMatchNote(null);
   };
 
   const checkDuplicate = async (empCode: string) => {
@@ -803,22 +829,57 @@ export const RecruitmentIntakePage = ({ projectOptions = [] }: { projectOptions?
                 <input value={form.ชื่อสกุล} onChange={(e) => setForm((f) => (f ? { ...f, ชื่อสกุล: e.target.value } : f))} className="input" />
               </Field>
               <Field label="ตำแหน่ง">
-                <input value={form.ตำแหน่ง} onChange={(e) => setForm((f) => (f ? { ...f, ตำแหน่ง: e.target.value } : f))} className="input" />
+                {positionOptions.length > 0 ? (
+                  <select
+                    value={form.ตำแหน่ง}
+                    onChange={(e) => setForm((f) => (f ? { ...f, ตำแหน่ง: e.target.value } : f))}
+                    className="input"
+                  >
+                    <option value="">เลือกตำแหน่ง</option>
+                    {form.ตำแหน่ง && !positionOptions.includes(form.ตำแหน่ง) && (
+                      <option value={form.ตำแหน่ง}>{form.ตำแหน่ง} (ไม่อยู่ในระบบ)</option>
+                    )}
+                    {positionOptions.map((o) => (
+                      <option key={o} value={o}>{o}</option>
+                    ))}
+                  </select>
+                ) : (
+                  <input value={form.ตำแหน่ง} onChange={(e) => setForm((f) => (f ? { ...f, ตำแหน่ง: e.target.value } : f))} className="input" />
+                )}
+                {positionMatchNote && (
+                  <p className="text-[11px] font-medium text-amber-700 mt-1">{positionMatchNote}</p>
+                )}
               </Field>
               <Field label="แผนก">
                 <input value={form.แผนก} onChange={(e) => setForm((f) => (f ? { ...f, แผนก: e.target.value } : f))} className="input" />
               </Field>
               <Field label="โครงการ *">
-                <input
-                  required
-                  list="recruitment-intake-project-options"
-                  value={form.โครงการ}
-                  onChange={(e) => setForm((f) => (f ? { ...f, โครงการ: e.target.value } : f))}
-                  className="input"
-                />
-                <datalist id="recruitment-intake-project-options">
-                  {projectOptions.map((p) => <option key={p} value={p} />)}
-                </datalist>
+                {projectOptions.length > 0 ? (
+                  <select
+                    required
+                    value={form.โครงการ}
+                    onChange={(e) => setForm((f) => (f ? { ...f, โครงการ: e.target.value } : f))}
+                    className="input"
+                  >
+                    <option value="" disabled>เลือกโครงการ</option>
+                    {form.โครงการ && !projectOptions.includes(form.โครงการ) && (
+                      <option value={form.โครงการ}>{form.โครงการ} (ไม่อยู่ในระบบ)</option>
+                    )}
+                    {projectOptions.map((p) => (
+                      <option key={p} value={p}>{p}</option>
+                    ))}
+                  </select>
+                ) : (
+                  <input
+                    required
+                    value={form.โครงการ}
+                    onChange={(e) => setForm((f) => (f ? { ...f, โครงการ: e.target.value } : f))}
+                    className="input"
+                  />
+                )}
+                {projectMatchNote && (
+                  <p className="text-[11px] font-medium text-amber-700 mt-1">{projectMatchNote}</p>
+                )}
               </Field>
               <Field label="วันเริ่มงาน">
                 <input
