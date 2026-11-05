@@ -69,6 +69,8 @@ export interface AnnouncementRecord {
   /** เนื้อหาแบ่งเป็นย่อหน้า (แต่ละสมาชิกคือ 1 ย่อหน้า) */
   bodyParagraphs: string[];
   table?: AnnouncementTable | null;
+  /** รูปภาพประกอบ (แนบได้หลายรูป) — แปะเป็นหน้าต่อท้าย PDF ให้อัตโนมัติตอนสร้างเอกสาร */
+  attachments?: string[];
   closingNote?: string;
   signerName: string;
   signerTitle: string;

@@ -1,8 +1,7 @@
 import { PDFDocument, PDFFont, PDFPage, PageSizes, rgb } from "pdf-lib";
 // @ts-ignore - @pdf-lib/fontkit has no bundled types matching this pdf-lib version
 import fontkit from "@pdf-lib/fontkit";
-import sarabunLatinRegularUrl from "@fontsource/sarabun/files/sarabun-latin-400-normal.woff";
-import sarabunLatinBoldUrl from "@fontsource/sarabun/files/sarabun-latin-600-normal.woff";
+import { sarabunLatinRegularUrl, sarabunLatinBoldUrl } from "./thaiFonts";
 import type { EmployeeFollowUpCase, FollowUpActionType, FollowUpDocumentRecord } from "../components/employeeFollowUpConfig";
 
 const asset = (path: string): string => `${process.env.PUBLIC_URL || ""}${path}`;

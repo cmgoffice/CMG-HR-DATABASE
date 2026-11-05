@@ -7,9 +7,8 @@
 import { PDFDocument, PDFFont, PDFPage, PageSizes, rgb } from "pdf-lib";
 // @ts-ignore - @pdf-lib/fontkit has no bundled types matching this pdf-lib version
 import fontkit from "@pdf-lib/fontkit";
-import sarabunLatinRegularUrl from "@fontsource/sarabun/files/sarabun-latin-400-normal.woff";
-import sarabunLatinBoldUrl from "@fontsource/sarabun/files/sarabun-latin-600-normal.woff";
-import { getStorage, ref as storageRef, uploadBytes, getDownloadURL } from "firebase/storage";
+import { sarabunLatinRegularUrl, sarabunLatinBoldUrl } from "./thaiFonts";
+import { getStorage, ref as storageRef, uploadBytes, getDownloadURL, deleteObject } from "firebase/storage";
 import type { AnnouncementRecord } from "../components/announcementConfig";
 
 const asset = (path: string): string => `${process.env.PUBLIC_URL || ""}${path}`;
@@ -303,6 +302,8 @@ export const generateAnnouncementPdf = async (
   const companyWidth = textWidth(cursor.fonts, companyText, 10);
   drawText(cursor.page, cursor.fonts, companyText, { x: signX + (220 - companyWidth) / 2, y: cursor.y, size: 10 });
 
+  await appendAttachmentPages(pdfDoc, bold, record.attachments);
+
   return pdfDoc.save();
 };
 
@@ -329,6 +330,51 @@ export const openPdfInNewTab = (bytes: Uint8Array) => {
     document.body.appendChild(link);
     link.click();
     link.remove();
+  }
+};
+
+/** อัปโหลดรูปภาพประกอบประกาศ (แนบได้หลายรูป) เก็บ URL ไว้ใน AnnouncementRecord.attachments แล้วแปะเป็นหน้าต่อท้าย PDF ให้อัตโนมัติ */
+export const uploadAnnouncementAttachment = async (draftKey: string, file: File): Promise<string> => {
+  const storage = getStorage();
+  const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
+  const path = `announcement-attachments/${draftKey}/${Date.now()}-${safeName}`;
+  const fileRef = storageRef(storage, path);
+  await uploadBytes(fileRef, file, { contentType: file.type || "image/jpeg" });
+  return getDownloadURL(fileRef);
+};
+
+export const removeAnnouncementAttachment = async (url: string): Promise<void> => {
+  try {
+    const storage = getStorage();
+    await deleteObject(storageRef(storage, url));
+  } catch {
+    // ไม่มีสิทธิ์ลบไฟล์เดิม หรือ URL ไม่ตรงรูปแบบ path ของ storage — ปล่อยผ่าน ไม่กระทบการลบออกจากฟอร์ม
+  }
+};
+
+/** แปะภาพประกอบที่แนบมาเป็นหน้าต่อท้าย PDF ทีละภาพต่อหน้า (ข้ามภาพที่โหลด/ฝังไม่สำเร็จ ไม่ให้ทั้งเอกสารพัง) */
+const appendAttachmentPages = async (pdfDoc: PDFDocument, bold: PdfFontSet, urls?: string[]): Promise<void> => {
+  if (!urls || urls.length === 0) return;
+  for (let i = 0; i < urls.length; i += 1) {
+    try {
+      const bytes = await fetchBytes(urls[i]);
+      const isPng = /\.png($|\?)/i.test(urls[i]) || (bytes[0] === 0x89 && bytes[1] === 0x50);
+      const image = isPng ? await pdfDoc.embedPng(bytes) : await pdfDoc.embedJpg(bytes);
+      const page = pdfDoc.addPage(PageSizes.A4);
+
+      const label = `ภาพประกอบ ${i + 1}/${urls.length}`;
+      const labelWidth = textWidth(bold, label, 11);
+      drawText(page, bold, label, { x: (PAGE_WIDTH - labelWidth) / 2, y: PAGE_HEIGHT - MARGIN_X, size: 11 });
+
+      const maxWidth = CONTENT_WIDTH;
+      const maxHeight = PAGE_HEIGHT - MARGIN_X * 2 - 30;
+      const scale = Math.min(maxWidth / image.width, maxHeight / image.height, 1);
+      const w = image.width * scale;
+      const h = image.height * scale;
+      page.drawImage(image, { x: (PAGE_WIDTH - w) / 2, y: (PAGE_HEIGHT - h) / 2 - 12, width: w, height: h });
+    } catch {
+      // โหลด/ฝังภาพไม่สำเร็จ (เช่น URL หมดอายุ หรือรูปแบบไฟล์ไม่รองรับ) — ข้ามภาพนี้แล้วไปต่อ
+    }
   }
 };
 
