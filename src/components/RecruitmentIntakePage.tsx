@@ -29,6 +29,7 @@ import {
   HiringAttachment,
   IntakeStatusFilter,
   INTAKE_STATUS_META,
+  normalizeDateForInput,
   pickClosestOption,
   RecruitmentPendingEmployee,
   RECRUITMENT_PENDING_EMPLOYEES_COLLECTION,
@@ -36,7 +37,7 @@ import {
   SOURCE_GROUP_META,
   toDateSafe,
 } from "./recruitmentIntakeConfig";
-import { useDocumentTypeCatalog } from "./documentTypeCatalog";
+import { addCustomDocumentType, useDocumentTypeCatalog } from "./documentTypeCatalog";
 
 // path ที่หน้านี้อ่านแบบ realtime เสมอ: CMG-HR-Database/root/recruitment_pending_employees
 const FIRESTORE_PATH = "CMG-HR-Database/root/recruitment_pending_employees";
@@ -138,6 +139,9 @@ export const RecruitmentIntakePage = ({
   const [projectMatchNote, setProjectMatchNote] = useState<string | null>(null);
   const [positionMatchNote, setPositionMatchNote] = useState<string | null>(null);
   const [departmentMatchNote, setDepartmentMatchNote] = useState<string | null>(null);
+  // เตือนเมื่อแปลงรูปแบบ "วันเกิด"/"วันเริ่มงาน" จาก Recruitment เป็น YYYY-MM-DD (ของ <input type="date">) ไม่ได้
+  const [dobWarningNote, setDobWarningNote] = useState<string | null>(null);
+  const [startDateWarningNote, setStartDateWarningNote] = useState<string | null>(null);
 
   // "position_labor" เป็น master list ที่ HR ต้องตั้งค่าเอง มักยังไม่ได้กรอกครบ/ยังว่าง จึงดึง
   // ตำแหน่ง/แผนกที่ "มีอยู่จริง" จากพนักงานใน employee_data มาเสริมด้วย เพื่อให้มีตัวเลือกให้ใช้งานจริง
@@ -174,6 +178,8 @@ export const RecruitmentIntakePage = ({
   // แผงเอกสารแนบ
   const [docsTarget, setDocsTarget] = useState<RecruitmentPendingEmployee | null>(null);
   const [docType, setDocType] = useState<string>(documentTypeOptions[0]?.value || "");
+  // ค่าที่พิมพ์เองตอนเลือก "อื่น ๆ (พิมพ์เอง)" — เก็บแยกจาก docType (ดูเหตุผลใน EmployeeDocumentsPage.tsx)
+  const [customDocTypeLabel, setCustomDocTypeLabel] = useState("");
   const [docFile, setDocFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
   const [docsError, setDocsError] = useState<string | null>(null);
@@ -377,8 +383,22 @@ export const RecruitmentIntakePage = ({
     const projectMatch = pickClosestOption(candidate.โครงการ, projectOptions);
     const positionMatch = pickClosestOption(candidate.ตำแหน่ง, positionOptionsForForm);
     const departmentMatch = pickClosestOption(candidate.แผนก, departmentOptionsForForm);
+    // "วันเกิด"/"วันเริ่มงาน" จาก Recruitment อาจไม่ใช่รูปแบบ YYYY-MM-DD ที่ <input type="date"> ต้องการ
+    // เป๊ะ ๆ (เช่น "15/08/1995" หรือปี พ.ศ.) -> ถ้าไม่แปลง ช่องจะโชว์ว่างเปล่าทั้งที่ Recruitment มีค่าจริง
+    const normalizedDob = normalizeDateForInput(candidate.วันเกิด);
+    const normalizedStartDate = normalizeDateForInput(candidate.วันเริ่มงาน);
     setFormTarget(candidate);
     setDuplicateWarning(null);
+    setDobWarningNote(
+      candidate.วันเกิด && !normalizedDob
+        ? `⚠️ วันเกิดจาก Recruitment คือ "${candidate.วันเกิด}" แต่ระบบแปลงรูปแบบวันที่ไม่ได้ กรุณากรอกวันเกิดเอง`
+        : null
+    );
+    setStartDateWarningNote(
+      candidate.วันเริ่มงาน && !normalizedStartDate
+        ? `⚠️ วันเริ่มงานจาก Recruitment คือ "${candidate.วันเริ่มงาน}" แต่ระบบแปลงรูปแบบวันที่ไม่ได้ กรุณากรอกเอง`
+        : null
+    );
     setProjectMatchNote(
       candidate.โครงการ && !projectMatch.exact && projectMatch.value
         ? `⚠️ โครงการจาก Recruitment คือ "${candidate.โครงการ}" — ระบบเลือกใกล้เคียงที่สุดให้ว่า "${projectMatch.value}" กรุณาตรวจสอบก่อนบันทึก`
@@ -403,12 +423,12 @@ export const RecruitmentIntakePage = ({
       แผนก: departmentMatch.value || candidate.แผนก || "",
       โครงการ: projectMatch.value || candidate.โครงการ || "",
       employee_type: empType,
-      start_date: candidate.วันเริ่มงาน || "",
+      start_date: normalizedStartDate,
       เลขบัตรประชาชน: candidate.เลขบัตรประชาชน || "",
       โทรศัพท์: candidate.โทรศัพท์ || "",
       เพศ: candidate.เพศ || "",
       สัญชาติ: candidate.สัญชาติ || "",
-      วันเกิด: candidate.วันเกิด || "",
+      วันเกิด: normalizedDob,
       บ้านเลขที่: candidate.บ้านเลขที่ || "",
       หมู่: candidate.หมู่ || "",
       แขวงตำบล: candidate.แขวงตำบล || "",
@@ -434,6 +454,8 @@ export const RecruitmentIntakePage = ({
     setProjectMatchNote(null);
     setPositionMatchNote(null);
     setDepartmentMatchNote(null);
+    setDobWarningNote(null);
+    setStartDateWarningNote(null);
   };
 
   const checkDuplicate = async (empCode: string) => {
@@ -566,6 +588,7 @@ export const RecruitmentIntakePage = ({
   const openDocsPanel = (candidate: RecruitmentPendingEmployee) => {
     setDocsTarget(candidate);
     setDocType(documentTypeOptions[0]?.value || "");
+    setCustomDocTypeLabel("");
     setDocFile(null);
     setDocsError(null);
   };
@@ -578,19 +601,26 @@ export const RecruitmentIntakePage = ({
 
   const handleUploadDoc = async () => {
     if (!docsTarget || !docFile) return;
+    if (docType === "other" && !customDocTypeLabel.trim()) {
+      setDocsError("กรุณาพิมพ์ชื่อประเภทเอกสาร");
+      return;
+    }
     setUploading(true);
     setDocsError(null);
     try {
+      // "อื่น ๆ (พิมพ์เอง)" ต้องลงทะเบียนเข้า catalog กลางก่อน เพื่อให้ได้ docType ที่คงที่
+      // เหมือนกับประเภทเอกสารมาตรฐาน — กันไม่ให้พิมพ์คำเดิมคนละแบบแล้วกลายเป็นคนละประเภทเอกสาร
+      const resolvedDocType = docType === "other" ? (await addCustomDocumentType(customDocTypeLabel)).value : docType || "other";
       const candidateKey = resolveCandidateKey(docsTarget);
       const uploadResult = await uploadHiringDocumentFile(docFile, {
         candidateName: buildFullName(docsTarget),
         position: docsTarget.ตำแหน่ง || "",
         candidateKey,
-        docType: docType || "other",
+        docType: resolvedDocType,
       });
 
       const attachment: HiringAttachment = {
-        docType: docType || "other",
+        docType: resolvedDocType,
         name: uploadResult.fileName || docFile.name,
         url: uploadResult.url,
         uploadedAt: new Date().toISOString(),
@@ -600,6 +630,8 @@ export const RecruitmentIntakePage = ({
       await appendAttachmentToRecruitmentPending(docsTarget.id, attachment);
 
       setDocFile(null);
+      setCustomDocTypeLabel("");
+      setDocType(documentTypeOptions[0]?.value || "");
     } catch (err) {
       const message = err instanceof Error ? err.message : "เกิดข้อผิดพลาดที่ไม่คาดคิด";
       console.error(`[RecruitmentIntakePage] Upload document failed for candidate "${docsTarget.id}":`, err);
@@ -957,6 +989,9 @@ export const RecruitmentIntakePage = ({
                   onChange={(e) => setForm((f) => (f ? { ...f, start_date: e.target.value } : f))}
                   className="input"
                 />
+                {startDateWarningNote && (
+                  <p className="text-[11px] font-medium text-amber-700 mt-1">{startDateWarningNote}</p>
+                )}
               </Field>
               <Field label="เลขบัตรประชาชน">
                 <input value={form.เลขบัตรประชาชน} onChange={(e) => setForm((f) => (f ? { ...f, เลขบัตรประชาชน: e.target.value } : f))} className="input" />
@@ -968,6 +1003,9 @@ export const RecruitmentIntakePage = ({
                   onChange={(e) => setForm((f) => (f ? { ...f, วันเกิด: e.target.value } : f))}
                   className="input"
                 />
+                {dobWarningNote && (
+                  <p className="text-[11px] font-medium text-amber-700 mt-1">{dobWarningNote}</p>
+                )}
               </Field>
               <Field label="โทรศัพท์">
                 <input value={form.โทรศัพท์} onChange={(e) => setForm((f) => (f ? { ...f, โทรศัพท์: e.target.value } : f))} className="input" />
@@ -1151,8 +1189,9 @@ export const RecruitmentIntakePage = ({
                   </Field>
                   {docType === "other" && (
                     <input
+                      value={customDocTypeLabel}
                       placeholder="พิมพ์ชื่อประเภทเอกสาร"
-                      onChange={(e) => setDocType(e.target.value)}
+                      onChange={(e) => setCustomDocTypeLabel(e.target.value)}
                       className="input"
                     />
                   )}

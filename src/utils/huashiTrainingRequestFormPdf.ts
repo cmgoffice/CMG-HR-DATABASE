@@ -179,17 +179,29 @@ const openPdfInNewTab = (bytes: Uint8Array) => {
 // ---------------------------------------------------------------------------
 // คำนวณสถานะ "เอกสารยืนยันตัวตน" ของแรงงานต่างด้าว จากข้อมูล migrant_documents ที่มีอยู่แล้ว
 // ในระบบ (ดู src/components/migrantWorkerConfig.ts) — คนไทยไม่ต้องกรอกช่องนี้ (null)
+// ติ๊กได้มากกว่า 1 ช่องต่อแถว ตามตัวอย่างฟอร์มจริง: "Passport+Visa" เป็นแกนเอกสารยืนยันตัวตน
+// แยกอิสระจากแกนสถานะใบอนุญาตทำงาน (Pink card / Permit Verification Pending / No Work Permit)
+// คนที่ไม่มีข้อมูล migrant_documents เลย (ยังไม่กรอก) จะไม่ติ๊กช่องไหนเลย ไม่ใช่ติ๊ก "No Work Permit" ทันที
 // ---------------------------------------------------------------------------
-type IdVerificationCategory = "passport_visa" | "pink_card" | "pending" | "no_permit";
+interface IdVerificationFlags {
+  passportVisa: boolean;
+  pinkCard: boolean;
+  pending: boolean;
+  noPermit: boolean;
+}
 
-const resolveIdVerificationCategory = (emp: EmployeeRow | undefined): IdVerificationCategory | null => {
+const resolveIdVerificationFlags = (emp: EmployeeRow | undefined): IdVerificationFlags | null => {
   const docs = (emp as unknown as { migrant_documents?: Record<string, { docNumber?: string } | undefined> } | undefined)
     ?.migrant_documents;
-  const has = (key: string): boolean => !!docs?.[key]?.docNumber;
-  if (has("passport") && has("visa")) return "passport_visa";
-  if (has("permit_card")) return "pink_card";
-  if (has("work_permit")) return "pending";
-  return "no_permit";
+  if (!docs) return null;
+  const has = (key: string): boolean => !!docs[key]?.docNumber;
+  const hasAnyWorkAuthDoc = has("permit_card") || has("work_permit");
+  return {
+    passportVisa: has("passport") && has("visa"),
+    pinkCard: has("permit_card"),
+    pending: has("work_permit") && !has("permit_card"),
+    noPermit: !hasAnyWorkAuthDoc,
+  };
 };
 
 // ---------------------------------------------------------------------------
@@ -228,7 +240,7 @@ interface RowValues {
   company: string;
   position: string;
   ethnicity: string;
-  idVerification: IdVerificationCategory | null;
+  idVerification: IdVerificationFlags | null;
 }
 
 // เขียนทับข้อมูล 1 แถวลงบนตารางที่มีอยู่แล้วในไฟล์ต้นฉบับ (ไม่ต้องวาดเส้น/กรอบเองเพราะพื้นหลังมีอยู่แล้ว)
@@ -261,16 +273,16 @@ const drawTableRow = (page: PDFPage, regular: PdfFontSet, topY: number, values: 
         drawFittedCellText(page, regular, values.ethnicity, { x: col.x, width: col.width, y: cellTextY, maxSize: 8, align: "center" });
         break;
       case "passportVisa":
-        if (values.idVerification === "passport_visa") drawCheckMark(page, col.x + col.width / 2 - 3, checkCenterY);
+        if (values.idVerification?.passportVisa) drawCheckMark(page, col.x + col.width / 2 - 3, checkCenterY);
         break;
       case "pinkCard":
-        if (values.idVerification === "pink_card") drawCheckMark(page, col.x + col.width / 2 - 3, checkCenterY);
+        if (values.idVerification?.pinkCard) drawCheckMark(page, col.x + col.width / 2 - 3, checkCenterY);
         break;
       case "pending":
-        if (values.idVerification === "pending") drawCheckMark(page, col.x + col.width / 2 - 3, checkCenterY);
+        if (values.idVerification?.pending) drawCheckMark(page, col.x + col.width / 2 - 3, checkCenterY);
         break;
       case "noPermit":
-        if (values.idVerification === "no_permit") drawCheckMark(page, col.x + col.width / 2 - 3, checkCenterY);
+        if (values.idVerification?.noPermit) drawCheckMark(page, col.x + col.width / 2 - 3, checkCenterY);
         break;
       // signature: เว้นว่างไว้ให้เซ็นชื่อหน้างาน
     }
@@ -373,7 +385,7 @@ export const generateHuashiTrainingRequestFormPdf = async (
         company: en.company || "",
         position: en.position || "",
         ethnicity: en.nationality || "",
-        idVerification: migrant ? resolveIdVerificationCategory(emp) : null,
+        idVerification: migrant ? resolveIdVerificationFlags(emp) : null,
       });
     }
   }

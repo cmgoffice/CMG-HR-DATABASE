@@ -6,7 +6,7 @@ import {
   uploadHiringDocumentFile,
 } from "../utils/hiringDocsAttachments";
 import { HiringAttachment } from "./recruitmentIntakeConfig";
-import { useDocumentTypeCatalog } from "./documentTypeCatalog";
+import { addCustomDocumentType, useDocumentTypeCatalog } from "./documentTypeCatalog";
 import { useAuth } from "../auth/AuthContext";
 import {
   buildEmployeeDocumentPortalUrl,
@@ -65,6 +65,11 @@ export const EmployeeDocumentsPage = () => {
 
   const [docsTarget, setDocsTarget] = useState<EmployeeRecord | null>(null);
   const [docType, setDocType] = useState<string>(documentTypeOptions[0]?.value || "");
+  // ค่าที่พิมพ์เองตอนเลือก "อื่น ๆ (พิมพ์เอง)" — เก็บแยกจาก docType เพื่อไม่ให้ค่าดิบที่พิมพ์เองหลุดไปใช้เป็น
+  // docType ตรง ๆ (ถ้าพิมพ์คำเดิมคนละแบบ เช่น เว้นวรรค/ใหญ่เล็กต่างกัน จะกลายเป็นประเภทเอกสารคนละตัวกัน ทำให้
+  // เช็คเอกสารที่โครงการกำหนดไว้ไม่ตรงกับที่พนักงานแนบจริง) — ตอนบันทึกจะส่งเข้า catalog กลางเดียวกับหน้า
+  // "เอกสารที่จำเป็นของโครงการ" ก่อน เพื่อให้ได้ docType ที่คงที่ และเลือกซ้ำได้จากดรอปดาวน์ในครั้งต่อไป
+  const [customDocTypeLabel, setCustomDocTypeLabel] = useState("");
   const [docFile, setDocFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
   const [docsError, setDocsError] = useState<string | null>(null);
@@ -111,6 +116,7 @@ export const EmployeeDocumentsPage = () => {
     if (target) {
       setDocsTarget(target);
       setDocType(documentTypeOptions[0]?.value || "");
+      setCustomDocTypeLabel("");
       setDocFile(null);
       setDocsError(null);
     }
@@ -154,6 +160,7 @@ export const EmployeeDocumentsPage = () => {
   const openDocsPanel = (e: EmployeeRecord) => {
     setDocsTarget(e);
     setDocType(documentTypeOptions[0]?.value || "");
+    setCustomDocTypeLabel("");
     setDocFile(null);
     setDocsError(null);
     setShowLinkPanel(false);
@@ -222,21 +229,28 @@ export const EmployeeDocumentsPage = () => {
 
   const handleUploadDoc = async () => {
     if (!docsTarget || !docFile) return;
+    if (docType === "other" && !customDocTypeLabel.trim()) {
+      setDocsError("กรุณาพิมพ์ชื่อประเภทเอกสาร");
+      return;
+    }
     const empCode = docsTarget.รหัสพนักงาน || docsTarget.id;
     setUploading(true);
     setDocsError(null);
     try {
+      // "อื่น ๆ (พิมพ์เอง)" ต้องลงทะเบียนเข้า catalog กลางก่อน เพื่อให้ได้ docType ที่คงที่
+      // เหมือนกับประเภทเอกสารมาตรฐาน — กันไม่ให้พิมพ์คำเดิมคนละแบบแล้วกลายเป็นคนละประเภทเอกสาร
+      const resolvedDocType = docType === "other" ? (await addCustomDocumentType(customDocTypeLabel)).value : docType || "other";
       const uploadResult = await uploadHiringDocumentFile(docFile, {
         candidateName: buildFullName(docsTarget),
         position: docsTarget.ตำแหน่ง || "",
         // พนักงานกลุ่มนี้ไม่ได้มาจาก Recruitment จึงไม่มี candidateKey เดิมให้ใช้ -> ใช้รหัสพนักงาน
         // เป็น key แทน (สร้างโฟลเดอร์ใหม่ของคนนี้ใน Drive ครั้งแรกที่อัปโหลด)
         candidateKey: empCode,
-        docType: docType || "other",
+        docType: resolvedDocType,
       });
 
       const attachment: HiringAttachment = {
-        docType: docType || "other",
+        docType: resolvedDocType,
         name: uploadResult.fileName || docFile.name,
         url: uploadResult.url,
         uploadedAt: new Date().toISOString(),
@@ -244,6 +258,8 @@ export const EmployeeDocumentsPage = () => {
 
       await appendAttachmentToEmployee(empCode, attachment);
       setDocFile(null);
+      setCustomDocTypeLabel("");
+      setDocType(documentTypeOptions[0]?.value || "");
     } catch (err) {
       const message = err instanceof Error ? err.message : "เกิดข้อผิดพลาดที่ไม่คาดคิด";
       console.error(`[EmployeeDocumentsPage] Upload document failed for employee "${empCode}":`, err);
@@ -419,8 +435,9 @@ export const EmployeeDocumentsPage = () => {
                   </label>
                   {docType === "other" && (
                     <input
+                      value={customDocTypeLabel}
                       placeholder="พิมพ์ชื่อประเภทเอกสาร"
-                      onChange={(e) => setDocType(e.target.value)}
+                      onChange={(e) => setCustomDocTypeLabel(e.target.value)}
                       className="border rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-100"
                     />
                   )}

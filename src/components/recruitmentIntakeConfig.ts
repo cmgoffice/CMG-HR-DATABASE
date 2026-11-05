@@ -174,6 +174,47 @@ export const toDateSafe = (value: RecruitmentPendingEmployee["createdAt"]): Date
   return null;
 };
 
+/** แปลงค่า "วันเกิด"/"วันเริ่มงาน" ที่มาจาก Recruitment (string หลายรูปแบบ หรือ Firestore Timestamp)
+ * ให้เป็นรูปแบบ "YYYY-MM-DD" ที่ <input type="date"> ต้องใช้เป๊ะ ๆ ไม่งั้น browser จะเมินค่าที่ไม่ตรง
+ * รูปแบบแล้วแสดงเป็นช่องว่างเฉย ๆ (ดูเหมือนข้อมูลหายไปจากฟอร์ม ทั้งที่จริง ๆ มีอยู่ แค่รูปแบบไม่ตรง)
+ * คืนค่า "" ถ้าแปลงไม่ได้จริง ๆ (ให้ HR กรอกเอง) */
+export const normalizeDateForInput = (
+  value: string | { seconds: number; nanoseconds: number } | number | null | undefined
+): string => {
+  if (!value) return "";
+  if (typeof value === "object" || typeof value === "number") {
+    const d = toDateSafe(value as RecruitmentPendingEmployee["createdAt"]);
+    return d ? d.toISOString().slice(0, 10) : "";
+  }
+  const raw = value.toString().trim();
+  if (!raw) return "";
+
+  // เป็นรูปแบบ ISO อยู่แล้ว เช่น "1995-08-15" (อาจมี time ต่อท้าย)
+  const isoMatch = raw.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+  if (isoMatch) {
+    const [, y, m, d] = isoMatch;
+    return `${y}-${m.padStart(2, "0")}-${d.padStart(2, "0")}`;
+  }
+
+  // รูปแบบไทยที่พบบ่อย "15/08/1995" หรือ "15-08-1995" (วัน/เดือน/ปี)
+  const dmyMatch = raw.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$/);
+  if (dmyMatch) {
+    const [, d, m, yRaw] = dmyMatch;
+    let y = parseInt(yRaw, 10);
+    // ปี พ.ศ. (เช่น 2538) จะมากกว่าปี ค.ศ.เสมอมาก ๆ -> แปลงเป็น ค.ศ. ก่อนใช้งาน
+    if (y > 2400) y -= 543;
+    return `${y}-${m.padStart(2, "0")}-${d.padStart(2, "0")}`;
+  }
+
+  // สุดท้ายลองให้ JS Date parse เอง (เช่น "Aug 15, 1995")
+  const parsed = new Date(raw);
+  if (!Number.isNaN(parsed.getTime())) {
+    return parsed.toISOString().slice(0, 10);
+  }
+
+  return "";
+};
+
 // Role อนุญาตให้เห็นหน้านี้ และกดเพิ่มเข้าระบบ/แนบเอกสารได้ (สิทธิ์เดียวกัน)
 export const RECRUITMENT_INTAKE_VIEW_ROLES: UserRole[] = ["MasterAdmin", "HRM", "HR"];
 
