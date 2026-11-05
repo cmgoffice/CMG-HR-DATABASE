@@ -521,7 +521,7 @@ import {
   ROLE_PERMISSIONS_DOC_ID,
   isModuleVisible,
 } from './config/rolePermissions';
-import { RECRUITMENT_PENDING_EMPLOYEES_COLLECTION } from './components/recruitmentIntakeConfig';
+import { RECRUITMENT_PENDING_EMPLOYEES_COLLECTION, getIntakeStatus } from './components/recruitmentIntakeConfig';
 
 type SidebarSubItem = {
   id: string;
@@ -587,13 +587,19 @@ const Sidebar = ({ activeModule, setActiveModule, dbConnected, sidebarOpen, onTo
     }
   }, [hasRole, db]);
 
-  // จำนวนรายการทั้งหมดใน recruitment_pending_employees (ใช้แสดง badge บนเมนู)
-  // ไม่ filter ด้วย intakeStatus เพราะต้นทาง (ระบบ Recruitment) ยังไม่มี field นี้
+  // จำนวนรายการ "รอเพิ่มเข้าระบบ" ใน recruitment_pending_employees (ใช้แสดง badge บนเมนู)
+  // ต้องนับเฉพาะคนที่ยังไม่ได้เพิ่มเข้าระบบ (ยังไม่มี importedEmployeeId และไม่ใช่ no_show)
+  // ใช้ getIntakeStatus เดียวกับที่หน้า RecruitmentIntakePage ใช้ ไม่ให้ badge ไม่ตรงกับ tab default ของหน้านั้น
   const [pendingRecruitsCount, setPendingRecruitsCount] = useState(0);
   useEffect(() => {
     const unsubscribe = onSnapshot(
       collection(db, "CMG-HR-Database", "root", RECRUITMENT_PENDING_EMPLOYEES_COLLECTION),
-      (snapshot) => setPendingRecruitsCount(snapshot.size),
+      (snapshot) => {
+        const pending = snapshot.docs.filter(
+          (d) => getIntakeStatus(d.data() as { importedEmployeeId?: string; intakeStatus?: "no_show" }) === "pending"
+        ).length;
+        setPendingRecruitsCount(pending);
+      },
       () => setPendingRecruitsCount(0)
     );
     return () => unsubscribe();
