@@ -152,7 +152,12 @@ const resolveGmtpAddress = (emp: EmployeeRow | undefined, nationality: string | 
 
 // ลำดับการแสดงรายชื่อในใบปะหน้า/ใบรูปถ่าย: รหัสรายเดือน -> รหัส DC -> รหัส SP -> รหัส SC
 // (คนที่หา employee_type ไม่พบในฐานข้อมูลให้ต่อท้ายสุด ไม่กระทบคนที่จัดประเภทได้แล้ว)
+// ภายในกลุ่มเดียวกัน เรียงเลขรหัสพนักงานน้อยไปมาก (ใครไม่มีเลขรหัสให้ต่อท้ายกลุ่ม)
 const EMPLOYEE_TYPE_SORT_ORDER = ["Indirect", "Direct_TeamLeader", "Direct_SupplyDC", "Direct_SubContractor"];
+const codeNumber = (code: string | undefined): number => {
+  const digits = String(code || "").match(/\d+/g)?.join("") || "";
+  return digits ? Number(digits) : Infinity;
+};
 const sortEnrollmentsByEmployeeType = (enrollments: TrainingEnrollment[], employees: EmployeeRow[]): TrainingEnrollment[] => {
   const employeeTypeById = new Map(employees.map((employee) => [employee.id, employee.employee_type || ""]));
   const rank = (en: TrainingEnrollment): number => {
@@ -160,8 +165,8 @@ const sortEnrollmentsByEmployeeType = (enrollments: TrainingEnrollment[], employ
     return idx === -1 ? EMPLOYEE_TYPE_SORT_ORDER.length : idx;
   };
   return [...enrollments]
-    .map((en, index) => ({ en, index, rank: rank(en) }))
-    .sort((a, b) => (a.rank !== b.rank ? a.rank - b.rank : a.index - b.index))
+    .map((en, index) => ({ en, index, rank: rank(en), code: codeNumber(en.employeeCode) }))
+    .sort((a, b) => (a.rank !== b.rank ? a.rank - b.rank : a.code !== b.code ? a.code - b.code : a.index - b.index))
     .map((item) => item.en);
 };
 

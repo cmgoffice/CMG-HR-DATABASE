@@ -9,7 +9,12 @@ import type { TrainingBatch, TrainingEnrollment } from "../components/trainingBa
 import type { EmployeeRow } from "../components/TrainingBatchPage";
 
 // ลำดับการแสดงรายชื่อในใบปะหน้า: รายเดือน -> DC -> SP -> SC (คนที่หา employee_type ไม่พบให้ต่อท้ายสุด)
+// ภายในกลุ่มเดียวกัน เรียงเลขรหัสพนักงานน้อยไปมาก (ใครไม่มีเลขรหัสให้ต่อท้ายกลุ่ม)
 const EMPLOYEE_TYPE_SORT_ORDER = ["Indirect", "Direct_TeamLeader", "Direct_SupplyDC", "Direct_SubContractor"];
+const codeNumber = (code: string | undefined): number => {
+  const digits = String(code || "").match(/\d+/g)?.join("") || "";
+  return digits ? Number(digits) : Infinity;
+};
 const sortEnrollmentsByEmployeeType = (
   enrollments: TrainingEnrollment[],
   employees: EmployeeRow[] = []
@@ -20,8 +25,8 @@ const sortEnrollmentsByEmployeeType = (
     return idx === -1 ? EMPLOYEE_TYPE_SORT_ORDER.length : idx;
   };
   return [...enrollments]
-    .map((enrollment, index) => ({ enrollment, index, rank: rank(enrollment) }))
-    .sort((a, b) => (a.rank !== b.rank ? a.rank - b.rank : a.index - b.index))
+    .map((enrollment, index) => ({ enrollment, index, rank: rank(enrollment), code: codeNumber(enrollment.employeeCode) }))
+    .sort((a, b) => (a.rank !== b.rank ? a.rank - b.rank : a.code !== b.code ? a.code - b.code : a.index - b.index))
     .map((item) => item.enrollment);
 };
 
