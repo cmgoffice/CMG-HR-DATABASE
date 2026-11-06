@@ -1,4 +1,5 @@
-export const thaiDate = (now = new Date()) => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Bangkok', year: 'numeric', month: '2-digit', day: '2-digit' }).format(now);
+const thaiDateFormatter = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Bangkok', year: 'numeric', month: '2-digit', day: '2-digit' });
+export const thaiDate = (now = new Date()) => thaiDateFormatter.format(now);
 export const nextDate = (date, days = 1) => new Date(Date.parse(date + 'T00:00:00Z') + days * 86400000).toISOString().slice(0, 10);
 export const stamp = (date, time) => Date.parse(`${date}T${time.replace('.', ':')}:00+07:00`);
 export const evaluateScan = (scan, hours) => {

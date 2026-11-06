@@ -2401,6 +2401,19 @@ function MasterDatabaseApp() {
     } else if (activeModule === "contractors") {
       templateSchema = currentSchema.filter((col) => col.id !== "con_id");
     }
+    if (activeModule === "emp_direct_sub") {
+      // ลำดับคอลัมน์ที่ใช้กรอกข้อมูล Sub contractor จริง (คอลัมน์ที่เหลือเรียงตาม schema ต่อท้าย)
+      const preferredOrder = [
+        "รหัสพนักงาน", "โครงการ", "คำนำหน้าชื่อ", "ชื่อตัว", "ชื่อสกุล", "สถานะพนักงาน", "สถานะโครงการ",
+        "ชื่อ (ภาษาอังกฤษ, ตัวพิมพ์ใหญ่)", "นามสกุล (ภาษาอังกฤษ, ตัวพิมพ์ใหญ่)",
+        "สถานะกลุ่มงาน", "ชื่อชุด", "ตำแหน่ง", "เลขบัตรประชาชน", "วันที่เริ่มงาน (ปีเดือนวัน [ค.ศ.])", "เพศ",
+      ];
+      const rank = (label: string) => {
+        const idx = preferredOrder.indexOf(label);
+        return idx === -1 ? preferredOrder.length : idx;
+      };
+      templateSchema = [...templateSchema].sort((a, b) => rank(a.label) - rank(b.label));
+    }
     const headerRow = templateSchema.map((col) => col.label);
     const ws = XLSX.utils.aoa_to_sheet([headerRow]);
     ws["!cols"] = headerRow.map(() => ({ wch: 20 }));
@@ -2699,8 +2712,9 @@ function MasterDatabaseApp() {
             }
           }
 
-          // Sub Contractor: ใช้ชื่อตัว+ชื่อสกุลเป็น unique key แทนรหัสพนักงาน
-          if (activeModule === "emp_direct_sub") {
+          // Sub Contractor: ถ้าแถวมีรหัสพนักงาน ใช้รหัสเป็น doc ID (เหมือนเดิม/เหมือน module อื่น)
+          // ใช้ชื่อตัว+ชื่อสกุลเป็น unique key เฉพาะแถวที่ไม่มีรหัสพนักงาน
+          if (activeModule === "emp_direct_sub" && !String(docData["รหัสพนักงาน"] || "").trim()) {
             const firstName = String(docData["ชื่อตัว"] || "").trim();
             const lastName = String(docData["ชื่อสกุล"] || "").trim();
             if (!firstName || !lastName) {

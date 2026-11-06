@@ -3,8 +3,10 @@ import {
   getFirestore,
   collection,
   doc,
-  setDoc,
+  documentId,
+  query,
   runTransaction,
+  where,
   onSnapshot,
 } from "firebase/firestore";
 import html2canvas from "html2canvas";
@@ -45,6 +47,8 @@ import { isOvertimeDateAllowed } from "../utils/overtimeDateRules";
 import { OtScan, evaluateScan, thaiDate } from "../utils/otScan";
 import { OtScanControl } from "./OtScanControl";
 
+const thaiDateTimeFormatter = new Intl.DateTimeFormat("th-TH", { timeZone: "Asia/Bangkok" });
+
 interface Employee {
   id: string;
   รหัสพนักงาน?: string;
@@ -75,6 +79,75 @@ interface DailyAttendanceEntry {
   checkoutFetchedAt?: number;
   [key: string]: any;
 }
+
+const sameRecordMap = <T extends object>(left: Record<string, T> | undefined, right: Record<string, T>): boolean => {
+  if (!left) return false;
+  const leftKeys = Object.keys(left);
+  const rightKeys = Object.keys(right);
+  if (leftKeys.length !== rightKeys.length) return false;
+  return rightKeys.every((key) => left[key] === right[key]);
+};
+
+const parseOvertimeRecords = (
+  raw: Record<string, any>,
+  previous?: Record<string, OvertimeEntry>,
+): Record<string, OvertimeEntry> => {
+  const records: Record<string, OvertimeEntry> = {};
+  if (!raw.records || typeof raw.records !== "object") return records;
+  for (const [empId, val] of Object.entries(raw.records)) {
+    if (!val || typeof val !== "object") continue;
+    const nextEntry = val as OvertimeEntry;
+    const previousEntry = previous?.[empId];
+    records[empId] = previousEntry && JSON.stringify(previousEntry) === JSON.stringify(nextEntry)
+      ? previousEntry
+      : nextEntry;
+  }
+  return records;
+};
+
+const parseAttendanceRecords = (
+  raw: Record<string, any>,
+  previous?: Record<string, DailyAttendanceEntry>,
+): Record<string, DailyAttendanceEntry> => {
+  const records: Record<string, DailyAttendanceEntry> = {};
+  if (!raw.records || typeof raw.records !== "object") return records;
+  for (const [employeeId, value] of Object.entries(raw.records)) {
+    let nextEntry: DailyAttendanceEntry;
+    if (typeof value === "string") nextEntry = { status: value, recordedAt: 0 };
+    else if (value && typeof value === "object") nextEntry = value as DailyAttendanceEntry;
+    else continue;
+    const previousEntry = previous?.[employeeId];
+    records[employeeId] = previousEntry && JSON.stringify(previousEntry) === JSON.stringify(nextEntry)
+      ? previousEntry
+      : nextEntry;
+  }
+  return records;
+};
+
+// Applies snapshot docChanges to a date-keyed map, keeping the previous object
+// (and therefore skipping re-renders) when nothing actually changed.
+const applyDateDocChanges = <T extends object>(
+  previous: Record<string, Record<string, T>>,
+  changes: { type: string; doc: { id: string; data: () => Record<string, any> } }[],
+  parse: (raw: Record<string, any>, previous?: Record<string, T>) => Record<string, T>,
+): Record<string, Record<string, T>> => {
+  let next = previous;
+  changes.forEach((change) => {
+    const dateStr = change.doc.id;
+    const hasPrevious = Object.prototype.hasOwnProperty.call(previous, dateStr);
+    if (change.type === "removed") {
+      if (!hasPrevious) return;
+      if (next === previous) next = { ...previous };
+      delete next[dateStr];
+      return;
+    }
+    const records = parse(change.doc.data(), previous[dateStr]);
+    if (hasPrevious && sameRecordMap(previous[dateStr], records)) return;
+    if (next === previous) next = { ...previous };
+    next[dateStr] = records;
+  });
+  return next;
+};
 
 interface ColumnConfig {
   id: string;
@@ -325,7 +398,7 @@ const OvertimeCell: React.FC<OvertimeCellProps> = React.memo(({
   const showScan = !!scan && (filterOtType === "all" || filterOtType === localType);
   const scanWarning = scanResult && ["short", "missing", "unplanned"].includes(scanResult.status);
   if (showScan && scanResult?.status === "ok") bg = "bg-green-100";
-  const scanTitle = scanResult ? ({ ok: "เวลาออกครบ OT", short: "เวลาออกไม่ครบ OT", missing: "ไม่พบเวลาออก", unplanned: "ไม่ได้ลง OT แต่ออกเกินเวลาอย่างน้อย 1 ชั่วโมง", none: "เวลาออก" }[scanResult.status] || "") + " · " + (scan?.punchTime || "-") + " · ควรออก " + new Date(scanResult.expected).toLocaleString("th-TH", { timeZone: "Asia/Bangkok" }) : "";
+  const scanTitle = scanResult ? ({ ok: "เวลาออกครบ OT", short: "เวลาออกไม่ครบ OT", missing: "ไม่พบเวลาออก", unplanned: "ไม่ได้ลง OT แต่ออกเกินเวลาอย่างน้อย 1 ชั่วโมง", none: "เวลาออก" }[scanResult.status] || "") + " · " + (scan?.punchTime || "-") + " · ควรออก " + thaiDateTimeFormatter.format(new Date(scanResult.expected)) : "";
   const isPastDate = dateStr < thaiDate();
   const hasScanBadge = showScan
     && scanResult?.status !== "none"
@@ -362,27 +435,29 @@ const OvertimeCell: React.FC<OvertimeCellProps> = React.memo(({
 
   return (
     <td
-      className={`border border-gray-200 text-center transition-colors p-0 relative z-0 overflow-hidden ${bg} focus-within:ring-2 focus-within:ring-inset focus-within:ring-purple-500`}
+      className={`border border-gray-200 text-center transition-colors p-0 relative ${showPopup ? "z-40" : "z-0"} ${bg} focus-within:ring-2 focus-within:ring-inset focus-within:ring-purple-500`}
       style={{ minWidth: 40, maxWidth: 40, width: 40, height: 24, verticalAlign: "middle" }}
       title={`${dateStr}${tooltipExtra}`}
     >
       {weeklyWarning}
       <div className="relative h-full w-full overflow-hidden leading-none">
         {scanBadge}
-        <input
-          data-date={dateStr}
-          type="text"
-          inputMode="decimal"
-          value={localVal}
-          onChange={handleChange}
-          onFocus={(e) => {
-            setShowPopup(true);
-            e.currentTarget.select();
-          }}
-          onBlur={handleBlur}
-          onKeyDown={handleKeyDown}
-          className={`relative w-full ${hasScanBadge ? "h-full pt-[7px]" : "h-full"} box-border text-center bg-transparent outline-none ${textCls} text-[10px] leading-[11px] m-0 p-0 select-all`}
-        />
+        <div className={`absolute inset-x-0 bottom-0 ${hasScanBadge ? "h-[17px]" : "h-full"}`}>
+          <input
+            data-date={dateStr}
+            type="text"
+            inputMode="decimal"
+            value={localVal}
+            onChange={handleChange}
+            onFocus={(e) => {
+              setShowPopup(true);
+              e.currentTarget.select();
+            }}
+            onBlur={handleBlur}
+            onKeyDown={handleKeyDown}
+            className={`relative h-full w-full box-border text-center bg-transparent outline-none ${textCls} text-[10px] leading-[17px] m-0 p-0 select-all`}
+          />
+        </div>
       </div>
       {showPopup && (
         <div className="absolute top-full left-1/2 -translate-x-1/2 mt-1 z-50 bg-white shadow-xl border border-gray-200 rounded p-1 flex gap-1 items-center">
@@ -555,70 +630,37 @@ export const OvertimePage = ({ projectOptions }: { projectOptions: string[] }) =
     return () => unsubscribe();
   }, [db]);
 
+  const displayStartDate = displayDays[0]?.dateStr;
+  const displayEndDate = displayDays[displayDays.length - 1]?.dateStr;
+
   useEffect(() => {
     setOvertimeData({});
-    if (!hasEmployees) return;
-    let active = true;
-    const unsubscribes: (() => void)[] = [];
-    
-    for (const { dateStr } of displayDays) {
-      const overtimeDocRef = doc(db, "CMG-HR-Database", "root", "overtime", dateStr);
-      
-      const unsubscribe = onSnapshot(overtimeDocRef, (docSnap) => {
-        if (!active) return;
-        if (docSnap.exists()) {
-          const raw = docSnap.data();
-          const records: Record<string, OvertimeEntry> = {};
-          if (raw.records) {
-            for (const [empId, val] of Object.entries(raw.records)) {
-              if (val && typeof val === "object") {
-                records[empId] = val as OvertimeEntry;
-              }
-            }
-          }
-          setOvertimeData((prev) => ({ ...prev, [dateStr]: records }));
-        } else {
-          setOvertimeData((prev) => ({ ...prev, [dateStr]: {} }));
-        }
-      }, (error) => console.error(`Error listening to overtime for ${dateStr}:`, error));
-      unsubscribes.push(unsubscribe);
-    }
-    return () => {
-      active = false;
-      unsubscribes.forEach((unsub) => unsub());
-    };
-  }, [displayDays, hasEmployees, db]);
+    if (!hasEmployees || !displayStartDate || !displayEndDate) return;
+    const overtimeQuery = query(
+      collection(db, "CMG-HR-Database", "root", "overtime"),
+      where(documentId(), ">=", displayStartDate),
+      where(documentId(), "<=", displayEndDate),
+    );
+    // One listener for the displayed range instead of one per day.
+    return onSnapshot(overtimeQuery, (snapshot) => {
+      setOvertimeData((previous) => applyDateDocChanges(previous, snapshot.docChanges(), parseOvertimeRecords));
+    }, (error) => console.error("Error listening to overtime:", error));
+  }, [displayStartDate, displayEndDate, hasEmployees, db]);
 
   // BioTime checkout is stored centrally with the daily attendance record.
-  // Subscribe only to the displayed dates, matching the OT subscriptions.
+  // Subscribe only to the displayed range, matching the OT subscription.
   useEffect(() => {
     setAttendanceData({});
-    if (!hasEmployees) return;
-    let active = true;
-    const unsubscribes: (() => void)[] = [];
-
-    for (const { dateStr } of displayDays) {
-      const attendanceDocRef = doc(db, "CMG-HR-Database", "root", "attendance", dateStr);
-      const unsubscribe = onSnapshot(attendanceDocRef, (docSnap) => {
-        if (!active) return;
-        const raw = docSnap.exists() ? docSnap.data() : {};
-        const records: Record<string, DailyAttendanceEntry> = {};
-        if (raw.records && typeof raw.records === "object") {
-          for (const [employeeId, value] of Object.entries(raw.records)) {
-            if (typeof value === "string") records[employeeId] = { status: value, recordedAt: 0 };
-            else if (value && typeof value === "object") records[employeeId] = value as DailyAttendanceEntry;
-          }
-        }
-        setAttendanceData((prev) => ({ ...prev, [dateStr]: records }));
-      }, (error) => console.error(`Error listening to attendance for ${dateStr}:`, error));
-      unsubscribes.push(unsubscribe);
-    }
-
-    return () => {
-      active = false;
-      unsubscribes.forEach((unsubscribe) => unsubscribe());
-    };
-  }, [displayDays, hasEmployees, db]);
+    if (!hasEmployees || !displayStartDate || !displayEndDate) return;
+    const attendanceQuery = query(
+      collection(db, "CMG-HR-Database", "root", "attendance"),
+      where(documentId(), ">=", displayStartDate),
+      where(documentId(), "<=", displayEndDate),
+    );
+    return onSnapshot(attendanceQuery, (snapshot) => {
+      setAttendanceData((previous) => applyDateDocChanges(previous, snapshot.docChanges(), parseAttendanceRecords));
+    }, (error) => console.error("Error listening to attendance:", error));
+  }, [displayStartDate, displayEndDate, hasEmployees, db]);
 
   // ── โหลดเวลาเริ่มงาน/เวลาเริ่ม OT รายโครงการ (Realtime) — ใช้แสดงเป็นข้อมูลอ้างอิงเท่านั้น ──
   useEffect(() => {
