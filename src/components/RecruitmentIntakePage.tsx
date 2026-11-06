@@ -80,6 +80,7 @@ interface IntakeFormState {
   ตำแหน่ง: string;
   แผนก: string;
   โครงการ: string;
+  ชื่อชุด: string;
   employee_type: string;
   start_date: string;
   เลขบัตรประชาชน: string;
@@ -148,6 +149,9 @@ export const RecruitmentIntakePage = ({
   // ดึงครั้งเดียวตอนเข้าหน้านี้ (ไม่ realtime เพราะใช้แค่ประกอบตัวเลือก ไม่ต้องอัปเดตวินาทีต่อวินาที)
   const [employeePositionOptions, setEmployeePositionOptions] = useState<string[]>([]);
   const [employeeDepartmentOptions, setEmployeeDepartmentOptions] = useState<string[]>([]);
+  // ชื่อชุด/ทีมแรงงานย่อยที่มีอยู่จริงแล้วใน employee_data (ไม่มี master list เช่นกัน เพราะเป็นชื่อที่ HR
+  // ตั้งเองตอนจัดกลุ่ม Worker/Supply Contract/Subcontract) — ใช้ประกอบตัวเลือกตอนนำเข้าเหมือนตำแหน่ง/แผนก
+  const [employeeTeamOptions, setEmployeeTeamOptions] = useState<string[]>([]);
   useEffect(() => {
     (async () => {
       try {
@@ -155,17 +159,21 @@ export const RecruitmentIntakePage = ({
         const snap = await getDocs(collection(db, "CMG-HR-Database", "root", "employee_data"));
         const positions = new Set<string>();
         const departments = new Set<string>();
+        const teams = new Set<string>();
         snap.docs.forEach((d) => {
-          const data = d.data() as { ตำแหน่ง?: string; แผนก?: string };
+          const data = d.data() as { ตำแหน่ง?: string; แผนก?: string; ชื่อชุด?: string };
           const pos = (data.ตำแหน่ง || "").toString().trim();
           const dep = (data.แผนก || "").toString().trim();
+          const team = (data.ชื่อชุด || "").toString().trim();
           if (pos) positions.add(pos);
           if (dep) departments.add(dep);
+          if (team) teams.add(team);
         });
         setEmployeePositionOptions(Array.from(positions).sort((a, b) => a.localeCompare(b, "th")));
         setEmployeeDepartmentOptions(Array.from(departments).sort((a, b) => a.localeCompare(b, "th")));
+        setEmployeeTeamOptions(Array.from(teams).sort((a, b) => a.localeCompare(b, "th")));
       } catch (err) {
-        console.error("[RecruitmentIntakePage] โหลดตัวเลือกตำแหน่ง/แผนกจาก employee_data ไม่สำเร็จ:", err);
+        console.error("[RecruitmentIntakePage] โหลดตัวเลือกตำแหน่ง/แผนก/ชื่อชุดจาก employee_data ไม่สำเร็จ:", err);
       }
     })();
   }, []);
@@ -251,6 +259,13 @@ export const RecruitmentIntakePage = ({
     const merged = new Set<string>([...employeeDepartmentOptions, ...departmentOptionsInData]);
     return Array.from(merged).sort((a, b) => a.localeCompare(b, "th"));
   }, [employeeDepartmentOptions, departmentOptionsInData]);
+  // ตัวเลือก "ชื่อชุด" (ทีมแรงงานย่อย): รวมจากพนักงานที่มีอยู่จริง (employee_data) + ชื่อชุดที่เคยเห็น
+  // ในคิวรอเพิ่มนี้เอง กันตกหล่น (เป็นชื่อที่ HR ตั้งเอง ไม่มี master list ตายตัว)
+  const teamOptionsForForm = useMemo(() => {
+    const fromPending = items.map((c) => (c.ชื่อชุด || "").toString().trim()).filter(Boolean);
+    const merged = new Set<string>([...employeeTeamOptions, ...fromPending]);
+    return Array.from(merged).sort((a, b) => a.localeCompare(b, "th"));
+  }, [employeeTeamOptions, items]);
   const filtered = useMemo(() => {
     const kw = search.trim().toLowerCase();
     return items
@@ -422,6 +437,7 @@ export const RecruitmentIntakePage = ({
       ตำแหน่ง: positionMatch.value || candidate.ตำแหน่ง || "",
       แผนก: departmentMatch.value || candidate.แผนก || "",
       โครงการ: projectMatch.value || candidate.โครงการ || "",
+      ชื่อชุด: (candidate.ชื่อชุด || "").toString().trim(),
       employee_type: empType,
       start_date: normalizedStartDate,
       เลขบัตรประชาชน: candidate.เลขบัตรประชาชน || "",
@@ -504,6 +520,9 @@ export const RecruitmentIntakePage = ({
         สถานะโครงการ: form.โครงการ.trim() ? [form.โครงการ.trim()] : [],
         employee_type: form.employee_type,
         สถานะกลุ่มงาน: groupStatus,
+        // ชื่อชุด/ทีมแรงงานย่อย — มีความหมายเฉพาะกลุ่ม Worker/Supply Contract/Subcontract (ไม่ใช่ Staff)
+        // เขียนเฉพาะตอนมีค่าจริง ไม่งั้นจะไปทับของเดิมด้วยสตริงว่างตอน merge กับพนักงานที่มีอยู่แล้ว (เช่น กรณีรหัสพนักงานเดิม)
+        ...(form.ชื่อชุด.trim() ? { ชื่อชุด: form.ชื่อชุด.trim() } : {}),
         สถานะพนักงาน: "ทำงาน",
         start_date: form.start_date,
         เลขบัตรประชาชน: form.เลขบัตรประชาชน.trim(),
@@ -901,6 +920,22 @@ export const RecruitmentIntakePage = ({
               <Field label="สถานะกลุ่มงานที่จะบันทึก">
                 <input readOnly value={intakeWorkGroup(form.employee_type, formTarget.สถานะกลุ่มงาน) || "กรุณาตรวจสอบกลุ่มงานจาก Recruitment"} className="input bg-gray-50" />
               </Field>
+              {form.employee_type !== "Indirect" && (
+                <Field label="ชื่อชุด (ทีมแรงงานย่อย)">
+                  <input
+                    list="recruitment-intake-team-options"
+                    value={form.ชื่อชุด}
+                    onChange={(e) => setForm((f) => (f ? { ...f, ชื่อชุด: e.target.value } : f))}
+                    placeholder="เช่น ชุด A, ชุด 1 ฯลฯ (เว้นว่างได้ถ้ายังไม่จัดทีม)"
+                    className="input"
+                  />
+                  <datalist id="recruitment-intake-team-options">
+                    {teamOptionsForForm.map((t) => (
+                      <option key={t} value={t} />
+                    ))}
+                  </datalist>
+                </Field>
+              )}
               <Field label="คำนำหน้า">
                 <input value={form.คำนำหน้า} onChange={(e) => setForm((f) => (f ? { ...f, คำนำหน้า: e.target.value } : f))} className="input" />
               </Field>
@@ -1239,6 +1274,7 @@ export const RecruitmentIntakePage = ({
               <DetailSection title="ข้อมูลงาน">
                 <DetailRow label="โครงการ" value={viewTarget.โครงการ} />
                 <DetailRow label="สถานะกลุ่มงาน" value={viewTarget.สถานะกลุ่มงาน} />
+                {viewTarget.ชื่อชุด ? <DetailRow label="ชื่อชุด" value={viewTarget.ชื่อชุด as string} /> : null}
                 {viewTarget.intakeStatus === "no_show" && <>
                   <DetailRow label="สถานะเริ่มงาน" value="ไม่มาเริ่มงาน" />
                   <DetailRow label="เหตุผล" value={viewTarget.noShowReason} />

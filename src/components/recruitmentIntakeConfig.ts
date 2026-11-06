@@ -50,6 +50,9 @@ export interface RecruitmentPendingEmployee {
   โครงการ?: string;
   สถานะกลุ่มงาน?: string;
   วันเริ่มงาน?: string;
+  // ชื่อชุด/ทีมแรงงานย่อย (สำหรับ Worker/Supply Contract/Subcontract) — ฝั่ง Recruitment
+  // ส่งค่านี้มาด้วยเมื่อมีการจัดทีมไว้แล้วตั้งแต่ตอนสมัคร/จ้างงาน
+  ชื่อชุด?: string;
 
   // ข้อมูลติดต่อ/ส่วนตัว
   โทรศัพท์?: string;
