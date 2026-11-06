@@ -8,6 +8,7 @@ import {
   Loader2,
   Lock,
   Paperclip,
+  RefreshCw,
   Search,
   Trash2,
   UserPlus,
@@ -348,6 +349,35 @@ export const RecruitmentIntakePage = ({
       window.alert(`บันทึกไม่สำเร็จ: ${err instanceof Error ? err.message : "เกิดข้อผิดพลาด"}`);
     } finally {
       setStatusSaving(null);
+    }
+  };
+
+  // ดึงข้อมูลล่าสุดจาก recruitment_pending_employees มาอัปเดตพนักงานที่ "นำเข้าแล้ว" อีกครั้ง
+  // เหตุผล: ฝั่ง Recruitment อาจแก้/เติมข้อมูลที่ขาดหาย (เช่น วันเกิด, ชื่อชุด) ภายหลังจากที่ HR
+  // กดนำเข้าไปแล้ว แต่หน้านี้ซ่อนปุ่ม "เพิ่มเข้าระบบ" ทันทีที่ importedEmployeeId ถูกตั้งค่า ทำให้ไม่มี
+  // ทางดึงข้อมูลที่แก้ไข/เติมใหม่เข้ามาที่ employee_data อีกเลย ปุ่มนี้แก้ช่องว่างนั้น
+  // อัปเดตเฉพาะฟิลด์ที่มีค่าจริงจาก candidate (ไม่เขียนทับด้วยค่าว่าง กันข้อมูลที่ HR แก้ไขเองใน Data ภายหลังหาย)
+  const [syncingCandidateId, setSyncingCandidateId] = useState<string | null>(null);
+  const syncLatestDataToEmployee = async (candidate: RecruitmentPendingEmployee) => {
+    if (!canManage || syncingCandidateId || !candidate.importedEmployeeId) return;
+    const normalizedDob = normalizeDateForInput(candidate.วันเกิด);
+    const team = (candidate.ชื่อชุด || "").toString().trim();
+    const patch: Record<string, string> = {};
+    if (normalizedDob) patch["วันเกิด"] = normalizedDob;
+    if (team) patch["ชื่อชุด"] = team;
+    if (Object.keys(patch).length === 0) {
+      window.alert("ไม่มีข้อมูล วันเกิด/ชื่อชุด ใหม่จาก Recruitment ให้ซิงก์ (อาจจะยังไม่ได้กดส่งซ้ำจากฝั่ง Recruitment)");
+      return;
+    }
+    setSyncingCandidateId(candidate.id);
+    try {
+      const db = getFirestore();
+      await updateDoc(doc(db, "CMG-HR-Database", "root", "employee_data", String(candidate.importedEmployeeId)), patch);
+      window.alert(`ซิงก์ข้อมูลล่าสุดของ ${buildFullName(candidate)} สำเร็จ (${Object.keys(patch).join(", ")})`);
+    } catch (err) {
+      window.alert(`ซิงก์ไม่สำเร็จ: ${err instanceof Error ? err.message : "เกิดข้อผิดพลาด"}`);
+    } finally {
+      setSyncingCandidateId(null);
     }
   };
 
@@ -839,6 +869,21 @@ export const RecruitmentIntakePage = ({
                         {canManage && imported && c.intakeStatus !== "no_show" && c.source !== "internal_transfer" && (
                           <button disabled={statusSaving !== null} onClick={() => markNoShow(c)} className="px-3 py-1.5 bg-red-50 text-red-700 rounded-lg text-xs font-semibold hover:bg-red-100 whitespace-nowrap disabled:opacity-50">
                             {statusSaving === c.id ? "กำลังบันทึก..." : "ไม่มาเริ่มงาน"}
+                          </button>
+                        )}
+                        {canManage && imported && (
+                          <button
+                            disabled={syncingCandidateId !== null}
+                            onClick={() => syncLatestDataToEmployee(c)}
+                            title="ดึงวันเกิด/ชื่อชุดล่าสุดจาก Recruitment มาอัปเดต (เผื่อฝั่ง Recruitment เพิ่งแก้/เติมข้อมูลและกดส่งซ้ำ)"
+                            className="flex items-center gap-1 px-3 py-1.5 bg-sky-50 text-sky-700 rounded-lg text-xs font-semibold hover:bg-sky-100 whitespace-nowrap disabled:opacity-50"
+                          >
+                            {syncingCandidateId === c.id ? (
+                              <Loader2 size={14} className="animate-spin" />
+                            ) : (
+                              <RefreshCw size={14} />
+                            )}
+                            ซิงก์ข้อมูลล่าสุด
                           </button>
                         )}
                         {canManage && !imported && (
