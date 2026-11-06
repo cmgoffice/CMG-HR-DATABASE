@@ -1,9 +1,13 @@
 // Auto-fill PDF ของ "ใบปะหน้า" เฉพาะโครงการ HUASHI Building B (J-078) — ใช้วิธี "overlay" เขียนทับ
-// บนไฟล์ฟอร์มต้นฉบับจริงของลูกค้า "Training Request Form rev.0.pdf" ทุกอย่าง (สี/เส้นตาราง/โลโก้
+// บนไฟล์ฟอร์มต้นฉบับจริงของลูกค้า "Training Request Form rev.01.pdf" ทุกอย่าง (สี/เส้นตาราง/โลโก้
 // HUASHI/ป้ายข้อความ) คงเดิมเป๊ะเพราะใช้หน้าเพจจริงจากไฟล์ต้นฉบับเป็นพื้นหลัง ไม่ได้วาดขึ้นใหม่
 // (พิกัดคอลัมน์/แถวด้านล่างยังใช้วัดตำแหน่งที่จะเขียนทับข้อมูลให้ตรงช่องเป๊ะ — วัดจากไฟล์จริงด้วย pdfjs-dist)
-// หน้าเพจเดิมมี 2 หน้า (หน้า 2 มีแค่ 4 แถวว่างและไม่มีโลโก้) — ใช้แค่หน้า 1 (20 แถว มีโลโก้ครบ) เป็นแม่แบบ
-// แล้ว copy ซ้ำเองถ้าคนในรอบเกิน 20 คน เพื่อให้ทุกหน้าหน้าตาเหมือนกันและมีโลโก้ครบทุกหน้า
+// rev.01 (04/11/2569) ขยับช่อง "พื้นที่ปฏิบัติงาน/Location" ให้กว้างขึ้นมาก (46 -> ~128pt) เพื่อให้เขียน
+// ชื่อพื้นที่ทำงานได้ครบ แลกกับช่อง "เวลา/Time" และคอลัมน์ "Company" ในตารางที่แคบลง — ตารางข้อมูลใน
+// rev.01 มี 19 แถว/หน้า (จากเดิม 20 แถว เพราะความสูงแถวเพิ่มจาก 18pt เป็น ~18.48pt) พิกัดทั้งหมดด้านล่าง
+// วัดใหม่จากไฟล์ rev.01 ทั้งหมด (ทั้งข้อความด้วย pdfjs text content และเส้นตารางด้วยการสแกนพิกเซลภาพ
+// ที่ render จากไฟล์จริง) — หน้าเพจเดิมมี 2 หน้า (หน้า 2 มีแค่ 4 แถวว่างและไม่มีโลโก้) — ใช้แค่หน้า 1
+// (19 แถว มีโลโก้ครบ) เป็นแม่แบบ แล้ว copy ซ้ำเองถ้าคนในรอบเกิน 19 คน เพื่อให้ทุกหน้าหน้าตาเหมือนกันและมีโลโก้ครบทุกหน้า
 // ต่างจากใบปะหน้าแบบทั่วไปตรงที่มีคอลัมน์ "Identity verification document" แยกย่อย 4 ช่อง
 // (Passport+Visa / Pink card / Permit Verification Pending / No Work Permit) สำหรับแรงงานต่างด้าว
 // ซึ่งคำนวณอัตโนมัติจากข้อมูลเอกสารแรงงานต่างด้าวที่มีอยู่แล้วในระบบ (migrant_documents)
@@ -50,8 +54,8 @@ interface PdfFontSet {
 // แนวนอน (Landscape) — ขนาดหน้าตรงกับไฟล์ต้นฉบับจริงเป๊ะ (วัดจาก mediaBox ของ PDF ที่ลูกค้าส่งมา)
 const PAGE_WIDTH = 841.68;
 const PAGE_HEIGHT = 595.2;
-// พิกัดซ้าย/ขวาของป้ายข้อมูลหัวฟอร์ม (Course/Date/Trainer ฯลฯ) — วัดจากไฟล์ต้นฉบับ
-const FIELD_LEFT = 47.52;
+// พิกัดซ้าย/ขวาของป้ายข้อมูลหัวฟอร์ม (Course/Date/Trainer ฯลฯ) — วัดจากไฟล์ต้นฉบับ (rev.01)
+const FIELD_LEFT = 48.24;
 const FIELD_RIGHT = 818.6;
 const TEXT_COLOR = rgb(0.05, 0.05, 0.15);
 const CHECK_COLOR = rgb(0.75, 0, 0);
@@ -205,15 +209,19 @@ const resolveIdVerificationFlags = (emp: EmployeeRow | undefined): IdVerificatio
 };
 
 // ---------------------------------------------------------------------------
-// ตาราง — ขอบเขต/ความกว้างคอลัมน์วัดมาจากเส้นตารางจริงในไฟล์ PDF ต้นฉบับ (pdfjs operator list)
+// ตาราง — ขอบเขต/ความกว้างคอลัมน์วัดมาจากเส้นตารางจริงในไฟล์ PDF ต้นฉบับ rev.01 (ยืนยันสองทาง:
+// pdfjs operator list ของเส้นตาราง + สแกนพิกเซลภาพที่ render จากไฟล์จริงด้วย @napi-rs/canvas)
 // หมายเหตุ: คอลัมน์ "Name" กับ "Last name" ในต้นฉบับไม่มีเส้นแบ่งกั้นระหว่างกันจริง ๆ (ใช้ซี
 // ลล์กว้างเดียวแบ่งด้วยตำแหน่งป้ายชื่อหัวตารางเท่านั้น) — ในการวาดจึงแบ่งพื้นที่ครึ่งหนึ่งเอง
+// rev.01 จัดสรรความกว้างคอลัมน์ใหม่ (ไม่ใช่แค่ช่อง Location ด้านบน): ID Card/Ethnicity/4 คอลัมน์
+// เอกสารยืนยันตัวตนกว้างขึ้น ส่วน Company/Position แคบลง (Company เหลือ ~65pt — ชื่อยาวอย่าง
+// "CMG Engineering & Construction" จะถูกย่อขนาดฟอนต์ลงจนอาจตัดคำ "…" ตามกลไก fitFittedCellText เดิม)
 // ---------------------------------------------------------------------------
 const TABLE_LEFT = 17.8;
 const TABLE_RIGHT = 818.6;
 const TABLE_WIDTH = TABLE_RIGHT - TABLE_LEFT;
-// เส้นแบ่งคอลัมน์จริงจากไฟล์ต้นฉบับ (11 เส้น รวมขอบซ้าย/ขวา = 10 คอลัมน์ที่มีเส้นกั้น)
-const COL_BOUNDS = [17.8, 45.6, 147.9, 294.1, 409.3, 479.2, 530.5, 583.9, 637.1, 690.4, 743.7, 818.6];
+// เส้นแบ่งคอลัมน์จริงจากไฟล์ต้นฉบับ rev.01 (11 เส้น รวมขอบซ้าย/ขวา = 10 คอลัมน์ที่มีเส้นกั้น)
+const COL_BOUNDS = [17.8, 46.3, 165.5, 315.5, 380.3, 445.2, 502.8, 562.5, 622.3, 682.1, 741.9, 818.6];
 const COLS = [
   { key: "no", label: "No", x: COL_BOUNDS[0], width: COL_BOUNDS[1] - COL_BOUNDS[0] },
   { key: "idCard", label: "ID Card", x: COL_BOUNDS[1], width: COL_BOUNDS[2] - COL_BOUNDS[1] },
@@ -228,9 +236,10 @@ const COLS = [
   { key: "signature", label: "Signature", x: COL_BOUNDS[10], width: COL_BOUNDS[11] - COL_BOUNDS[10] },
 ] as const;
 
-// ความสูงแถว วัดจากเส้นตารางจริง: ตัวตารางข้อมูล 20 แถว x 18pt ต่อหน้า
-const ROWS_PER_PAGE = 20;
-const ROW_HEIGHT = 18;
+// ความสูงแถว วัดจากเส้นตารางจริง rev.01: ตัวตารางข้อมูล 19 แถว x ~18.48pt ต่อหน้า
+// (rev.0 เดิมมี 20 แถว x 18pt — rev.01 แถวสูงขึ้นเล็กน้อยเลยเหลือพื้นที่พอแค่ 19 แถว/หน้า)
+const ROWS_PER_PAGE = 19;
+const ROW_HEIGHT = 18.48;
 
 interface RowValues {
   no: string;
@@ -263,9 +272,16 @@ const drawTableRow = (page: PDFPage, regular: PdfFontSet, topY: number, values: 
         drawFittedCellText(page, regular, values.lastName, { x: col.x + halfW, width: halfW, y: cellTextY, maxSize: 8 });
         break;
       }
-      case "company":
-        drawFittedCellText(page, regular, values.company, { x: col.x, width: col.width, y: cellTextY, maxSize: 8 });
+      case "company": {
+        // rev.01 ทำคอลัมน์ "Company" แคบลงเหลือ ~65pt (จากเดิม ~115pt) ชื่อเต็ม "CMG Engineering &
+        // Construction" ที่ TrainingBatchPage.tsx เขียนให้ทุกคนเสมอ (ดู company: "CMG Engineering &
+        // Construction" ที่นั่น) จะไม่พอดีช่องแม้ย่อฟอนต์จนสุด (6pt) แล้ว — ย่อเหลือ "CMG" เฉพาะตอนวาด
+        // ลงใบปะหน้า HUASHI ใบนี้เท่านั้น ไม่แก้ค่าต้นทาง (enrollment.company) เพื่อไม่กระทบใบอื่น/
+        // หน้าจออื่นที่ยังใช้ชื่อเต็มอยู่ (เช่น trainingNameListPdf.ts, accessBadgeRequestPdf.ts)
+        const companyDisplay = values.company.trim().toUpperCase().startsWith("CMG") ? "CMG" : values.company;
+        drawFittedCellText(page, regular, companyDisplay, { x: col.x, width: col.width, y: cellTextY, maxSize: 8, align: "center" });
         break;
+      }
       case "position":
         drawFittedCellText(page, regular, values.position, { x: col.x, width: col.width, y: cellTextY, maxSize: 8 });
         break;
@@ -290,15 +306,16 @@ const drawTableRow = (page: PDFPage, regular: PdfFontSet, topY: number, values: 
   return topY - ROW_HEIGHT;
 };
 
-// ตำแหน่ง y ของแต่ละแถวฟิลด์ข้อมูล (Course / Date-Time-Location-Total / Trainer-Phone) วัดจากไฟล์ต้นฉบับจริง
-const FIELD_ROW_Y = { course: 489.58, dateRow: 470.83, trainerRow: 452.11 };
-// จุดเริ่ม x ของแต่ละฟิลด์ในแถว (วัดจากตำแหน่งป้ายจริงในไฟล์ต้นฉบับ)
-const DATE_ROW_X = [FIELD_LEFT, 295.99, 532.46, 692.35, TABLE_RIGHT];
-const TRAINER_ROW_X = [FIELD_LEFT, 539.42, TABLE_RIGHT];
+// ตำแหน่ง y ของแต่ละแถวฟิลด์ข้อมูล (Course / Date-Time-Location-Total / Trainer-Phone) วัดจากไฟล์ต้นฉบับจริง rev.01
+const FIELD_ROW_Y = { course: 487.63, dateRow: 468.43, trainerRow: 449.23 };
+// จุดเริ่ม x ของแต่ละฟิลด์ในแถว (วัดจากตำแหน่งป้ายจริงในไฟล์ต้นฉบับ rev.01) — Location ขยับมาเริ่มเร็วขึ้นมาก
+// (447.00 จากเดิม 532.46) ทำให้ช่องกรอกพื้นที่ทำงานกว้างขึ้นเกือบ 3 เท่า ตามที่ลูกค้าแก้ไขแบบฟอร์ม
+const DATE_ROW_X = [FIELD_LEFT, 317.35, 447.0, 683.95, TABLE_RIGHT];
+const TRAINER_ROW_X = [FIELD_LEFT, 447.0, TABLE_RIGHT];
 
-// ตำแหน่ง x ที่ตัว ":" ของแต่ละป้ายจบในไฟล์ต้นฉบับจริง (วัดจาก pdfjs text content) — ค่าที่กรอกจะเริ่มวาง
+// ตำแหน่ง x ที่ตัว ":" ของแต่ละป้ายจบในไฟล์ต้นฉบับจริง rev.01 (วัดจาก pdfjs text content) — ค่าที่กรอกจะเริ่มวาง
 // ถัดจากจุดนี้ไปเล็กน้อย ป้ายชื่อเอง "ไม่ต้องวาดซ้ำ" เพราะมีอยู่แล้วในไฟล์ต้นฉบับ (พื้นหลัง overlay)
-const VALUE_START_X = { course: 122, date: 118, time: 344, location: 640, total: 750, trainer: 119 };
+const VALUE_START_X = { course: 124, date: 119, time: 367, location: 555, total: 743, trainer: 121 };
 
 const drawHeaderFields = (page: PDFPage, regular: PdfFontSet, _bold: PdfFontSet, batch: TrainingBatch, total: number): void => {
   const value = (text: string, x: number, maxWidth: number, y: number) => {
@@ -316,8 +333,8 @@ const drawHeaderFields = (page: PDFPage, regular: PdfFontSet, _bold: PdfFontSet,
   value(batch.trainer || "", VALUE_START_X.trainer, TRAINER_ROW_X[1] - VALUE_START_X.trainer - 10, FIELD_ROW_Y.trainerRow);
 };
 
-// y ขอบบนของ "แถวข้อมูลคนแรก" ในตาราง (ใต้หัวตาราง 2 แถวแล้ว) วัดจากไฟล์ต้นฉบับจริง — คงที่ทุกหน้า
-const TABLE_TOP_Y = 382.5;
+// y ขอบบนของ "แถวข้อมูลคนแรก" ในตาราง (ใต้หัวตาราง 2 แถวแล้ว) วัดจากไฟล์ต้นฉบับจริง rev.01 — คงที่ทุกหน้า
+const TABLE_TOP_Y = 386.2;
 
 // ลำดับการแสดงรายชื่อในใบปะหน้า: รหัสรายเดือน -> รหัส DC -> รหัส SP -> รหัส SC
 // (คนที่หา employee_type ไม่พบในฐานข้อมูลให้ต่อท้ายสุด)
