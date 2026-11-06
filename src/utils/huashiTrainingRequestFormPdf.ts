@@ -11,7 +11,7 @@
 // ต่างจากใบปะหน้าแบบทั่วไปตรงที่มีคอลัมน์ "Identity verification document" แยกย่อย 4 ช่อง
 // (Passport+Visa / Pink card / Permit Verification Pending / No Work Permit) สำหรับแรงงานต่างด้าว
 // ซึ่งคำนวณอัตโนมัติจากข้อมูลเอกสารแรงงานต่างด้าวที่มีอยู่แล้วในระบบ (migrant_documents)
-import { PDFDocument, PDFFont, PDFPage, rgb } from "pdf-lib";
+import { LineCapStyle, PDFDocument, PDFFont, PDFPage, rgb } from "pdf-lib";
 // @ts-ignore - @pdf-lib/fontkit has no bundled types matching this pdf-lib version
 import fontkit from "@pdf-lib/fontkit";
 import { sarabunLatinRegularUrl, sarabunLatinBoldUrl } from "./thaiFonts";
@@ -100,12 +100,10 @@ const fitText = (fonts: PdfFontSet, text: string, maxWidth: number, size: number
   return text.slice(0, cut) + "…";
 };
 
-const fitSizeForText = (fonts: PdfFontSet, text: string, maxWidth: number, maxSize: number, minSize = 6): number => {
-  let size = maxSize;
-  while (size > minSize && textWidth(fonts, text, size) > maxWidth) size -= 0.5;
-  return size;
-};
-
+// หมายเหตุ: เดิมฟังก์ชันนี้มี fitSizeForText() คอยย่อขนาดฟอนต์ลงทีละ 0.5pt จนพอดีช่อง (ตัดคำด้วย "…"
+// เฉพาะตอนย่อสุดแล้วยังไม่พอ) — ทำให้แต่ละแถว/แต่ละช่องมีขนาดตัวอักษรไม่เท่ากัน (ชื่อสั้นได้ตัวใหญ่ ชื่อยาว
+// ได้ตัวเล็ก) ตามที่ผู้ใช้แจ้งว่าดูไม่เรียบร้อย — เปลี่ยนเป็นใช้ "ขนาดคงที่" (options.maxSize) เสมอทุกช่อง
+// ถ้าข้อความยาวเกินช่องถึงค่อยตัดด้วย "…" ที่ขนาดเดิมแทนการย่อฟอนต์ลง
 const drawFittedCellText = (
   page: PDFPage,
   fonts: PdfFontSet,
@@ -114,7 +112,7 @@ const drawFittedCellText = (
 ) => {
   if (!text) return;
   const maxW = options.width - 6;
-  const size = fitSizeForText(fonts, text, maxW, options.maxSize);
+  const size = options.maxSize;
   const display = textWidth(fonts, text, size) <= maxW ? text : fitText(fonts, text, maxW, size);
   drawText(page, fonts, display, {
     x: options.align === "center" ? options.x + options.width / 2 : options.x + 3,
@@ -124,8 +122,17 @@ const drawFittedCellText = (
   });
 };
 
-const drawCheckMark = (page: PDFPage, x: number, y: number) => {
-  page.drawText("X", { x, y, size: 10, color: CHECK_COLOR });
+// เครื่องหมายติ๊กเอกสาร — วาดเป็นเส้นตรง 2 เส้นต่อกันเป็นรูปเครื่องหมายถูก (✓) เอง ไม่ใช้ font วาดตัวอักษร
+// เพราะฟอนต์มาตรฐาน (Helvetica/WinAnsiEncoding) ที่ pdf-lib ใช้เป็นค่าเริ่มต้นเวลาไม่ระบุ font ให้ drawText
+// ไม่มี glyph ของเครื่องหมายถูกจริง ๆ (ตัวที่เคยใช้คือกากบาด "X" ซึ่งลูกค้าขอเปลี่ยน) — วาดด้วยเส้นจึงได้ผลลัพธ์
+// แน่นอนเหมือนกันทุกเครื่อง ไม่ขึ้นกับว่าฟอนต์รองรับอักขระนี้หรือไม่ — (cx, cy) คือจุดกึ่งกลางของเครื่องหมาย
+const drawCheckMark = (page: PDFPage, cx: number, cy: number) => {
+  const thickness = 1.4;
+  const left = { x: cx - 3.4, y: cy + 0.4 };
+  const bottom = { x: cx - 0.8, y: cy - 2.6 };
+  const right = { x: cx + 4.0, y: cy + 3.4 };
+  page.drawLine({ start: left, end: bottom, thickness, color: CHECK_COLOR, lineCap: LineCapStyle.Round });
+  page.drawLine({ start: bottom, end: right, thickness, color: CHECK_COLOR, lineCap: LineCapStyle.Round });
 };
 
 // โหลดไฟล์ฟอร์มต้นฉบับจริงของลูกค้ามาเป็นพื้นหลัง (เก็บสี/เส้นตาราง/โลโก้ไว้ครบ) แล้วฝังฟอนต์ไทยลงในเอกสารนี้โดยตรง
@@ -255,7 +262,7 @@ interface RowValues {
 // เขียนทับข้อมูล 1 แถวลงบนตารางที่มีอยู่แล้วในไฟล์ต้นฉบับ (ไม่ต้องวาดเส้น/กรอบเองเพราะพื้นหลังมีอยู่แล้ว)
 const drawTableRow = (page: PDFPage, regular: PdfFontSet, topY: number, values: RowValues): number => {
   const cellTextY = topY - ROW_HEIGHT + 6;
-  const checkCenterY = topY - ROW_HEIGHT / 2 - 3.5;
+  const checkCenterY = topY - ROW_HEIGHT / 2;
 
   COLS.forEach((col) => {
     switch (col.key) {
@@ -289,16 +296,16 @@ const drawTableRow = (page: PDFPage, regular: PdfFontSet, topY: number, values: 
         drawFittedCellText(page, regular, values.ethnicity, { x: col.x, width: col.width, y: cellTextY, maxSize: 8, align: "center" });
         break;
       case "passportVisa":
-        if (values.idVerification?.passportVisa) drawCheckMark(page, col.x + col.width / 2 - 3, checkCenterY);
+        if (values.idVerification?.passportVisa) drawCheckMark(page, col.x + col.width / 2, checkCenterY);
         break;
       case "pinkCard":
-        if (values.idVerification?.pinkCard) drawCheckMark(page, col.x + col.width / 2 - 3, checkCenterY);
+        if (values.idVerification?.pinkCard) drawCheckMark(page, col.x + col.width / 2, checkCenterY);
         break;
       case "pending":
-        if (values.idVerification?.pending) drawCheckMark(page, col.x + col.width / 2 - 3, checkCenterY);
+        if (values.idVerification?.pending) drawCheckMark(page, col.x + col.width / 2, checkCenterY);
         break;
       case "noPermit":
-        if (values.idVerification?.noPermit) drawCheckMark(page, col.x + col.width / 2 - 3, checkCenterY);
+        if (values.idVerification?.noPermit) drawCheckMark(page, col.x + col.width / 2, checkCenterY);
         break;
       // signature: เว้นว่างไว้ให้เซ็นชื่อหน้างาน
     }
