@@ -2143,25 +2143,13 @@ function MasterDatabaseApp() {
           cleanData["con_id"] = docId;
           console.log(`🆔 Auto-generated con_id:`, docId);
         } else if (activeModule === "emp_direct_sub") {
-          // Sub Contractor: ใช้ชื่อตัว+ชื่อสกุลเป็น unique key
-          const firstName = String(cleanData["ชื่อตัว"] || "").trim();
-          const lastName = String(cleanData["ชื่อสกุล"] || "").trim();
-          if (!firstName || !lastName) {
-            showNotification("error", "ข้อมูลไม่ครบ", "กรุณาระบุ ชื่อตัว และ ชื่อสกุล");
+          // Sub Contractor: doc ID ต้องมาจากรหัสพนักงานเท่านั้น (ห้ามใช้ชื่อ)
+          const empCode = String(cleanData["รหัสพนักงาน"] || "").trim();
+          if (!empCode) {
+            showNotification("error", "ข้อมูลไม่ครบ", "กรุณาระบุ รหัสพนักงาน — ระบบใช้รหัสพนักงานเป็น ID ของเอกสาร");
             return;
           }
-          const fullName = `${firstName} ${lastName}`;
-          const isDuplicate = freshModuleData.some((item) => {
-            const iFirst = String(item["ชื่อตัว"] || "").trim();
-            const iLast = String(item["ชื่อสกุล"] || "").trim();
-            return iFirst === firstName && iLast === lastName;
-          });
-          if (isDuplicate) {
-            showNotification("error", "ชื่อซ้ำ", `"${fullName}" มีอยู่ในระบบแล้ว ไม่สามารถเพิ่มซ้ำได้`);
-            return;
-          }
-          docId = `${firstName}_${lastName}`.replace(/[\/#${}\s]/g, "_");
-          console.log(`🆔 Generated docId from name:`, docId);
+          docId = empCode;
         } else {
           docId = cleanData[primaryKeyField];
           console.log(`🆔 Using primary key value as docId:`, docId);
@@ -2712,42 +2700,12 @@ function MasterDatabaseApp() {
             }
           }
 
-          // Sub Contractor: ถ้าแถวมีรหัสพนักงาน ใช้รหัสเป็น doc ID (เหมือนเดิม/เหมือน module อื่น)
-          // ใช้ชื่อตัว+ชื่อสกุลเป็น unique key เฉพาะแถวที่ไม่มีรหัสพนักงาน
+          // Sub Contractor: ต้องมีรหัสพนักงานเท่านั้น (ใช้เป็น doc ID) — ไม่มีรหัสจะไม่บันทึก
           if (activeModule === "emp_direct_sub" && !String(docData["รหัสพนักงาน"] || "").trim()) {
-            const firstName = String(docData["ชื่อตัว"] || "").trim();
-            const lastName = String(docData["ชื่อสกุล"] || "").trim();
-            if (!firstName || !lastName) {
-              console.log(`⏭️ Row ${i}: Missing name, skipping`);
-              continue;
-            }
-            const fullName = `${firstName} ${lastName}`;
-              const alreadyInDb = [...latestModuleData, ...importedData].some((item) => {
-              const iFirst = String(item["ชื่อตัว"] || "").trim();
-              const iLast = String(item["ชื่อสกุล"] || "").trim();
-              return iFirst === firstName && iLast === lastName;
-            });
-            if (alreadyInDb) {
-              skipCount++;
-              skippedIds.push(fullName);
-              console.log(`❌ Row ${i}: Duplicate name ${fullName}`);
-            } else {
-              const docId = `${firstName}_${lastName}`.replace(/[\/#${}\s]/g, "_");
-              const docPath = `CMG-HR-Database/root/${subcollectionName}/${docId}`;
-              console.log(`💾 Row ${i}: Writing to ${docPath}`);
-              const docRef = doc(db, "CMG-HR-Database", "root", subcollectionName, docId);
-              await setDoc(docRef, docData);
-              const verifySnap = await getDoc(docRef);
-              if (verifySnap.exists()) {
-                importedData.push({ id: docId, ...docData } as DataRecord);
-                successCount++;
-                console.log(`✅ Row ${i}: Success!`);
-              } else {
-                errorCount++;
-                errorMessages.push(`Row ${i}: Write succeeded but document not found`);
-                console.error(`❌ Row ${i}: Write succeeded but document not found!`);
-              }
-            }
+            const who = [docData["ชื่อตัว"], docData["ชื่อสกุล"]].filter(Boolean).join(" ") || `แถว ${i + 1}`;
+            errorCount++;
+            errorMessages.push(`${who}: ไม่มีรหัสพนักงาน จึงไม่ได้บันทึก (ต้องใช้รหัสพนักงานเป็น ID)`);
+            console.warn(`⛔ Row ${i}: Sub contractor without employee code, not saved`);
           } else if (docData[primaryKeyField]) {
             const rawId = docData[primaryKeyField];
             const docId = String(rawId).replace(/[\/\.\#\$\{\}]/g, "_");

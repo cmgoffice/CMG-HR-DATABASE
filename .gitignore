@@ -16,3 +16,6 @@ exports
 
 # Local scratch/dev tooling
 .tmp
+
+# Firestore backups (contain employee PII)
+backups
