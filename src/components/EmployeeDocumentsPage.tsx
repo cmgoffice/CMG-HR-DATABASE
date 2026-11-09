@@ -15,6 +15,7 @@ import {
   EMPLOYEE_DOCUMENT_LINKS_COLLECTION,
   EmployeeDocumentLink,
 } from "./employeeDocumentLinkConfig";
+import { EmployeeJobDescriptionSection } from "./EmployeeJobDescriptionSection";
 
 // path ที่หน้านี้อ่านแบบ realtime: CMG-HR-Database/root/employee_data (ใช้ร่วมกับหน้าพนักงานหลักทุกกลุ่ม)
 const FIRESTORE_PATH = "CMG-HR-Database/root/employee_data";
@@ -463,6 +464,8 @@ export const EmployeeDocumentsPage = () => {
                   </button>
                 </div>
               </div>
+
+              <EmployeeJobDescriptionSection employee={docsTarget} />
 
               <div className="border-t pt-4">
                 {!showLinkPanel ? (
