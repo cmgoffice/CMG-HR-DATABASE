@@ -3,6 +3,7 @@ import { collection, doc, getFirestore, onSnapshot, setDoc } from "firebase/fire
 import { AlertTriangle, CheckCircle2, Copy, FileUp, Inbox, Link2, Loader2, Paperclip, Search, X } from "lucide-react";
 import {
   appendAttachmentToEmployee,
+  resolveEmployeeDocumentCandidateKey,
   uploadHiringDocumentFile,
 } from "../utils/hiringDocsAttachments";
 import { HiringAttachment } from "./recruitmentIntakeConfig";
@@ -34,6 +35,10 @@ interface EmployeeRecord {
   employee_type?: string;
   สถานะพนักงาน?: string;
   attachments?: HiringAttachment[];
+  // มีค่าเฉพาะพนักงานที่เคยผ่านระบบ Recruitment มาก่อน — ใช้หา folder Drive เดิมของคนนี้
+  // (ดู resolveEmployeeDocumentCandidateKey ใน src/utils/hiringDocsAttachments.ts)
+  hiringPacketId?: string;
+  recruitmentSourceId?: string;
   [key: string]: unknown;
 }
 
@@ -243,9 +248,9 @@ export const EmployeeDocumentsPage = () => {
       const uploadResult = await uploadHiringDocumentFile(docFile, {
         candidateName: buildFullName(docsTarget),
         position: docsTarget.ตำแหน่ง || "",
-        // พนักงานกลุ่มนี้ไม่ได้มาจาก Recruitment จึงไม่มี candidateKey เดิมให้ใช้ -> ใช้รหัสพนักงาน
-        // เป็น key แทน (สร้างโฟลเดอร์ใหม่ของคนนี้ใน Drive ครั้งแรกที่อัปโหลด)
-        candidateKey: empCode,
+        // ใช้ hiringPacketId เดิม (ถ้ามี) ให้ไฟล์ไปลงโฟลเดอร์เดียวกับที่สร้างไว้ตอน Recruitment
+        // ไม่งั้นจะสร้างโฟลเดอร์ใหม่ซ้ำซ้อนแยกจากโฟลเดอร์เดิมของคนนั้น
+        candidateKey: resolveEmployeeDocumentCandidateKey(docsTarget),
         docType: resolvedDocType,
       });
 

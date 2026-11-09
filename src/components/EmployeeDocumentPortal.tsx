@@ -4,7 +4,11 @@ import { doc, getFirestore, onSnapshot } from "firebase/firestore";
 import { AlertTriangle, CheckCircle2, FileUp, Loader2, Paperclip, UserCircle2 } from "lucide-react";
 import { HiringAttachment } from "./recruitmentIntakeConfig";
 import { useDocumentTypeCatalog } from "./documentTypeCatalog";
-import { uploadHiringDocumentFile, appendAttachmentToEmployee } from "../utils/hiringDocsAttachments";
+import {
+  uploadHiringDocumentFile,
+  appendAttachmentToEmployee,
+  resolveEmployeeDocumentCandidateKey,
+} from "../utils/hiringDocsAttachments";
 import {
   EMPLOYEE_DOCUMENT_LINKS_COLLECTION,
   EmployeeDocumentLink,
@@ -20,6 +24,9 @@ interface EmployeeRow {
   ตำแหน่ง?: string;
   แผนก?: string;
   attachments?: HiringAttachment[];
+  // มีค่าเฉพาะพนักงานที่เคยผ่านระบบ Recruitment มาก่อน — ใช้หา folder Drive เดิมของคนนี้
+  hiringPacketId?: string;
+  recruitmentSourceId?: string;
 }
 
 const buildFullName = (e: EmployeeRow): string =>
@@ -105,7 +112,8 @@ export const EmployeeDocumentPortal = () => {
       const res = await uploadHiringDocumentFile(file, {
         candidateName: buildFullName(employee),
         position: employee.ตำแหน่ง || "",
-        candidateKey: empCode,
+        // ใช้ hiringPacketId เดิม (ถ้ามี) ให้ไฟล์ไปลงโฟลเดอร์เดียวกับที่สร้างไว้ตอน Recruitment
+        candidateKey: resolveEmployeeDocumentCandidateKey(employee),
         docType,
       });
       await appendAttachmentToEmployee(empCode, {
