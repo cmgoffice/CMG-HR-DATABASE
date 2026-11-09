@@ -91,7 +91,11 @@ import {
 } from "./contractorPortalConfig";
 import { useDocumentTypeCatalog } from "./documentTypeCatalog";
 import { EMPLOYEE_TYPE_OPTIONS, HiringAttachment } from "./recruitmentIntakeConfig";
-import { appendAttachmentToEmployee, uploadHiringDocumentFile } from "../utils/hiringDocsAttachments";
+import {
+  appendAttachmentToEmployee,
+  resolveEmployeeDocumentCandidateKey,
+  uploadHiringDocumentFile,
+} from "../utils/hiringDocsAttachments";
 import { IdCardPhotoGuideButton, isIdCardDocType } from "./IdCardPhotoGuide";
 
 export interface EmployeeRow {
@@ -133,6 +137,10 @@ export interface EmployeeRow {
   ไปรษณีย์?: string;
   โทรศัพท์?: string;
   อีเมล์?: string;
+  // มีค่าเฉพาะพนักงานที่เคยผ่านระบบ Recruitment มาก่อน — ใช้หา folder Drive เดิมของคนนี้
+  // (ดู resolveEmployeeDocumentCandidateKey ใน src/utils/hiringDocsAttachments.ts)
+  hiringPacketId?: string;
+  recruitmentSourceId?: string;
 }
 
 import { GMTP_MATRIX_COURSES, GMTP_ROLE_OPTIONS, getGmtpRoleCourses, getGmtpCourseEnrollments, resolveGmtpMatrixRole, gmtpRoundDocumentRequirements } from "./gmtpTrainingMatrix";
@@ -2487,7 +2495,8 @@ const useDocumentUpload = (employee: EmployeeRow) => {
       const uploadResult = await uploadHiringDocumentFile(file, {
         candidateName: employeeName,
         position: employee.ตำแหน่ง || "",
-        candidateKey: employeeCode,
+        // ใช้ hiringPacketId เดิม (ถ้ามี) ให้ไฟล์ไปลงโฟลเดอร์เดียวกับที่สร้างไว้ตอน Recruitment
+        candidateKey: resolveEmployeeDocumentCandidateKey(employee),
         docType: docType || "other",
       });
       const attachment: HiringAttachment = {

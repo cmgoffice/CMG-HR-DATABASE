@@ -593,6 +593,12 @@ export const RecruitmentIntakePage = ({
         fullPacketPdfUrl: formTarget.fullPacketPdfUrl || "",
         // เก็บลิงก์ย้อนกลับไปหา record ต้นทาง ไว้ตรวจสอบ/แนบเอกสารเพิ่มได้ภายหลัง
         recruitmentSourceId: formTarget.id,
+        // ชื่อ field เดียวกับที่ใช้ใน collection `job_descriptions` (เขียนโดยระบบสรรหา) เพื่อให้
+        // ฝั่ง Data join ตรงๆ ด้วยชื่อ field เดียวกันได้เลย โดยไม่ต้องรู้ว่า recruitmentSourceId = hiringPacketId
+        // (ค่าเดียวกับ recruitmentSourceId ด้านบนเป๊ะ — formTarget.id คือ doc id ของ recruitment_pending_employees
+        // ซึ่งก็คือ hiringPacketId อยู่แล้ว ใช้ formTarget.hiringPacketId เป็นหลักถ้ามี เผื่อ field เดิมใน
+        // record ไม่ตรงกับ doc id ด้วยเหตุผลบางอย่าง)
+        hiringPacketId: formTarget.hiringPacketId || formTarget.id,
       };
 
       // เอกสารแนบที่ฝั่ง Recruitment อัปโหลดไว้ (บัตร ปชช., ทะเบียนบ้าน, วุฒิการศึกษา, รูปถ่าย ฯลฯ)

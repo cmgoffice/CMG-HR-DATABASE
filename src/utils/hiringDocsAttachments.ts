@@ -19,6 +19,29 @@ import { HIRING_DOCS_MAX_FILE_SIZE_BYTES, HiringAttachment } from "../components
 export const HIRING_DOCS_UPLOAD_URL =
   (process.env.REACT_APP_HIRING_DOCS_UPLOAD_URL || "").trim();
 
+/**
+ * หา candidateKey ที่ถูกต้องสำหรับ "พนักงานที่มีอยู่แล้วในระบบ" (employee_data) — ใช้ทุกจุดที่แนบ
+ * เอกสารให้พนักงาน (หน้าเอกสารพนักงาน, ผู้รับเหมา, รอบอบรม, ลิงก์ส่งพนักงานแนบเอง ฯลฯ)
+ *
+ * ถ้าพนักงานคนนี้เคยผ่านระบบ Recruitment มาก่อน (ตอนนำเข้าจะมี field hiringPacketId/
+ * recruitmentSourceId ติดมาด้วย — ดู RecruitmentIntakePage.tsx) ต้องใช้ key เดิมตัวนั้น
+ * เพื่อให้ไฟล์ไปลง "โฟลเดอร์เดียวกับที่สร้างไว้ตอน Recruitment" เสมอ ห้ามใช้รหัสพนักงานแทน
+ * ไม่งั้นจะไปสร้างโฟลเดอร์ใหม่ซ้ำซ้อนแยกจากโฟลเดอร์เดิมของคนนั้น
+ *
+ * ถ้าไม่มีทั้งคู่ (พนักงานกลุ่มที่ไม่ได้มาจาก Recruitment เลย) ค่อย fallback ไปใช้รหัสพนักงาน/doc id
+ * แทน (จะสร้างโฟลเดอร์ใหม่ของคนนี้ครั้งแรกที่อัปโหลด แล้วใช้ซ้ำทุกครั้งถัดไปเพราะ key เดิมคงที่)
+ */
+export const resolveEmployeeDocumentCandidateKey = (employee: {
+  hiringPacketId?: string;
+  recruitmentSourceId?: string;
+  รหัสพนักงาน?: string;
+  id?: string;
+}): string =>
+  (employee.hiringPacketId || "").trim() ||
+  (employee.recruitmentSourceId || "").trim() ||
+  (employee.รหัสพนักงาน || "").trim() ||
+  (employee.id || "").trim();
+
 export interface HiringDocUploadMeta {
   /** ต้องตรงกับที่ใช้ครั้งแรก (ชื่อเต็มผู้สมัคร/พนักงาน) */
   candidateName: string;

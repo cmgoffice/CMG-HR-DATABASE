@@ -25,7 +25,12 @@ import {
 } from "./recruitmentIntakeConfig";
 import { useDocumentTypeCatalog } from "./documentTypeCatalog";
 import { IdCardPhotoGuideButton, isIdCardDocType } from "./IdCardPhotoGuide";
-import { uploadHiringDocumentFile, appendAttachmentToEmployee, appendAttachmentToRecruitmentPending } from "../utils/hiringDocsAttachments";
+import {
+  uploadHiringDocumentFile,
+  appendAttachmentToEmployee,
+  appendAttachmentToRecruitmentPending,
+  resolveEmployeeDocumentCandidateKey,
+} from "../utils/hiringDocsAttachments";
 import {
   buildEmployeeFullName,
   isMigrantNationality,
@@ -68,6 +73,9 @@ interface EmployeeRow {
   โครงการปัจจุบัน?: string;
   สถานะโครงการ?: string | string[];
   attachments?: HiringAttachment[];
+  // มีค่าเฉพาะพนักงานที่เคยผ่านระบบ Recruitment มาก่อน — ใช้หา folder Drive เดิมของคนนี้
+  hiringPacketId?: string;
+  recruitmentSourceId?: string;
 }
 
 const INACTIVE_STATUSES = ["ลาออก", "เลิกจ้าง", "ไม่มาเริ่มงาน"];
@@ -329,7 +337,8 @@ const ContractorEmployeeRow = ({
       const res = await uploadHiringDocumentFile(file, {
         candidateName: buildEmployeeFullName(employee),
         position: employee.ตำแหน่ง || "",
-        candidateKey: empCode,
+        // ใช้ hiringPacketId เดิม (ถ้ามี) ให้ไฟล์ไปลงโฟลเดอร์เดียวกับที่สร้างไว้ตอน Recruitment
+        candidateKey: resolveEmployeeDocumentCandidateKey(employee),
         docType,
       });
       await appendAttachmentToEmployee(empCode, {
