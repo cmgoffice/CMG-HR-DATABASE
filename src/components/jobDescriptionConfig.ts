@@ -122,11 +122,29 @@ const RACI_ORDER: Record<string, number> = { R: 0, A: 1, C: 2, I: 3 };
 export const sortStakeholderEntries = (entries: StakeholderRaciEntry[]): StakeholderRaciEntry[] =>
   [...entries].sort((a, b) => (RACI_ORDER[a.raci] ?? 9) - (RACI_ORDER[b.raci] ?? 9));
 
-/** รูปแบบข้อความสำหรับ export Excel คอลัมน์ "บทบาท (RACI)" เช่น "R ผู้ช่วยสำรวจ · A วิศวกรสำรวจ · C วิศวกรหน้างาน · I หัวหน้าควบคุมงาน" */
-export const formatStakeholdersForExport = (entries: StakeholderRaciEntry[]): string =>
-  sortStakeholderEntries(entries)
-    .map((e) => `${e.raci} ${e.name}`)
-    .join(" · ");
+/**
+ * คอลัมน์ "ผู้เกี่ยวข้องร่วม" ของฟอร์ม JD ต้นแบบ: รวมคนเดียวกันให้ตัวอักษรอยู่ด้วยกัน
+ * เช่น "Survey engineer (R/A), Site Engineer (C), Foreman (I)"
+ */
+export const formatStakeholdersForExport = (entries: StakeholderRaciEntry[]): string => {
+  const grouped = new Map<string, string[]>();
+  for (const entry of entries) {
+    const name = (entry.name || "").trim();
+    if (!name) continue;
+    const letter = String(entry.raci || "").trim().toUpperCase();
+    const letters = grouped.get(name) || [];
+    if (letter && !letters.includes(letter)) letters.push(letter);
+    grouped.set(name, letters);
+  }
+  return Array.from(grouped.entries())
+    .map(([name, letters]) => {
+      const sorted = [...letters].sort(
+        (a, b) => (RACI_ORDER[a] ?? 9) - (RACI_ORDER[b] ?? 9)
+      );
+      return sorted.length ? `${name} (${sorted.join("/")})` : name;
+    })
+    .join(", ");
+};
 
 export const SKILL_CATEGORY_OPTIONS = [
   "Hard Skills\n(ทักษะวิชาชีพ)",

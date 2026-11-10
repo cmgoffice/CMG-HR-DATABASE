@@ -1,8 +1,7 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { collection, doc, getFirestore, onSnapshot, query, where } from "firebase/firestore";
-import html2canvas from "html2canvas";
-import { PDFDocument } from "pdf-lib";
 import { AlertTriangle, Bot, ClipboardList, Download, FileEdit, Link2, Loader2, ShieldAlert } from "lucide-react";
+import { downloadJobDescriptionPdf, downloadJobDescriptionXlsx } from "../utils/jobDescriptionExport";
 import {
   buildEmployeeJobDescriptionDocId,
   JOB_DESCRIPTIONS_COLLECTION,
@@ -17,6 +16,10 @@ import { EmployeeJobDescriptionForm } from "./EmployeeJobDescriptionForm";
 interface EmployeeLike {
   id: string;
   รหัสพนักงาน?: string;
+  ชื่อต้น?: string;
+  คำนำหน้าชื่อ?: string;
+  ชื่อตัว?: string;
+  ชื่อสกุล?: string;
   recruitmentSourceId?: string;
   hiringPacketId?: string;
 }
@@ -49,8 +52,7 @@ export const EmployeeJobDescriptionSection: React.FC<{ employee: EmployeeLike }>
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
-  const [exporting, setExporting] = useState(false);
-  const exportRef = useRef<HTMLDivElement>(null);
+  const [exporting, setExporting] = useState<"xlsx" | "pdf" | null>(null);
 
   useEffect(() => {
     setLoading(true);
@@ -106,65 +108,52 @@ export const EmployeeJobDescriptionSection: React.FC<{ employee: EmployeeLike }>
     return toMillis(activeDoc.syncedAt) > toMillis(activeDoc.dataTeamEditedAt);
   }, [activeDoc]);
 
-  // ดาวน์โหลด JD ที่แสดงอยู่เป็น PDF (แคปหน้าจอ section นี้ -> ฝัง PNG ลง PDF หน้าเดียว)
-  // ใช้แพทเทิร์นเดียวกับ handleExportPdf ใน OvertimePage.tsx (html2canvas + pdf-lib)
-  const handleDownloadPdf = async () => {
-    if (!exportRef.current || exporting) return;
-    setExporting(true);
+  const employeeDisplayName = [employee.ชื่อต้น || employee.คำนำหน้าชื่อ, employee.ชื่อตัว, employee.ชื่อสกุล]
+    .map((part) => (part || "").trim())
+    .filter(Boolean)
+    .join(" ");
+
+  const handleDownload = async (kind: "xlsx" | "pdf") => {
+    if (!activeDoc || exporting) return;
+    setExporting(kind);
     try {
-      const canvas = await html2canvas(exportRef.current, {
-        backgroundColor: "#ffffff",
-        scale: 2,
-        useCORS: true,
-        logging: false,
-      });
-      const base64 = canvas.toDataURL("image/png").split(",")[1];
-      const binary = atob(base64);
-      const bytes = new Uint8Array(binary.length);
-      for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-
-      const pdfDoc = await PDFDocument.create();
-      const pngImage = await pdfDoc.embedPng(bytes);
-      const maxPageWidthPt = 1600;
-      const scale = Math.min(1, maxPageWidthPt / pngImage.width);
-      const pageWidth = pngImage.width * scale;
-      const pageHeight = pngImage.height * scale;
-      const page = pdfDoc.addPage([pageWidth, pageHeight]);
-      page.drawImage(pngImage, { x: 0, y: 0, width: pageWidth, height: pageHeight });
-
-      const pdfBytes = await pdfDoc.save();
-      const blob = new Blob([pdfBytes], { type: "application/pdf" });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      const safeName = (activeDoc?.jobTitle || "JD").toString().replace(/[^\w\u0E00-\u0E7F]+/g, "_").slice(0, 40);
-      link.href = url;
-      link.download = `JD-${empCode}-${safeName}.pdf`;
-      link.click();
-      setTimeout(() => URL.revokeObjectURL(url), 4000);
+      const input = { job: activeDoc, employeeName: employeeDisplayName };
+      if (kind === "xlsx") await downloadJobDescriptionXlsx(input);
+      else await downloadJobDescriptionPdf(input);
     } catch (err) {
-      console.error("[EmployeeJobDescriptionSection] ส่งออก PDF ไม่สำเร็จ:", err);
-      window.alert("ดาวน์โหลด JD ไม่สำเร็จ กรุณาลองใหม่อีกครั้ง");
+      console.error("[EmployeeJobDescriptionSection] ส่งออก JD ไม่สำเร็จ:", err);
+      window.alert(kind === "xlsx" ? "ดาวน์โหลด Excel ไม่สำเร็จ กรุณาลองใหม่อีกครั้ง" : "ดาวน์โหลด PDF ไม่สำเร็จ กรุณาลองใหม่อีกครั้ง");
     } finally {
-      setExporting(false);
+      setExporting(null);
     }
   };
 
   return (
     <div className="border-t pt-4">
-      <div className="flex items-center justify-between mb-2">
+      <div className="flex items-start justify-between gap-2 mb-2 flex-wrap">
         <h4 className="text-xs font-semibold text-gray-500 flex items-center gap-1.5">
           <ClipboardList size={13} className="text-indigo-600" /> ใบพรรณนางาน (JD) / Job Matrix / Skill Matrix
         </h4>
         <div className="flex items-center gap-3">
           {activeDoc && (
-            <button
-              type="button"
-              onClick={handleDownloadPdf}
-              disabled={exporting}
-              className="flex items-center gap-1 text-xs font-semibold text-gray-600 hover:underline disabled:opacity-50"
-            >
-              {exporting ? <Loader2 className="animate-spin" size={13} /> : <Download size={13} />} ดาวน์โหลด JD
-            </button>
+            <>
+              <button
+                type="button"
+                onClick={() => handleDownload("xlsx")}
+                disabled={!!exporting}
+                className="flex items-center gap-1 text-xs font-semibold text-gray-600 hover:underline disabled:opacity-50"
+              >
+                {exporting === "xlsx" ? <Loader2 className="animate-spin" size={13} /> : <Download size={13} />} Excel
+              </button>
+              <button
+                type="button"
+                onClick={() => handleDownload("pdf")}
+                disabled={!!exporting}
+                className="flex items-center gap-1 text-xs font-semibold text-gray-600 hover:underline disabled:opacity-50"
+              >
+                {exporting === "pdf" ? <Loader2 className="animate-spin" size={13} /> : <Download size={13} />} PDF
+              </button>
+            </>
           )}
           <button
             type="button"
@@ -185,7 +174,7 @@ export const EmployeeJobDescriptionSection: React.FC<{ employee: EmployeeLike }>
       ) : !activeDoc ? (
         <p className="text-sm text-gray-400">ยังไม่มีข้อมูล JD สำหรับพนักงานคนนี้</p>
       ) : (
-        <div ref={exportRef} className="flex flex-col gap-3 bg-white p-3 rounded-lg">
+        <div className="flex flex-col gap-3 bg-white p-3 rounded-lg">
           {showConflictBanner && (
             <div className="flex items-start gap-2 text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg p-2.5">
               <ShieldAlert size={14} className="shrink-0 mt-0.5" />
