@@ -2072,8 +2072,37 @@ function MasterDatabaseApp() {
       if (editingItem) {
         console.log(`✏️ EDITING existing item:`, editingItem.id);
         const subcollectionName = config.subcollection || activeModule;
-        const docRef = doc(db, "CMG-HR-Database", "root", subcollectionName, editingItem.id);
-        
+        let resolvedDocId = editingItem.id;
+        let docRef = doc(db, "CMG-HR-Database", "root", subcollectionName, resolvedDocId);
+
+        // ถ้าไม่พบเอกสารตาม ID เดิม (เช่น ถูกเปลี่ยน ID เป็นรหัสพนักงานแล้ว) ให้ค้นหาด้วยรหัสพนักงานแทน
+        const empCodeForLookup = String(cleanData["รหัสพนักงาน"] ?? editingItem["รหัสพนักงาน"] ?? "").trim();
+        if (empCodeForLookup) {
+          const currentSnap = await getDoc(docRef);
+          if (!currentSnap.exists()) {
+            const codeDocId = empCodeForLookup.replace(/[\/\.\#\$\{\}]/g, "_");
+            let foundRef = doc(db, "CMG-HR-Database", "root", subcollectionName, codeDocId);
+            let foundSnap = await getDoc(foundRef);
+            if (!foundSnap.exists()) {
+              // สำรอง: ค้นหาจากฟิลด์ รหัสพนักงาน
+              const q = await getDocs(
+                query(collection(db, "CMG-HR-Database", "root", subcollectionName), where("รหัสพนักงาน", "==", empCodeForLookup))
+              );
+              if (q.docs.length === 1) {
+                foundRef = q.docs[0].ref;
+                foundSnap = q.docs[0] as unknown as typeof foundSnap;
+              }
+            }
+            if (foundSnap.exists()) {
+              docRef = foundRef;
+              resolvedDocId = foundRef.id;
+              console.log(`🔎 ไม่พบ ID เดิม "${editingItem.id}" — ใช้เอกสารรหัสพนักงาน "${resolvedDocId}" แทน`);
+            }
+          }
+        }
+        // ไม่เขียนฟิลด์ id ลงเอกสาร (จะไปทับ doc ID จริงตอนโหลดข้อมูล)
+        delete cleanData["id"];
+
         // Check if we have project status field to update
         const hasProjectStatus = projectStatusField in cleanData;
         
