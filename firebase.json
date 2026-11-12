@@ -21,6 +21,13 @@
     ],
     "rewrites": [
       {
+        "source": "/embed/manpower",
+        "function": {
+          "functionId": "manpowerEmbed",
+          "region": "asia-southeast1"
+        }
+      },
+      {
         "source": "/api/zkteco/attendance",
         "function": {
           "functionId": "zktecoAttendance",

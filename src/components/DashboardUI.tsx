@@ -47,7 +47,7 @@ export const SectionCard = ({
   tooltip,
   headerAction,
 }: {
-  title: string;
+  title: React.ReactNode;
   subtitle?: string;
   children: React.ReactNode;
   tooltip?: React.ReactNode;

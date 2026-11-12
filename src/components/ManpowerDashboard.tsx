@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { collection, getFirestore, onSnapshot } from "firebase/firestore";
+import { collection, doc, getFirestore, onSnapshot, runTransaction, setDoc } from "firebase/firestore";
 import html2canvas from "html2canvas";
 import {
   AlertCircle,
@@ -148,7 +148,7 @@ interface ProjectExceptionRow {
 }
 
 type TimePreset = "today" | "yesterday" | "month" | "custom";
-type DashboardMode = "hr" | "project" | "analytics" | "safety";
+type DashboardMode = "hr" | "project" | "analytics" | "safety" | "manpower";
 
 interface RiskRuleResult {
   key: RiskRuleKey;
@@ -1152,6 +1152,43 @@ export const ManpowerDashboard = ({
   const safetyCanSeeAllProjects = canSeeAllProjects || hasRole(["Safety"]);
   const defaultTodayRange = getTodayPresetRange();
   const [dashboardMode, setDashboardMode] = useState<DashboardMode>(showOnlyRiskMonitoring ? "hr" : (canSeeHrDashboard ? "hr" : "project"));
+  const [manpowerOrder, setManpowerOrder] = useState<Record<string, string[]>>(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem("manpower-position-order") || "{}");
+      return saved && typeof saved === "object" && !Array.isArray(saved) ? saved : {};
+    } catch {
+      return {};
+    }
+  });
+  const draggedManpowerRow = useRef<{ project: string; position: string } | null>(null);
+  const initialManpowerOrder = useRef(manpowerOrder);
+  const [copiedManpowerProject, setCopiedManpowerProject] = useState("");
+  useEffect(() => {
+    const orders = collection(db, "CMG-HR-Database", "root", "manpower_position_orders");
+    let migrated = false;
+    return onSnapshot(orders, (snapshot) => {
+      if (!migrated) {
+        migrated = true;
+        const savedProjects = new Set(snapshot.docs.map((item) => item.data().project));
+        Object.entries(initialManpowerOrder.current).forEach(([project, positions]) => {
+          if (!savedProjects.has(project) && Array.isArray(positions) && positions.every((position) => typeof position === "string")) {
+            const orderRef = doc(orders, encodeURIComponent(project));
+            void runTransaction(db, async (transaction) => {
+              if (!(await transaction.get(orderRef)).exists()) transaction.set(orderRef, { project, positions });
+            }).catch((error) => console.error("Cannot migrate manpower order:", error));
+          }
+        });
+      }
+      setManpowerOrder((previous) => {
+        const next = { ...previous };
+        snapshot.docs.forEach((item) => {
+          const data = item.data();
+          if (typeof data.project === "string" && Array.isArray(data.positions)) next[data.project] = data.positions.filter((position: unknown) => typeof position === "string");
+        });
+        return next;
+      });
+    }, (error) => console.error("Cannot load manpower position order:", error));
+  }, [db]);
   const [timePreset, setTimePreset] = useState<TimePreset>("today");
   const [startDate, setStartDate] = useState(defaultTodayRange.start);
   const [endDate, setEndDate] = useState(defaultTodayRange.end);
@@ -1307,7 +1344,7 @@ export const ManpowerDashboard = ({
           clonedDoc.head.appendChild(style);
         },
       });
-      const modeLabel = dashboardMode === "project" ? selectedProjectLabel : "HR";
+      const modeLabel = dashboardMode === "project" ? selectedProjectLabel : dashboardMode === "manpower" ? "Manpower" : "HR";
       const safeLabel = String(modeLabel).replace(/[^\w\u0E00-\u0E7F]+/g, "_").slice(0, 40);
       const dateTag = startDate === endDate ? startDate : `${startDate}_${endDate}`;
       const link = document.createElement("a");
@@ -2661,6 +2698,46 @@ export const ManpowerDashboard = ({
         .sort((a, b) => b.value - a.value || a.label.localeCompare(b.label, "th")),
     [employeeTypeCounts]
   );
+
+  const manpowerProjects = useMemo(() => {
+    const projects = new Map<string, Map<string, { total: number; present: number; absent: number }>>();
+    employees.forEach((emp) => {
+      const position = String(emp.ตำแหน่ง || "").trim() || "ไม่ระบุตำแหน่ง";
+      const assigned = Array.from(new Set(parseProjectList(emp.สถานะโครงการ)));
+      const attendance = attendanceByDate[endDate]?.[emp.id];
+      assigned.forEach((project) => {
+        if (!projects.has(project)) projects.set(project, new Map());
+        const positions = projects.get(project)!;
+        const row = positions.get(position) || { total: 0, present: 0, absent: 0 };
+        row.total++;
+        if (attendance?.status === "มา" && (!attendance.project || projectsMatch(attendance.project, project))) row.present++;
+        if (attendance?.status === "ไม่มา") row.absent++;
+        positions.set(position, row);
+      });
+    });
+    return Array.from(projects, ([project, positions]) => ({
+      project,
+      rows: Array.from(positions, ([position, counts]) => ({ position, ...counts }))
+        .sort((a, b) => {
+          const order = Array.isArray(manpowerOrder[project]) ? manpowerOrder[project] : [];
+          const aIndex = order.indexOf(a.position);
+          const bIndex = order.indexOf(b.position);
+          return (aIndex < 0 ? Infinity : aIndex) - (bIndex < 0 ? Infinity : bIndex) || a.position.localeCompare(b.position, "th");
+        }),
+    })).sort((a, b) => a.project.localeCompare(b.project, "th"));
+  }, [employees, attendanceByDate, endDate, manpowerOrder]);
+
+  const moveManpowerPosition = (project: string, positions: string[], from: number, to: number) => {
+    if (from < 0 || to < 0 || from >= positions.length || to >= positions.length || from === to) return;
+    const reordered = [...positions];
+    const [moved] = reordered.splice(from, 1);
+    reordered.splice(to, 0, moved);
+    const hidden = (Array.isArray(manpowerOrder[project]) ? manpowerOrder[project] : []).filter((position) => !positions.includes(position));
+    const nextPositions = [...reordered, ...hidden];
+    setManpowerOrder((previous) => ({ ...previous, [project]: nextPositions }));
+    void setDoc(doc(db, "CMG-HR-Database", "root", "manpower_position_orders", encodeURIComponent(project)), { project, positions: nextPositions })
+      .catch((error) => { console.error("Cannot save manpower position order:", error); window.alert("บันทึกลำดับไม่สำเร็จ กรุณาลองอีกครั้ง"); });
+  };
 
   // สรุปสัดส่วนกำลังคนตาม DC / Supply Thai / Supply Foreigner และ Thai / Foreigner ทั้งหมด (ภาพรวมทุกโครงการ)
   // ไม่นับ DC ที่มีสถานะกลุ่มงาน Staff (DC Daily - Staff) ในการ์ดสรุปทั้งสอง
@@ -4295,6 +4372,15 @@ export const ManpowerDashboard = ({
                     <AlertCircle size={14} /> HR–Safety
                   </button>
                 )}
+                {canSeeHrDashboard && (
+                  <button
+                    type="button"
+                    onClick={() => setDashboardMode("manpower")}
+                    className={`px-3 inline-flex items-center gap-1.5 text-xs font-bold border-l border-slate-200 ${dashboardMode === "manpower" ? "bg-indigo-600 text-white" : "text-slate-600 hover:bg-indigo-50"}`}
+                  >
+                    <Table2 size={14} /> Manpower
+                  </button>
+                )}
               </div>
             )}
             <div className="inline-flex h-8 shrink-0 border border-slate-200 rounded-lg overflow-hidden bg-white">
@@ -4371,6 +4457,101 @@ export const ManpowerDashboard = ({
 
       {!dateRange.length ? (
         <div className="p-8 text-center text-rose-600 font-medium">กรุณาเลือกช่วงวันที่ให้ถูกต้อง</div>
+      ) : dashboardMode === "manpower" && canSeeHrDashboard ? (
+        <div className="p-2 space-y-3 lg:p-4 lg:space-y-4">
+          <p className="text-xs text-slate-600">
+            จำนวนพนักงานสถานะทำงาน ณ ปัจจุบัน และสถานะลงเวลาวันที่ {formatThaiDate(endDate)} (วันสิ้นสุดของช่วงที่เลือก)
+            • ลา วันหยุด ค้างลงเวลา และลงเวลาโครงการอื่นไม่รวมในจำนวนมา/ไม่มา
+            • พนักงานที่สังกัดหลายโครงการอาจถูกนับในแต่ละโครงการ
+          </p>
+          <p className="text-xs text-slate-500">ลากตำแหน่งเพื่อจัดลำดับ • กดชื่อโครงการเพื่อคัดลอกโค้ด HTML สำหรับฝังตารางในเว็บไซต์อื่น</p>
+          {manpowerProjects.length === 0 && (
+            <div className="rounded-lg border border-slate-200 bg-white p-6 text-center text-slate-500">
+              ไม่พบพนักงานที่ระบุโครงการ
+            </div>
+          )}
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2 items-start">
+          {manpowerProjects.map(({ project, rows }) => {
+            const totals = rows.reduce(
+              (sum, row) => ({ total: sum.total + row.total, present: sum.present + row.present, absent: sum.absent + row.absent }),
+              { total: 0, present: 0, absent: 0 }
+            );
+            return (
+              <SectionCard key={project} subtitle={copiedManpowerProject === project ? "คัดลอกโค้ด HTML แล้ว" : "กดชื่อโครงการเพื่อคัดลอกโค้ด HTML"} title={<button type="button" onClick={async (event) => {
+                const section = event.currentTarget.closest("section");
+                const colorHex = (element: Element | null, property: "color" | "backgroundColor", fallback: string) => {
+                  if (!element) return fallback;
+                  const color = window.getComputedStyle(element)[property];
+                  const match = color.match(/^rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)(?:\s*,\s*([\d.]+))?\s*\)$/);
+                  if (!match || (match[4] !== undefined && Number(match[4]) === 0)) return fallback;
+                  return match.slice(1, 4).map((channel) => Number(channel).toString(16).padStart(2, "0")).join("");
+                };
+                const url = new URL("/embed/manpower", window.location.origin);
+                url.searchParams.set("project", project);
+                url.searchParams.set("headerColor", colorHex(section?.querySelector("thead tr") || null, "color", "64748b"));
+                url.searchParams.set("headerBg", colorHex(section?.querySelector("thead tr") || null, "backgroundColor", "ffffff"));
+                url.searchParams.set("presentColor", colorHex(section?.querySelector("tbody tr td:nth-child(3)") || null, "color", "047857"));
+                url.searchParams.set("absentColor", colorHex(section?.querySelector("tbody tr td:nth-child(4)") || null, "color", "be123c"));
+                const escapeAttribute = (value: string) => value.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+                const height = Math.max(1200, 200 + rows.length * 40);
+                const html = `<iframe\n  src="${escapeAttribute(url.toString())}"\n  width="100%"\n  height="${height}"\n  style="border:0;"\n  title="${escapeAttribute(`Manpower ${project}`)}">\n</iframe>`;
+                try { await navigator.clipboard.writeText(html); setCopiedManpowerProject(project); }
+                catch { window.prompt("คัดลอกโค้ด HTML สำหรับฝังตาราง", html); }
+              }} className="text-left text-indigo-700 hover:underline" title="คัดลอกโค้ด HTML สำหรับฝังตาราง">{project}</button>}>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-[11px]">
+                    <thead>
+                      <tr className="border-b border-slate-200 text-left text-slate-500">
+                        <th scope="col" className="py-1 pr-1 font-bold">ตำแหน่ง</th>
+                        <th scope="col" className="py-1 px-1 text-right font-bold">รวม</th>
+                        <th scope="col" className="py-1 px-1 text-right font-bold">มา</th>
+                        <th scope="col" className="py-1 pl-1 text-right font-bold">ไม่มา</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {rows.map((row, index) => (
+                        <tr key={row.position} draggable tabIndex={0}
+                          aria-label={`${row.position} ใช้ปุ่มลูกศรขึ้นหรือลงเพื่อจัดลำดับ`}
+                          onKeyDown={(event) => {
+                            if (event.key === "ArrowUp" || event.key === "ArrowDown") {
+                              event.preventDefault();
+                              moveManpowerPosition(project, rows.map((item) => item.position), index, index + (event.key === "ArrowUp" ? -1 : 1));
+                            }
+                          }}
+                          onDragStart={(event) => { draggedManpowerRow.current = { project, position: row.position }; event.dataTransfer.effectAllowed = "move"; }}
+                          onDragOver={(event) => { if (draggedManpowerRow.current?.project === project) event.preventDefault(); }}
+                          onDrop={(event) => {
+                            event.preventDefault();
+                            const dragged = draggedManpowerRow.current;
+                            if (dragged?.project === project) moveManpowerPosition(project, rows.map((item) => item.position), rows.findIndex((item) => item.position === dragged.position), index);
+                            draggedManpowerRow.current = null;
+                          }}
+                          onDragEnd={() => { draggedManpowerRow.current = null; }}
+                          className="border-b border-slate-100 cursor-move">
+                          <th scope="row" className="py-1 pr-1 text-left font-medium text-slate-700">
+                            <span className="text-slate-400 mr-1" aria-hidden="true">⠿</span>{row.position}
+                          </th>
+                          <td className="py-1 px-1 text-right text-slate-900">{row.total}</td>
+                          <td className="py-1 px-1 text-right text-emerald-700">{row.present}</td>
+                          <td className="py-1 pl-1 text-right text-rose-700">{row.absent}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                    <tfoot>
+                      <tr className="font-bold text-slate-900">
+                        <th scope="row" className="py-2 pr-3 text-left">รวมทั้งหมด</th>
+                        <td className="py-2 px-3 text-right">{totals.total}</td>
+                        <td className="py-2 px-3 text-right">{totals.present}</td>
+                        <td className="py-2 pl-3 text-right">{totals.absent}</td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+              </SectionCard>
+            );
+          })}
+          </div>
+        </div>
       ) : dashboardMode === "analytics" && canSeeHrDashboard ? (
         <HRAnalyticsTab activeEmployees={employees} canSeeAllProjects={canSeeAllProjects} assignedProjects={userProfile?.assignedProjects || []} />
       ) : dashboardMode === "safety" && canSeeSafetyDashboard ? (

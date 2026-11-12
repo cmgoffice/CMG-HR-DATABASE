@@ -16,6 +16,58 @@ const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const EMP_CODE_RE = /^\S{1,64}$/;
 const OVERNIGHT_EXIT_CUTOFF = "04:00";
 
+// Public, embeddable aggregate. No employee-level information is returned.
+exports.manpowerEmbed = onRequest({ region: ZK_REGION, invoker: "public" }, async (req, res) => {
+  res.set("Content-Security-Policy", "frame-ancestors *");
+  if (req.method !== "GET") return res.status(405).send("Method not allowed");
+  const project = typeof req.query.project === "string" ? req.query.project.trim() : "";
+  if (!project || project.length > 500 || encodeURIComponent(project).length > 1400) return res.status(400).send("Invalid project");
+  const escapeHtml = (value) => String(value).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+  const safeColor = (value, fallback) => typeof value === "string" && /^[0-9a-f]{6}$/i.test(value) ? `#${value}` : fallback;
+  const headerColor = safeColor(req.query.headerColor, "#64748b");
+  const headerBg = safeColor(req.query.headerBg, "#ffffff");
+  const presentColor = safeColor(req.query.presentColor, "#047857");
+  const absentColor = safeColor(req.query.absentColor, "#be123c");
+  const projectKey = (value) => String(value || "").trim().split(" - ")[0].trim().toLowerCase();
+  try {
+    const today = new Intl.DateTimeFormat("sv-SE", { timeZone: BANGKOK_TIME_ZONE, year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
+    const [employeeSnapshot, attendanceSnapshot, orderSnapshot] = await Promise.all([
+      ROOT_DOC.collection("employee_data").where("สถานะพนักงาน", "==", "ทำงาน").get(),
+      ROOT_DOC.collection("attendance").doc(today).get(),
+      ROOT_DOC.collection("manpower_position_orders").doc(encodeURIComponent(project)).get(),
+    ]);
+    const records = attendanceSnapshot.data()?.records || {};
+    const order = Array.isArray(orderSnapshot.data()?.positions) ? orderSnapshot.data().positions : [];
+    const rows = new Map();
+    employeeSnapshot.forEach((item) => {
+      const emp = item.data();
+      const assigned = Array.isArray(emp.สถานะโครงการ) ? emp.สถานะโครงการ : [emp.สถานะโครงการ];
+      if (!assigned.includes(project)) return;
+      const position = String(emp.ตำแหน่ง || "").trim() || "ไม่ระบุตำแหน่ง";
+      const row = rows.get(position) || { position, total: 0, present: 0, absent: 0 };
+      const entry = records[item.id];
+      const status = typeof entry === "string" ? entry : entry?.status;
+      const actualProject = typeof entry === "object" && entry ? entry.project : "";
+      row.total++;
+      if (status === "มา" && (!actualProject || projectKey(actualProject) === projectKey(project))) row.present++;
+      if (status === "ไม่มา") row.absent++;
+      rows.set(position, row);
+    });
+    const sorted = [...rows.values()].sort((a, b) => {
+      const ai = order.indexOf(a.position), bi = order.indexOf(b.position);
+      return (ai < 0 ? Infinity : ai) - (bi < 0 ? Infinity : bi) || a.position.localeCompare(b.position, "th");
+    });
+    if (!sorted.length) return res.status(404).send("ไม่พบข้อมูลโครงการ");
+    const totals = sorted.reduce((sum, row) => ({ total: sum.total + row.total, present: sum.present + row.present, absent: sum.absent + row.absent }), { total: 0, present: 0, absent: 0 });
+    const body = sorted.map((row) => `<tr><th scope="row">${escapeHtml(row.position)}</th><td>${row.total}</td><td>${row.present}</td><td>${row.absent}</td></tr>`).join("");
+    res.set("Cache-Control", "no-store");
+    return res.type("html").send(`<!doctype html><html lang="th"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="refresh" content="300"><title>Manpower ${escapeHtml(project)}</title><style>body{font:11px system-ui,sans-serif;margin:0;padding:10px;color:#334155;background:#fff}h1{font-size:13px;color:#134e52;margin:0 0 4px;font-weight:800}p{font-size:10px;color:#64748b;margin:0 0 10px}table{border-collapse:collapse;width:100%}th,td{padding:5px 4px;border-bottom:1px solid #f1f5f9;text-align:right}th:first-child{text-align:left}thead{color:${headerColor};background:${headerBg}}tbody td:nth-child(3){color:${presentColor}}tbody td:nth-child(4){color:${absentColor}}tfoot{font-weight:bold;color:#0f172a}</style></head><body><h1>${escapeHtml(project)}</h1><p>กำลังคนปัจจุบัน • ลงเวลาวันที่ ${escapeHtml(today)} • ลา/หยุด/ค้างลงเวลาไม่รวมในมาและไม่มา</p><table><thead><tr><th>ตำแหน่ง</th><th>รวม</th><th>มา</th><th>ไม่มา</th></tr></thead><tbody>${body}</tbody><tfoot><tr><th>รวมทั้งหมด</th><td>${totals.total}</td><td>${totals.present}</td><td>${totals.absent}</td></tr></tfoot></table></body></html>`);
+  } catch (error) {
+    console.error("manpowerEmbed failed", error);
+    return res.status(500).send("ไม่สามารถโหลดข้อมูลได้");
+  }
+});
+
 let cachedToken = "";
 let cachedTokenExpiresAt = 0;
 
