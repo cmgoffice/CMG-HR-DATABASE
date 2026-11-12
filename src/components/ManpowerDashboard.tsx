@@ -658,14 +658,45 @@ type NationalityBreakdown = ReturnType<typeof computeNationalityBreakdown>;
 const computeEmployeeTypeBreakdown = (employeeList: Employee[]) =>
   computeNationalityBreakdown(employeeList.filter((emp) => normalizeEmployeeType(emp) !== "DC Daily - Staff"));
 
-const buildEmployeeTypeDonutData = (breakdown: NationalityBreakdown) => [
+const countStaffTypeHeadcount = (employeeList: Employee[]) => {
+  let staffMonthly = 0;
+  let dcDailyStaff = 0;
+  employeeList.forEach((emp) => {
+    const typeLabel = normalizeEmployeeType(emp);
+    if (typeLabel === "Staff Monthly") staffMonthly += 1;
+    else if (typeLabel === "DC Daily - Staff") dcDailyStaff += 1;
+  });
+  return { staffMonthly, dcDailyStaff };
+};
+
+type EmployeeTypeProportion = NationalityBreakdown & {
+  staffMonthly: number;
+  dcDailyStaff: number;
+  proportionTotal: number;
+};
+
+// การ์ดสัดส่วนตามประเภทรวม Staff Monthly และ DC Daily - Staff
+// DC (รวม) ยังเป็น DC Daily - Worker เหมือนเดิม ส่วนการ์ด Thai/Foreigner ยังไม่นับ DC Daily - Staff
+const computeEmployeeTypeProportion = (employeeList: Employee[]): EmployeeTypeProportion => {
+  const base = computeEmployeeTypeBreakdown(employeeList);
+  const staff = countStaffTypeHeadcount(employeeList);
+  return {
+    ...base,
+    ...staff,
+    proportionTotal: base.grandTotal + staff.dcDailyStaff,
+  };
+};
+
+const buildEmployeeTypeDonutData = (breakdown: EmployeeTypeProportion) => [
   { name: "DC (รวม)", value: breakdown.dcTotal, color: "#2563eb" },
   { name: "Supply Thai", value: breakdown.supplyThai, color: "#22c55e" },
   { name: "Supply Foreigner", value: breakdown.supplyForeigner, color: "#f97316" },
+  { name: "Staff Monthly", value: breakdown.staffMonthly, color: "#7c3aed" },
+  { name: "DC Daily - Staff", value: breakdown.dcDailyStaff, color: "#0891b2" },
   ...(breakdown.supplyUnknown > 0
     ? [{ name: "Supply ไม่ระบุสัญชาติ", value: breakdown.supplyUnknown, color: "#94a3b8" }]
     : []),
-];
+].filter((slice) => slice.value > 0);
 
 const buildNationalityDonutData = (breakdown: NationalityBreakdown) => [
   { name: "Thai", value: breakdown.thaiTotal, color: "#1d4ed8" },
@@ -2634,8 +2665,9 @@ export const ManpowerDashboard = ({
   // สรุปสัดส่วนกำลังคนตาม DC / Supply Thai / Supply Foreigner และ Thai / Foreigner ทั้งหมด (ภาพรวมทุกโครงการ)
   // ไม่นับ DC ที่มีสถานะกลุ่มงาน Staff (DC Daily - Staff) ในการ์ดสรุปทั้งสอง
   const nationalityBreakdown = useMemo(() => computeEmployeeTypeBreakdown(employees), [employees]);
+  const employeeTypeProportion = useMemo(() => computeEmployeeTypeProportion(employees), [employees]);
 
-  const employeeTypeDonutData = useMemo(() => buildEmployeeTypeDonutData(nationalityBreakdown), [nationalityBreakdown]);
+  const employeeTypeDonutData = useMemo(() => buildEmployeeTypeDonutData(employeeTypeProportion), [employeeTypeProportion]);
 
   const nationalityDonutData = useMemo(() => buildNationalityDonutData(nationalityBreakdown), [nationalityBreakdown]);
 
@@ -2644,10 +2676,14 @@ export const ManpowerDashboard = ({
     () => computeEmployeeTypeBreakdown(projectData.scopedEmployees),
     [projectData.scopedEmployees]
   );
+  const projectEmployeeTypeProportion = useMemo(
+    () => computeEmployeeTypeProportion(projectData.scopedEmployees),
+    [projectData.scopedEmployees]
+  );
 
   const projectEmployeeTypeDonutData = useMemo(
-    () => buildEmployeeTypeDonutData(projectNationalityBreakdown),
-    [projectNationalityBreakdown]
+    () => buildEmployeeTypeDonutData(projectEmployeeTypeProportion),
+    [projectEmployeeTypeProportion]
   );
 
   const projectNationalityDonutData = useMemo(
@@ -4455,31 +4491,31 @@ export const ManpowerDashboard = ({
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-2 lg:gap-4">
                 <SectionCard
                   title="สัดส่วนกำลังคนทั้งหมด (แบ่งตามประเภท)"
-                  subtitle={`รวมทั้งสิ้น ${nationalityBreakdown.grandTotal} คน`}
-                  tooltip="DC (รวม) = พนักงานกลุ่ม DC Daily ทั้งหมด ไม่รวม DC ที่มีสถานะกลุ่มงาน Staff, Supply Thai/Foreigner = พนักงานกลุ่ม Supply manpower แยกตามสัญชาติ (ต้องกรอกฟิลด์ 'สัญชาติ' ในข้อมูลพนักงาน)"
+                  subtitle={`รวมทั้งสิ้น ${employeeTypeProportion.proportionTotal} คน`}
+                  tooltip="DC (รวม) = DC Daily - Worker, แยกจาก DC Daily - Staff และ Staff Monthly, Supply Thai/Foreigner = พนักงานกลุ่ม Supply manpower แยกตามสัญชาติ"
                 >
                   <div className="flex flex-col sm:flex-row items-center gap-3">
                     <div className="w-full sm:w-1/2">
                       <DonutChart
                         data={employeeTypeDonutData}
-                        centerValue={nationalityBreakdown.grandTotal}
+                        centerValue={employeeTypeProportion.proportionTotal}
                         centerSub="คนทั้งหมด"
                       />
                     </div>
                     <div className="w-full sm:w-1/2 rounded-lg border border-sky-200 bg-sky-50 p-3">
                       <div className="text-xs font-black text-sky-800">
-                        DC รวม {nationalityBreakdown.dcTotal} คน ({formatPercent(nationalityBreakdown.dcTotal, nationalityBreakdown.grandTotal)})
+                        DC รวม {employeeTypeProportion.dcTotal} คน ({formatPercent(employeeTypeProportion.dcTotal, employeeTypeProportion.proportionTotal)})
                       </div>
                       <div className="mt-2 flex items-center justify-between text-xs">
                         <span className="text-slate-600">Foreigner</span>
                         <span className="font-bold text-teal-700">
-                          {nationalityBreakdown.dcForeigner} คน ({formatPercent(nationalityBreakdown.dcForeigner, nationalityBreakdown.grandTotal)})
+                          {employeeTypeProportion.dcForeigner} คน ({formatPercent(employeeTypeProportion.dcForeigner, employeeTypeProportion.proportionTotal)})
                         </span>
                       </div>
                       <div className="mt-1 flex items-center justify-between text-xs">
                         <span className="text-slate-600">Thai</span>
                         <span className="font-bold text-blue-700">
-                          {nationalityBreakdown.dcThai} คน ({formatPercent(nationalityBreakdown.dcThai, nationalityBreakdown.grandTotal)})
+                          {employeeTypeProportion.dcThai} คน ({formatPercent(employeeTypeProportion.dcThai, employeeTypeProportion.proportionTotal)})
                         </span>
                       </div>
                     </div>
@@ -4495,22 +4531,32 @@ export const ManpowerDashboard = ({
                     <tbody>
                       <tr className="border-b border-slate-100">
                         <td className="py-1 text-slate-700">DC (รวม)</td>
-                        <td className="py-1 text-right font-semibold">{nationalityBreakdown.dcTotal}</td>
-                        <td className="py-1 text-right font-semibold text-blue-700">{formatPercent(nationalityBreakdown.dcTotal, nationalityBreakdown.grandTotal)}</td>
+                        <td className="py-1 text-right font-semibold">{employeeTypeProportion.dcTotal}</td>
+                        <td className="py-1 text-right font-semibold text-blue-700">{formatPercent(employeeTypeProportion.dcTotal, employeeTypeProportion.proportionTotal)}</td>
                       </tr>
                       <tr className="border-b border-slate-100">
                         <td className="py-1 text-slate-700">Supply Thai</td>
-                        <td className="py-1 text-right font-semibold">{nationalityBreakdown.supplyThai}</td>
-                        <td className="py-1 text-right font-semibold text-emerald-700">{formatPercent(nationalityBreakdown.supplyThai, nationalityBreakdown.grandTotal)}</td>
+                        <td className="py-1 text-right font-semibold">{employeeTypeProportion.supplyThai}</td>
+                        <td className="py-1 text-right font-semibold text-emerald-700">{formatPercent(employeeTypeProportion.supplyThai, employeeTypeProportion.proportionTotal)}</td>
                       </tr>
                       <tr className="border-b border-slate-100">
                         <td className="py-1 text-slate-700">Supply Foreigner</td>
-                        <td className="py-1 text-right font-semibold">{nationalityBreakdown.supplyForeigner}</td>
-                        <td className="py-1 text-right font-semibold text-orange-700">{formatPercent(nationalityBreakdown.supplyForeigner, nationalityBreakdown.grandTotal)}</td>
+                        <td className="py-1 text-right font-semibold">{employeeTypeProportion.supplyForeigner}</td>
+                        <td className="py-1 text-right font-semibold text-orange-700">{formatPercent(employeeTypeProportion.supplyForeigner, employeeTypeProportion.proportionTotal)}</td>
+                      </tr>
+                      <tr className="border-b border-slate-100">
+                        <td className="py-1 text-slate-700">Staff Monthly</td>
+                        <td className="py-1 text-right font-semibold">{employeeTypeProportion.staffMonthly}</td>
+                        <td className="py-1 text-right font-semibold text-violet-700">{formatPercent(employeeTypeProportion.staffMonthly, employeeTypeProportion.proportionTotal)}</td>
+                      </tr>
+                      <tr className="border-b border-slate-100">
+                        <td className="py-1 text-slate-700">DC Daily - Staff</td>
+                        <td className="py-1 text-right font-semibold">{employeeTypeProportion.dcDailyStaff}</td>
+                        <td className="py-1 text-right font-semibold text-cyan-700">{formatPercent(employeeTypeProportion.dcDailyStaff, employeeTypeProportion.proportionTotal)}</td>
                       </tr>
                       <tr className="border-t border-slate-200 font-bold">
                         <td className="py-1 text-slate-800">รวมทั้งสิ้น</td>
-                        <td className="py-1 text-right">{nationalityBreakdown.grandTotal}</td>
+                        <td className="py-1 text-right">{employeeTypeProportion.proportionTotal}</td>
                         <td className="py-1 text-right">100.00%</td>
                       </tr>
                     </tbody>
@@ -5513,10 +5559,10 @@ export const ManpowerDashboard = ({
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-2 lg:gap-4">
             <SectionCard
               title="สัดส่วนกำลังคน (แบ่งตามประเภท)"
-              subtitle={`โครงการ ${selectedProjectLabel || "-"} · รวม ${projectNationalityBreakdown.grandTotal} คน`}
-              tooltip="DC (รวม) = พนักงานกลุ่ม DC Daily ในโครงการนี้ ไม่รวม DC ที่มีสถานะกลุ่มงาน Staff, Supply Thai/Foreigner = พนักงานกลุ่ม Supply manpower แยกตามสัญชาติ (ต้องกรอกฟิลด์ 'สัญชาติ' ในข้อมูลพนักงาน)"
+              subtitle={`โครงการ ${selectedProjectLabel || "-"} · รวม ${projectEmployeeTypeProportion.proportionTotal} คน`}
+              tooltip="DC (รวม) = DC Daily - Worker ในโครงการนี้ แยกจาก DC Daily - Staff และ Staff Monthly, Supply Thai/Foreigner = พนักงานกลุ่ม Supply manpower แยกตามสัญชาติ"
             >
-              {projectNationalityBreakdown.grandTotal === 0 ? (
+              {projectEmployeeTypeProportion.proportionTotal === 0 ? (
                 <div className="text-sm text-slate-500">ยังไม่มีพนักงานในโครงการนี้</div>
               ) : (
                 <>
@@ -5524,24 +5570,24 @@ export const ManpowerDashboard = ({
                     <div className="w-full sm:w-1/2">
                       <DonutChart
                         data={projectEmployeeTypeDonutData}
-                        centerValue={projectNationalityBreakdown.grandTotal}
+                        centerValue={projectEmployeeTypeProportion.proportionTotal}
                         centerSub="คนทั้งหมด"
                       />
                     </div>
                     <div className="w-full sm:w-1/2 rounded-lg border border-sky-200 bg-sky-50 p-3">
                       <div className="text-xs font-black text-sky-800">
-                        DC รวม {projectNationalityBreakdown.dcTotal} คน ({formatPercent(projectNationalityBreakdown.dcTotal, projectNationalityBreakdown.grandTotal)})
+                        DC รวม {projectEmployeeTypeProportion.dcTotal} คน ({formatPercent(projectEmployeeTypeProportion.dcTotal, projectEmployeeTypeProportion.proportionTotal)})
                       </div>
                       <div className="mt-2 flex items-center justify-between text-xs">
                         <span className="text-slate-600">Foreigner</span>
                         <span className="font-bold text-teal-700">
-                          {projectNationalityBreakdown.dcForeigner} คน ({formatPercent(projectNationalityBreakdown.dcForeigner, projectNationalityBreakdown.grandTotal)})
+                          {projectEmployeeTypeProportion.dcForeigner} คน ({formatPercent(projectEmployeeTypeProportion.dcForeigner, projectEmployeeTypeProportion.proportionTotal)})
                         </span>
                       </div>
                       <div className="mt-1 flex items-center justify-between text-xs">
                         <span className="text-slate-600">Thai</span>
                         <span className="font-bold text-blue-700">
-                          {projectNationalityBreakdown.dcThai} คน ({formatPercent(projectNationalityBreakdown.dcThai, projectNationalityBreakdown.grandTotal)})
+                          {projectEmployeeTypeProportion.dcThai} คน ({formatPercent(projectEmployeeTypeProportion.dcThai, projectEmployeeTypeProportion.proportionTotal)})
                         </span>
                       </div>
                     </div>
@@ -5557,22 +5603,32 @@ export const ManpowerDashboard = ({
                     <tbody>
                       <tr className="border-b border-slate-100">
                         <td className="py-1 text-slate-700">DC (รวม)</td>
-                        <td className="py-1 text-right font-semibold">{projectNationalityBreakdown.dcTotal}</td>
-                        <td className="py-1 text-right font-semibold text-blue-700">{formatPercent(projectNationalityBreakdown.dcTotal, projectNationalityBreakdown.grandTotal)}</td>
+                        <td className="py-1 text-right font-semibold">{projectEmployeeTypeProportion.dcTotal}</td>
+                        <td className="py-1 text-right font-semibold text-blue-700">{formatPercent(projectEmployeeTypeProportion.dcTotal, projectEmployeeTypeProportion.proportionTotal)}</td>
                       </tr>
                       <tr className="border-b border-slate-100">
                         <td className="py-1 text-slate-700">Supply Thai</td>
-                        <td className="py-1 text-right font-semibold">{projectNationalityBreakdown.supplyThai}</td>
-                        <td className="py-1 text-right font-semibold text-emerald-700">{formatPercent(projectNationalityBreakdown.supplyThai, projectNationalityBreakdown.grandTotal)}</td>
+                        <td className="py-1 text-right font-semibold">{projectEmployeeTypeProportion.supplyThai}</td>
+                        <td className="py-1 text-right font-semibold text-emerald-700">{formatPercent(projectEmployeeTypeProportion.supplyThai, projectEmployeeTypeProportion.proportionTotal)}</td>
                       </tr>
                       <tr className="border-b border-slate-100">
                         <td className="py-1 text-slate-700">Supply Foreigner</td>
-                        <td className="py-1 text-right font-semibold">{projectNationalityBreakdown.supplyForeigner}</td>
-                        <td className="py-1 text-right font-semibold text-orange-700">{formatPercent(projectNationalityBreakdown.supplyForeigner, projectNationalityBreakdown.grandTotal)}</td>
+                        <td className="py-1 text-right font-semibold">{projectEmployeeTypeProportion.supplyForeigner}</td>
+                        <td className="py-1 text-right font-semibold text-orange-700">{formatPercent(projectEmployeeTypeProportion.supplyForeigner, projectEmployeeTypeProportion.proportionTotal)}</td>
+                      </tr>
+                      <tr className="border-b border-slate-100">
+                        <td className="py-1 text-slate-700">Staff Monthly</td>
+                        <td className="py-1 text-right font-semibold">{projectEmployeeTypeProportion.staffMonthly}</td>
+                        <td className="py-1 text-right font-semibold text-violet-700">{formatPercent(projectEmployeeTypeProportion.staffMonthly, projectEmployeeTypeProportion.proportionTotal)}</td>
+                      </tr>
+                      <tr className="border-b border-slate-100">
+                        <td className="py-1 text-slate-700">DC Daily - Staff</td>
+                        <td className="py-1 text-right font-semibold">{projectEmployeeTypeProportion.dcDailyStaff}</td>
+                        <td className="py-1 text-right font-semibold text-cyan-700">{formatPercent(projectEmployeeTypeProportion.dcDailyStaff, projectEmployeeTypeProportion.proportionTotal)}</td>
                       </tr>
                       <tr className="border-t border-slate-200 font-bold">
                         <td className="py-1 text-slate-800">รวมทั้งสิ้น</td>
-                        <td className="py-1 text-right">{projectNationalityBreakdown.grandTotal}</td>
+                        <td className="py-1 text-right">{projectEmployeeTypeProportion.proportionTotal}</td>
                         <td className="py-1 text-right">100.00%</td>
                       </tr>
                     </tbody>
