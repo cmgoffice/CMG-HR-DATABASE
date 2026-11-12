@@ -21,6 +21,8 @@ import {
   uploadHiringDocumentFile,
 } from "../utils/hiringDocsAttachments";
 import { IdCardPhotoGuideButton, isIdCardDocType } from "./IdCardPhotoGuide";
+import { InterviewEvaluationSummary, InterviewResultBadge } from "./InterviewEvaluationSummary";
+import { canonicalPositionName, departmentForPosition, POSITION_DEPARTMENT } from "../config/positionDepartment";
 import {
   buildFullName,
   canManageRecruitmentIntake,
@@ -28,8 +30,10 @@ import {
   getIntakeStatus,
   getSourceGroup,
   HiringAttachment,
+  InterviewEvaluation,
   IntakeStatusFilter,
   INTAKE_STATUS_META,
+  isInterviewEvaluation,
   normalizeDateForInput,
   pickClosestOption,
   RecruitmentPendingEmployee,
@@ -150,6 +154,7 @@ export const RecruitmentIntakePage = ({
   // ดึงครั้งเดียวตอนเข้าหน้านี้ (ไม่ realtime เพราะใช้แค่ประกอบตัวเลือก ไม่ต้องอัปเดตวินาทีต่อวินาที)
   const [employeePositionOptions, setEmployeePositionOptions] = useState<string[]>([]);
   const [employeeDepartmentOptions, setEmployeeDepartmentOptions] = useState<string[]>([]);
+  const [positionDepartmentByName, setPositionDepartmentByName] = useState<Record<string, string>>({});
   // ชื่อชุด/ทีมแรงงานย่อยที่มีอยู่จริงแล้วใน employee_data (ไม่มี master list เช่นกัน เพราะเป็นชื่อที่ HR
   // ตั้งเองตอนจัดกลุ่ม Worker/Supply Contract/Subcontract) — ใช้ประกอบตัวเลือกตอนนำเข้าเหมือนตำแหน่ง/แผนก
   const [employeeTeamOptions, setEmployeeTeamOptions] = useState<string[]>([]);
@@ -157,7 +162,18 @@ export const RecruitmentIntakePage = ({
     (async () => {
       try {
         const db = getFirestore();
-        const snap = await getDocs(collection(db, "CMG-HR-Database", "root", "employee_data"));
+        const [snap, positionSnap] = await Promise.all([
+          getDocs(collection(db, "CMG-HR-Database", "root", "employee_data")),
+          getDocs(collection(db, "CMG-HR-Database", "root", "position_labor")),
+        ]);
+        const departmentsByPosition: Record<string, string> = {};
+        positionSnap.docs.forEach((d) => {
+          const data = d.data() as { position?: string; department?: string };
+          const name = String(data.position || d.id || "").trim();
+          const department = String(data.department || "").trim();
+          if (name && department) departmentsByPosition[name] = department;
+        });
+        setPositionDepartmentByName(departmentsByPosition);
         const positions = new Set<string>();
         const departments = new Set<string>();
         const teams = new Set<string>();
@@ -257,9 +273,15 @@ export const RecruitmentIntakePage = ({
   // ตัวเลือก "แผนก" ที่ใช้ในฟอร์มเพิ่มเข้าระบบ: ยังไม่มี master list แยกในระบบ จึงรวมจากแผนกที่มีอยู่จริง
   // ในพนักงาน (employee_data) + แผนกที่เคยเห็นในคิวรอเพิ่มนี้เอง
   const departmentOptionsForForm = useMemo(() => {
-    const merged = new Set<string>([...employeeDepartmentOptions, ...departmentOptionsInData]);
+    const merged = new Set<string>([
+      ...employeeDepartmentOptions,
+      ...departmentOptionsInData,
+      ...Object.values(POSITION_DEPARTMENT),
+      ...Object.values(positionDepartmentByName),
+    ]);
+    merged.delete("HR");
     return Array.from(merged).sort((a, b) => a.localeCompare(b, "th"));
-  }, [employeeDepartmentOptions, departmentOptionsInData]);
+  }, [employeeDepartmentOptions, departmentOptionsInData, positionDepartmentByName]);
   // ตัวเลือก "ชื่อชุด" (ทีมแรงงานย่อย): รวมจากพนักงานที่มีอยู่จริง (employee_data) + ชื่อชุดที่เคยเห็น
   // ในคิวรอเพิ่มนี้เอง กันตกหล่น (เป็นชื่อที่ HR ตั้งเอง ไม่มี master list ตายตัว)
   const teamOptionsForForm = useMemo(() => {
@@ -362,11 +384,20 @@ export const RecruitmentIntakePage = ({
     if (!canManage || syncingCandidateId || !candidate.importedEmployeeId) return;
     const normalizedDob = normalizeDateForInput(candidate.วันเกิด);
     const team = (candidate.ชื่อชุด || "").toString().trim();
-    const patch: Record<string, string> = {};
+    const patch: {
+      วันเกิด?: string;
+      ชื่อชุด?: string;
+      ผลประเมินสัมภาษณ์?: InterviewEvaluation;
+    } = {};
     if (normalizedDob) patch["วันเกิด"] = normalizedDob;
     if (team) patch["ชื่อชุด"] = team;
+    // ผลประเมินสัมภาษณ์ถูกเติมทีหลังได้ (รายการที่อนุมัติก่อนฟีเจอร์นี้) — เขียนทับเฉพาะเมื่อมี object จริง
+    // ไม่เขียน null ของแรงงานรายวันทับของเดิม
+    if (isInterviewEvaluation(candidate.ผลประเมินสัมภาษณ์)) {
+      patch["ผลประเมินสัมภาษณ์"] = candidate.ผลประเมินสัมภาษณ์;
+    }
     if (Object.keys(patch).length === 0) {
-      window.alert("ไม่มีข้อมูล วันเกิด/ชื่อชุด ใหม่จาก Recruitment ให้ซิงก์ (อาจจะยังไม่ได้กดส่งซ้ำจากฝั่ง Recruitment)");
+      window.alert("ไม่มีข้อมูล วันเกิด/ชื่อชุด/ผลประเมินสัมภาษณ์ ใหม่จาก Recruitment ให้ซิงก์ (อาจจะยังไม่ได้กดส่งซ้ำจากฝั่ง Recruitment)");
       return;
     }
     setSyncingCandidateId(candidate.id);
@@ -428,6 +459,12 @@ export const RecruitmentIntakePage = ({
     const projectMatch = pickClosestOption(candidate.โครงการ, projectOptions);
     const positionMatch = pickClosestOption(candidate.ตำแหน่ง, positionOptionsForForm);
     const departmentMatch = pickClosestOption(candidate.แผนก, departmentOptionsForForm);
+    const intakeProjects = [projectMatch.value || candidate.โครงการ || ""];
+    const intakePosition = canonicalPositionName(positionMatch.value || candidate.ตำแหน่ง || "", intakeProjects)
+      || positionMatch.value
+      || candidate.ตำแหน่ง
+      || "";
+    const intakeLockedDepartment = positionDepartmentByName[intakePosition] || departmentForPosition(intakePosition, intakeProjects);
     // "วันเกิด"/"วันเริ่มงาน" จาก Recruitment อาจไม่ใช่รูปแบบ YYYY-MM-DD ที่ <input type="date"> ต้องการ
     // เป๊ะ ๆ (เช่น "15/08/1995" หรือปี พ.ศ.) -> ถ้าไม่แปลง ช่องจะโชว์ว่างเปล่าทั้งที่ Recruitment มีค่าจริง
     const normalizedDob = normalizeDateForInput(candidate.วันเกิด);
@@ -455,7 +492,9 @@ export const RecruitmentIntakePage = ({
         : null
     );
     setDepartmentMatchNote(
-      candidate.แผนก && !departmentMatch.exact && departmentMatch.value
+      intakeLockedDepartment && candidate.แผนก && candidate.แผนก !== intakeLockedDepartment
+        ? `แผนกหลักของตำแหน่ง ${intakePosition} คือ ${intakeLockedDepartment}`
+        : candidate.แผนก && !departmentMatch.exact && departmentMatch.value
         ? `⚠️ แผนกจาก Recruitment คือ "${candidate.แผนก}" — ระบบเลือกใกล้เคียงที่สุดให้ว่า "${departmentMatch.value}" กรุณาตรวจสอบก่อนบันทึก`
         : null
     );
@@ -464,8 +503,8 @@ export const RecruitmentIntakePage = ({
       คำนำหน้า: candidate.ชื่อต้น || "",
       ชื่อตัว: (candidate.ชื่อตัว || "").trim(),
       ชื่อสกุล: candidate.ชื่อสกุล || "",
-      ตำแหน่ง: positionMatch.value || candidate.ตำแหน่ง || "",
-      แผนก: departmentMatch.value || candidate.แผนก || "",
+      ตำแหน่ง: intakePosition,
+      แผนก: intakeLockedDepartment || (departmentMatch.value === "HR" ? "Human resource" : departmentMatch.value || candidate.แผนก || ""),
       โครงการ: projectMatch.value || candidate.โครงการ || "",
       ชื่อชุด: (candidate.ชื่อชุด || "").toString().trim(),
       employee_type: empType,
@@ -591,6 +630,10 @@ export const RecruitmentIntakePage = ({
         ลักษณะงานที่เคยทำ: formTarget.ลักษณะงานที่เคยทำ || "",
         ประวัติการทำงาน: formTarget.ประวัติการทำงาน || [],
         fullPacketPdfUrl: formTarget.fullPacketPdfUrl || "",
+        // มีเฉพาะพนักงานรายเดือนที่ผ่านสัมภาษณ์ — รายวันเป็น null และรายการเก่าอาจยังไม่มีฟิลด์
+        ...(isInterviewEvaluation(formTarget.ผลประเมินสัมภาษณ์)
+          ? { ผลประเมินสัมภาษณ์: formTarget.ผลประเมินสัมภาษณ์ }
+          : {}),
         // เก็บลิงก์ย้อนกลับไปหา record ต้นทาง ไว้ตรวจสอบ/แนบเอกสารเพิ่มได้ภายหลัง
         recruitmentSourceId: formTarget.id,
         // ชื่อ field เดียวกับที่ใช้ใน collection `job_descriptions` (เขียนโดยระบบสรรหา) เพื่อให้
@@ -817,6 +860,7 @@ export const RecruitmentIntakePage = ({
                 <th className="p-3 text-left font-semibold text-gray-600 border-b whitespace-nowrap">ตำแหน่ง</th>
                 <th className="p-3 text-left font-semibold text-gray-600 border-b whitespace-nowrap">แผนก</th>
                 <th className="p-3 text-left font-semibold text-gray-600 border-b whitespace-nowrap">โครงการ</th>
+                <th className="p-3 text-left font-semibold text-gray-600 border-b whitespace-nowrap">ผลสัมภาษณ์</th>
                 <th className="p-3 text-left font-semibold text-gray-600 border-b whitespace-nowrap">สถานะ</th>
                 <th className="p-3 text-center font-semibold text-gray-600 border-b whitespace-nowrap">จัดการ</th>
               </tr>
@@ -846,6 +890,9 @@ export const RecruitmentIntakePage = ({
                     <td className="p-3 text-gray-600 whitespace-nowrap">{c.ตำแหน่ง || "-"}</td>
                     <td className="p-3 text-gray-600 whitespace-nowrap">{c.แผนก || "-"}</td>
                     <td className="p-3 text-gray-600 whitespace-nowrap">{c.โครงการ || "-"}</td>
+                    <td className="p-3 whitespace-nowrap">
+                      <InterviewResultBadge value={c.ผลประเมินสัมภาษณ์} />
+                    </td>
                     <td className="p-3 whitespace-nowrap">
                       {c.intakeStatus === "no_show" ? (
                         <span className="inline-flex px-2 py-0.5 rounded-full border text-xs font-semibold bg-red-50 text-red-700 border-red-200" title={String(c.noShowReason || "")}>
@@ -881,7 +928,7 @@ export const RecruitmentIntakePage = ({
                           <button
                             disabled={syncingCandidateId !== null}
                             onClick={() => syncLatestDataToEmployee(c)}
-                            title="ดึงวันเกิด/ชื่อชุดล่าสุดจาก Recruitment มาอัปเดต (เผื่อฝั่ง Recruitment เพิ่งแก้/เติมข้อมูลและกดส่งซ้ำ)"
+                            title="ดึงวันเกิด/ชื่อชุด/ผลประเมินสัมภาษณ์ล่าสุดจาก Recruitment มาอัปเดต (เผื่อฝั่ง Recruitment เพิ่งแก้หรือเติมย้อนหลังแล้วกดส่งซ้ำ)"
                             className="flex items-center gap-1 px-3 py-1.5 bg-sky-50 text-sky-700 rounded-lg text-xs font-semibold hover:bg-sky-100 whitespace-nowrap disabled:opacity-50"
                           >
                             {syncingCandidateId === c.id ? (
@@ -944,6 +991,11 @@ export const RecruitmentIntakePage = ({
                 ตรวจสอบและกรอกข้อมูลให้ครบก่อนบันทึก (โครงการ/รหัสพนักงาน เป็นข้อมูลที่ต้องเติมเอง) ข้อมูลอื่น
                 (ที่อยู่ เลขผู้เสียภาษี ฯลฯ) ไปกรอกต่อที่หน้าพนักงานได้ภายหลัง
               </p>
+              {isInterviewEvaluation(formTarget.ผลประเมินสัมภาษณ์) && (
+                <p className="text-xs text-indigo-700 mt-1">
+                  ผลประเมินสัมภาษณ์ (FM-HR-005/00) จะถูกบันทึกไปกับข้อมูลพนักงานด้วย เปิดดูได้จากปุ่มดูรายละเอียดหรือตอนแก้ไขพนักงาน
+                </p>
+              )}
             </div>
 
             <div className="p-5 overflow-auto flex-1 grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -1000,7 +1052,13 @@ export const RecruitmentIntakePage = ({
                 {positionOptionsForForm.length > 0 ? (
                   <select
                     value={form.ตำแหน่ง}
-                    onChange={(e) => setForm((f) => (f ? { ...f, ตำแหน่ง: e.target.value } : f))}
+                    onChange={(e) => setForm((f) => {
+                      if (!f) return f;
+                      const projects = [f.โครงการ];
+                      const canonical = canonicalPositionName(e.target.value, projects) || e.target.value;
+                      const locked = positionDepartmentByName[canonical] || departmentForPosition(canonical, projects);
+                      return { ...f, ตำแหน่ง: canonical, ...(locked ? { แผนก: locked } : {}) };
+                    })}
                     className="input"
                   >
                     <option value="">เลือกตำแหน่ง</option>
@@ -1012,40 +1070,67 @@ export const RecruitmentIntakePage = ({
                     ))}
                   </select>
                 ) : (
-                  <input value={form.ตำแหน่ง} onChange={(e) => setForm((f) => (f ? { ...f, ตำแหน่ง: e.target.value } : f))} className="input" />
+                  <input value={form.ตำแหน่ง} onChange={(e) => setForm((f) => {
+                    if (!f) return f;
+                    const projects = [f.โครงการ];
+                    const canonical = canonicalPositionName(e.target.value, projects) || e.target.value;
+                    const locked = positionDepartmentByName[canonical] || departmentForPosition(canonical, projects);
+                    return { ...f, ตำแหน่ง: canonical, ...(locked ? { แผนก: locked } : {}) };
+                  })} className="input" />
                 )}
                 {positionMatchNote && (
                   <p className="text-[11px] font-medium text-amber-700 mt-1">{positionMatchNote}</p>
                 )}
               </Field>
               <Field label="แผนก">
-                {departmentOptionsForForm.length > 0 ? (
-                  <select
-                    value={form.แผนก}
-                    onChange={(e) => setForm((f) => (f ? { ...f, แผนก: e.target.value } : f))}
-                    className="input"
-                  >
-                    <option value="">เลือกแผนก</option>
-                    {form.แผนก && !departmentOptionsForForm.includes(form.แผนก) && (
-                      <option value={form.แผนก}>{form.แผนก} (ไม่อยู่ในระบบ)</option>
-                    )}
-                    {departmentOptionsForForm.map((d) => (
-                      <option key={d} value={d}>{d}</option>
-                    ))}
-                  </select>
-                ) : (
-                  <input value={form.แผนก} onChange={(e) => setForm((f) => (f ? { ...f, แผนก: e.target.value } : f))} className="input" />
-                )}
-                {departmentMatchNote && (
-                  <p className="text-[11px] font-medium text-amber-700 mt-1">{departmentMatchNote}</p>
-                )}
+                {(() => {
+                  const lockedDepartment = positionDepartmentByName[form.ตำแหน่ง] || departmentForPosition(form.ตำแหน่ง, [form.โครงการ]);
+                  return (
+                    <>
+                      {departmentOptionsForForm.length > 0 ? (
+                        <select
+                          value={form.แผนก}
+                          disabled={!!lockedDepartment}
+                          onChange={(e) => setForm((f) => (f ? { ...f, แผนก: e.target.value } : f))}
+                          className={lockedDepartment ? "input bg-gray-50" : "input"}
+                        >
+                          <option value="">เลือกแผนก</option>
+                          {form.แผนก && !departmentOptionsForForm.includes(form.แผนก) && (
+                            <option value={form.แผนก}>{form.แผนก} (ไม่อยู่ในระบบ)</option>
+                          )}
+                          {departmentOptionsForForm.map((d) => (
+                            <option key={d} value={d}>{d}</option>
+                          ))}
+                        </select>
+                      ) : (
+                        <input
+                          value={form.แผนก}
+                          disabled={!!lockedDepartment}
+                          onChange={(e) => setForm((f) => (f ? { ...f, แผนก: e.target.value } : f))}
+                          className={lockedDepartment ? "input bg-gray-50" : "input"}
+                        />
+                      )}
+                      {lockedDepartment ? (
+                        <p className="text-[11px] text-slate-500 mt-1">แผนกหลักของตำแหน่งนี้ แก้ได้ที่รายการ Position Labor</p>
+                      ) : departmentMatchNote ? (
+                        <p className="text-[11px] font-medium text-amber-700 mt-1">{departmentMatchNote}</p>
+                      ) : null}
+                    </>
+                  );
+                })()}
               </Field>
               <Field label="โครงการ *">
                 {projectOptions.length > 0 ? (
                   <select
                     required
                     value={form.โครงการ}
-                    onChange={(e) => setForm((f) => (f ? { ...f, โครงการ: e.target.value } : f))}
+                    onChange={(e) => setForm((f) => {
+                      if (!f) return f;
+                      const projects = [e.target.value];
+                      const canonical = canonicalPositionName(f.ตำแหน่ง, projects) || f.ตำแหน่ง;
+                      const locked = positionDepartmentByName[canonical] || departmentForPosition(canonical, projects);
+                      return { ...f, โครงการ: e.target.value, ตำแหน่ง: canonical, ...(locked ? { แผนก: locked } : {}) };
+                    })}
                     className="input"
                   >
                     <option value="" disabled>เลือกโครงการ</option>
@@ -1060,7 +1145,13 @@ export const RecruitmentIntakePage = ({
                   <input
                     required
                     value={form.โครงการ}
-                    onChange={(e) => setForm((f) => (f ? { ...f, โครงการ: e.target.value } : f))}
+                    onChange={(e) => setForm((f) => {
+                      if (!f) return f;
+                      const projects = [e.target.value];
+                      const canonical = canonicalPositionName(f.ตำแหน่ง, projects) || f.ตำแหน่ง;
+                      const locked = positionDepartmentByName[canonical] || departmentForPosition(canonical, projects);
+                      return { ...f, โครงการ: e.target.value, ตำแหน่ง: canonical, ...(locked ? { แผนก: locked } : {}) };
+                    })}
                     className="input"
                   />
                 )}
@@ -1383,6 +1474,12 @@ export const RecruitmentIntakePage = ({
                   </div>
                 ))}
               </DetailSection>
+
+              <InterviewEvaluationSummary
+                value={viewTarget.ผลประเมินสัมภาษณ์}
+                canViewSalary={canViewSalary}
+                showWhenNull
+              />
 
               <DetailSection title="ค่าตอบแทน">
                 <DetailRow label="Pay Type" value={canViewSalary ? (viewTarget.payType as string) : "••••••"} />

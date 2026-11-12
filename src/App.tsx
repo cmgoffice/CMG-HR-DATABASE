@@ -451,6 +451,7 @@ const DEFAULT_SCHEMAS = {
   ],
   position_labor: [
     { id: "position", label: "Position", type: "text", required: true },
+    { id: "department", label: "แผนกหลัก", type: "text" },
     { id: "labor_cost_baht", label: "ค่าแรง (บาท)", type: "number", required: true },
   ],
   projects: [
@@ -495,6 +496,7 @@ import { WhatsNewModal } from './components/WhatsNewModal';
 import { AttendancePage } from './components/AttendancePage';
 import { OvertimePage } from './components/OvertimePage';
 import { ManpowerDashboard } from './components/ManpowerDashboard';
+import { canonicalPositionName, departmentForPosition } from './config/positionDepartment';
 import { DayOffPage } from './components/DayOffPage';
 import { ActivityLogPage } from './components/ActivityLogPage';
 import { RiskMonitoringPage } from './components/RiskMonitoringPage';
@@ -502,6 +504,7 @@ import { EvaluationPage } from './components/EvaluationPage';
 import { ProjectTransferPage } from './components/ProjectTransferPage';
 import { MigrantWorkerPage } from './components/MigrantWorkerPage';
 import { RecruitmentIntakePage } from './components/RecruitmentIntakePage';
+import { InterviewEvaluationSummary } from './components/InterviewEvaluationSummary';
 import { TrainingBatchPage } from './components/TrainingBatchPage';
 import { ProjectDocumentRequirementsModal } from './components/ProjectDocumentRequirementsModal';
 import { TRAINING_MANAGE_ROLES } from './components/trainingBatchConfig';
@@ -1338,6 +1341,7 @@ function MasterDatabaseApp() {
   // --- Dynamic options from related collections ---
   const [projectStatusOptions, setProjectStatusOptions] = useState<string[]>([]);
   const [positionOptions, setPositionOptions] = useState<string[]>([]);
+  const [positionDepartmentByName, setPositionDepartmentByName] = useState<Record<string, string>>({});
 
   const applyDynamicSchemaOptions = (fields: SchemaField[], projectOptions = projectStatusOptions, positions = positionOptions) => {
     return fields.map((f) => {
@@ -1393,8 +1397,15 @@ function MasterDatabaseApp() {
         .map((d) => String(d.data().position || d.id || "").trim())
         .filter(Boolean)
         .sort((a, b) => a.localeCompare(b, "th"));
+      const departments: Record<string, string> = {};
+      snap.docs.forEach((d) => {
+        const name = String(d.data().position || d.id || "").trim();
+        const department = String(d.data().department || "").trim();
+        if (name && department) departments[name] = department;
+      });
 
       setPositionOptions(opts);
+      setPositionDepartmentByName(departments);
 
       setSchemas((prev) => {
         const updated: Record<string, SchemaField[]> = {};
@@ -1406,6 +1417,34 @@ function MasterDatabaseApp() {
     } catch (e) {
       console.error("Error fetching position options:", e);
     }
+  };
+
+  const employeeProjectList = (row: Record<string, unknown>): string[] => {
+    const projectStatus = row["สถานะโครงการ"];
+    if (Array.isArray(projectStatus)) return projectStatus.map((item) => String(item || "")).filter(Boolean);
+    if (projectStatus != null && String(projectStatus).trim() !== "") return [String(projectStatus)];
+    const fallback = String(row["โครงการ"] || "").trim();
+    return fallback ? [fallback] : [];
+  };
+
+  const lockedDepartmentFor = (position: string, projects: string[]): string => {
+    const canonical = canonicalPositionName(position, projects);
+    if (!canonical) return "";
+    return positionDepartmentByName[canonical] || departmentForPosition(canonical, projects);
+  };
+
+  const alignEmployeeForm = (row: Record<string, unknown>) => {
+    const projects = employeeProjectList(row);
+    const currentPosition = String(row["ตำแหน่ง"] || "");
+    const canonical = canonicalPositionName(currentPosition, projects);
+    const locked = lockedDepartmentFor(currentPosition, projects);
+    const storedDepartment = String(row["แผนก"] || "").trim();
+    const nextDepartment = locked || (storedDepartment === "HR" ? "Human resource" : storedDepartment);
+    return {
+      ...row,
+      ...(canonical ? { ตำแหน่ง: canonical } : {}),
+      ...(nextDepartment ? { แผนก: nextDepartment } : {}),
+    };
   };
 
   const openProjectEditor = (item: DataRecord | null) => {
@@ -1725,7 +1764,10 @@ function MasterDatabaseApp() {
           const missingEmployeeFields = isEmployeeSchemaModule
             ? EMPLOYEE_FIELD_DEFS.filter((f) => !existingIds.has(f.id))
             : [];
-          const missingFields = [...missingStatusFields, ...missingProjectFields, ...missingEmployeeFields];
+          const missingPositionFields = schemaModuleId === "position_labor" && !existingIds.has("department")
+            ? [{ id: "department", label: "แผนกหลัก", type: "text" as const }]
+            : [];
+          const missingFields = [...missingStatusFields, ...missingProjectFields, ...missingEmployeeFields, ...missingPositionFields];
           if (missingFields.length > 0) {
             loadedFields = [...loadedFields, ...missingFields];
             try {
@@ -3851,7 +3893,7 @@ function MasterDatabaseApp() {
                                   openProjectEditor(row);
                                 } else {
                                 setEditingItem(row);
-                                setFormData(row);
+                                setFormData(isEmployeeModule ? alignEmployeeForm(row) : row);
                                 setIsAddModalOpen(true);
                                 }
                               }}
@@ -4081,17 +4123,42 @@ function MasterDatabaseApp() {
                     );
                   }
 
+                  const positionProjects = employeeProjectList(formData);
+                  const lockedDepartment = isEmployeeModule
+                    ? lockedDepartmentFor(String(formData["ตำแหน่ง"] || ""), positionProjects)
+                    : "";
+                  const departmentLocked = isEmployeeModule && field.id === "แผนก" && !!lockedDepartment;
+                  const inputField = field.id === "ตำแหน่ง" && formData["ตำแหน่ง"] && !(field.options || []).includes(String(formData["ตำแหน่ง"]))
+                    ? { ...field, options: [...(field.options || []), String(formData["ตำแหน่ง"])] }
+                    : field;
+
                   return (
                     <div key={field.id} className="space-y-1">
                       <label className="text-sm font-medium text-gray-700">
                         {field.label}
                       </label>
                       <DynamicInput
-                        field={field}
+                        field={inputField}
                         value={(formData[field.id] as string | boolean) ?? ""}
-                        onChange={(val) => setFormData({ ...formData, [field.id]: val })}
-                        disabled={isClientAuto || isContractorAuto}
+                        onChange={(val) => {
+                          if (isEmployeeModule && field.id === "ตำแหน่ง") {
+                            const canonical = canonicalPositionName(String(val), positionProjects) || String(val);
+                            const nextDepartment = lockedDepartmentFor(canonical, positionProjects);
+                            setFormData({
+                              ...formData,
+                              ตำแหน่ง: canonical,
+                              ...(nextDepartment ? { แผนก: nextDepartment } : {}),
+                            });
+                            return;
+                          }
+                          if (departmentLocked) return;
+                          setFormData({ ...formData, [field.id]: val });
+                        }}
+                        disabled={isClientAuto || isContractorAuto || departmentLocked}
                       />
+                      {departmentLocked && (
+                        <p className="text-[11px] text-slate-500">แผนกหลักของตำแหน่งนี้ แก้ได้ที่รายการ Position Labor</p>
+                      )}
                     </div>
                   );
                 })}
@@ -4184,6 +4251,13 @@ function MasterDatabaseApp() {
                         )}
                       </div>
                     </div>
+                  )}
+
+                  {isEmployeeModule && (
+                    <InterviewEvaluationSummary
+                      value={formData["ผลประเมินสัมภาษณ์"]}
+                      canViewSalary={hasRole(["HRM", "MasterAdmin"])}
+                    />
                   )}
                 </>
               )}

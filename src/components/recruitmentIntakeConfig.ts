@@ -18,6 +18,38 @@ import { UserRole } from "../auth/AuthContext";
 
 export const RECRUITMENT_PENDING_EMPLOYEES_COLLECTION = "recruitment_pending_employees";
 
+/** ผลประเมินสัมภาษณ์ (FM-HR-005/00) ที่ฝั่ง Recruitment เขียนลง staging doc
+ * ชื่อฟิลด์ตรงกับที่ `pushPendingEmployee` ส่งมา — ดู hrMasterDatabaseHelpers.js */
+export interface InterviewEvaluationInterviewer {
+  ชื่อ?: string;
+  ตำแหน่ง?: string;
+  คะแนนรวม?: number | null;
+  ความเห็น?: string;
+}
+
+export interface InterviewEvaluationBackground {
+  education?: string;
+  experience?: string;
+  workHistory?: string;
+}
+
+export interface InterviewEvaluation {
+  วันที่สัมภาษณ์?: string;
+  รูปแบบการสัมภาษณ์?: string;
+  คะแนนรวม?: number | null;
+  ผลการประเมิน?: string;
+  ความคิดเห็นรวม?: string;
+  เงินเดือนที่คาดหวัง?: number | string | null;
+  เงินเดือนที่ต่อรองได้?: number | string | null;
+  หมายเหตุเงินเดือน?: string;
+  ตรวจสอบประวัติ?: InterviewEvaluationBackground;
+  ผู้สัมภาษณ์?: InterviewEvaluationInterviewer[];
+}
+
+/** object จริงจาก Recruitment เท่านั้น — null (รายวัน) และค่าที่ไม่มีฟิลด์ไม่นับ */
+export const isInterviewEvaluation = (value: unknown): value is InterviewEvaluation =>
+  !!value && typeof value === "object" && !Array.isArray(value);
+
 /** รูปแบบ benefit entry ที่ฝั่ง Recruitment ส่งมา เช่น {"period":"day","amount":"30","label":"ค่าเดินทาง"} */
 export interface RecruitmentBenefit {
   period?: string;
@@ -97,6 +129,10 @@ export interface RecruitmentPendingEmployee {
 
   // เอกสารรวม (PDF ใบสมัคร + เอกสารจ้างงานที่เซ็นแล้ว)
   fullPacketPdfUrl?: string;
+
+  // ผลประเมินสัมภาษณ์ FM-HR-005/00 ที่ฝั่ง Recruitment แนบมาตอน GM อนุมัติ
+  // (พนักงานรายเดือน Group A เท่านั้น — แรงงานรายวันส่งมาเป็น null, รายการเก่าก่อนฟีเจอร์นี้จะไม่มีฟิลด์)
+  ผลประเมินสัมภาษณ์?: InterviewEvaluation | null;
   detailsSyncedAt?: { seconds: number; nanoseconds: number } | number | string | null;
 
   // ค่าตอบแทน

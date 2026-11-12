@@ -47,6 +47,7 @@ import {
 import { useOvertimeLimits } from "../hooks/useOvertimeLimits";
 import { OvertimeTierBadge } from "./OvertimeTierBadge";
 import { resolveEmployeeDateOfBirth, resolveEmployeeStartDate } from "../utils/employeeDates";
+import { resolveEmployeeDepartment } from "../config/positionDepartment";
 
 interface Employee {
   id: string;
@@ -1144,6 +1145,7 @@ export const ManpowerDashboard = ({
   // แม้จะยังไม่ถูก assign โครงการเฉพาะเจาะจงแบบ PM/CM/Admin Site (ดู safetyCanSeeAllProjects ด้านล่าง)
   const [allActiveEmployees, setAllActiveEmployees] = useState<Employee[]>([]);
   const [projectRecords, setProjectRecords] = useState<ProjectRecord[]>([]);
+  const [positionDepartments, setPositionDepartments] = useState<Record<string, string>>({});
   const [attendanceByDate, setAttendanceByDate] = useState<Record<string, Record<string, AttendanceEntry>>>({});
   const [overtimeByDate, setOvertimeByDate] = useState<Record<string, Record<string, OvertimeEntry>>>({});
   const [dayOffs, setDayOffs] = useState<Record<string, string>>({});
@@ -1322,6 +1324,7 @@ export const ManpowerDashboard = ({
     const attendanceRef = collection(db, "CMG-HR-Database", "root", "attendance");
     const overtimeRef = collection(db, "CMG-HR-Database", "root", "overtime");
     const dayOffRef = collection(db, "CMG-HR-Database", "root", "day_offs");
+    const positionRef = collection(db, "CMG-HR-Database", "root", "position_labor");
 
     const unsubscribeEmployees = onSnapshot(
       employeeRef,
@@ -1392,12 +1395,23 @@ export const ManpowerDashboard = ({
       setDayOffs(next);
     });
 
+    const unsubscribePositions = onSnapshot(positionRef, (snapshot) => {
+      const next: Record<string, string> = {};
+      snapshot.docs.forEach((docSnap) => {
+        const name = String(docSnap.data().position || docSnap.id || "").trim();
+        const department = String(docSnap.data().department || "").trim();
+        if (name && department) next[name] = department;
+      });
+      setPositionDepartments(next);
+    });
+
     return () => {
       unsubscribeEmployees();
       unsubscribeProjects();
       unsubscribeAttendance();
       unsubscribeOvertime();
       unsubscribeDayOffs();
+      unsubscribePositions();
     };
   }, [db, canSeeAllProjects, userProfile]);
 
@@ -2144,6 +2158,22 @@ export const ManpowerDashboard = ({
       return typeRow.laborGroupStats[groupName];
     };
 
+    const placeEmployee = (emp: Employee) => {
+      const rawPosition = selectedProject
+        ? extractProjectPosition(emp.สถานะโครงการ, selectedProject, String(emp["ตำแหน่ง"] || ""))
+        : String(emp["ตำแหน่ง"] || "");
+      const placed = resolveEmployeeDepartment(
+        rawPosition,
+        parseProjectList(emp.สถานะโครงการ),
+        String(emp["แผนก"] || ""),
+        positionDepartments
+      );
+      return {
+        position: placed.position || "ไม่ระบุ",
+        department: placed.department || "ไม่ระบุ",
+      };
+    };
+
     const LABOR_GROUP_TYPES = new Set(["Sub contractor", "Supply manpower", "DC Daily - Worker", "DC Daily"]);
 
     scopedEmployees.forEach((emp) => {
@@ -2153,11 +2183,10 @@ export const ManpowerDashboard = ({
         const group = String(emp["ชื่อชุด"] || "").trim();
         if (group) ensureLaborGroup(typeRow, group).employees++;
       }
-      const positionStr = selectedProject
-        ? extractProjectPosition(emp.สถานะโครงการ, selectedProject, String(emp["ตำแหน่ง"] || "ไม่ระบุ"))
-        : String(emp["ตำแหน่ง"] || "ไม่ระบุ");
-      const positionRow = ensureRow(breakdownByPosition, positionStr || "ไม่ระบุ");
-      const deptStr = String(emp["แผนก"] || "ไม่ระบุ");
+      const placed = placeEmployee(emp);
+      const positionStr = placed.position;
+      const positionRow = ensureRow(breakdownByPosition, positionStr);
+      const deptStr = placed.department;
       const deptRow = ensureRow(breakdownByDepartment, deptStr);
       typeRow.employees++;
       positionRow.employees++;
@@ -2207,12 +2236,11 @@ export const ManpowerDashboard = ({
         const overtime = overtimeByDate[date]?.[emp.id];
         const empType = normalizeEmployeeType(emp);
         const typeRow = ensureRow(breakdownByType, empType);
-        const positionStr = selectedProject
-        ? extractProjectPosition(emp.สถานะโครงการ, selectedProject, String(emp["ตำแหน่ง"] || "ไม่ระบุ"))
-        : String(emp["ตำแหน่ง"] || "ไม่ระบุ");
-      const positionRow = ensureRow(breakdownByPosition, positionStr || "ไม่ระบุ");
-      const deptStr = String(emp["แผนก"] || "ไม่ระบุ");
-      const deptRow = ensureRow(breakdownByDepartment, deptStr);
+        const placed = placeEmployee(emp);
+        const positionStr = placed.position;
+        const positionRow = ensureRow(breakdownByPosition, positionStr);
+        const deptStr = placed.department;
+        const deptRow = ensureRow(breakdownByDepartment, deptStr);
         const employeeRisk = exceptionMap[emp.id];
         const counts = [typeRow, positionRow, deptRow];
         
@@ -2323,9 +2351,7 @@ export const ManpowerDashboard = ({
     const buildProjectStatusRowsForDates = (dates: string[]) => {
       const localMap: Record<string, ProjectExceptionRow> = {};
       scopedEmployees.forEach((emp) => {
-        const positionStr = selectedProject
-          ? extractProjectPosition(emp.สถานะโครงการ, selectedProject, String(emp["ตำแหน่ง"] || "ไม่ระบุ"))
-          : String(emp["ตำแหน่ง"] || "ไม่ระบุ");
+        const positionStr = placeEmployee(emp).position;
         localMap[emp.id] = {
           id: emp.id,
           employeeId: emp.id,
@@ -2469,9 +2495,7 @@ export const ManpowerDashboard = ({
       .map((emp) => {
         const attendance = attendanceByDate[todayReferenceDate]?.[emp.id];
         if (attendance?.status !== "ไม่มา" && !isLeaveStatus(attendance?.status)) return null;
-        const positionStr = selectedProject
-          ? extractProjectPosition(emp.สถานะโครงการ, selectedProject, String(emp["ตำแหน่ง"] || "ไม่ระบุ"))
-          : String(emp["ตำแหน่ง"] || "ไม่ระบุ");
+        const positionStr = placeEmployee(emp).position;
         return {
           employeeId: emp.id,
           employeeCode: String(emp["รหัสพนักงาน"] || emp.id),
@@ -2597,7 +2621,7 @@ export const ManpowerDashboard = ({
       workDaysCount: workDates.length,
       genderCounts: projectGenderCounts,
     };
-  }, [employees, workDates, followUpWorkDates, coverageTrendWorkDates, attendanceByDate, overtimeByDate, selectedProject, projectRecords, todayReferenceDate]);
+  }, [employees, workDates, followUpWorkDates, coverageTrendWorkDates, attendanceByDate, overtimeByDate, selectedProject, projectRecords, todayReferenceDate, positionDepartments]);
 
   const employeeTypeList = useMemo(
     () =>
@@ -3357,9 +3381,14 @@ export const ManpowerDashboard = ({
       const memberRows = employees
         .filter((emp) => normalizeEmployeeType(emp) === activeType)
         .map((emp) => {
-          const positionStr = selectedProject
-            ? extractProjectPosition(emp.สถานะโครงการ, selectedProject, String(emp["ตำแหน่ง"] || "ไม่ระบุ"))
-            : String(emp["ตำแหน่ง"] || "ไม่ระบุ");
+          const positionStr = resolveEmployeeDepartment(
+            selectedProject
+              ? extractProjectPosition(emp.สถานะโครงการ, selectedProject, String(emp["ตำแหน่ง"] || ""))
+              : String(emp["ตำแหน่ง"] || ""),
+            parseProjectList(emp.สถานะโครงการ),
+            String(emp["แผนก"] || ""),
+            positionDepartments
+          ).position;
           return {
             employeeId: emp.id,
             employeeCode: String(emp["รหัสพนักงาน"] || emp.id),
@@ -4949,147 +4978,6 @@ export const ManpowerDashboard = ({
             </div>
           </div>
 
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-2 lg:gap-4">
-            <SectionCard
-              title="สัดส่วนกำลังคน (แบ่งตามประเภท)"
-              subtitle={`โครงการ ${selectedProjectLabel || "-"} · รวม ${projectNationalityBreakdown.grandTotal} คน`}
-              tooltip="DC (รวม) = พนักงานกลุ่ม DC Daily ในโครงการนี้ ไม่รวม DC ที่มีสถานะกลุ่มงาน Staff, Supply Thai/Foreigner = พนักงานกลุ่ม Supply manpower แยกตามสัญชาติ (ต้องกรอกฟิลด์ 'สัญชาติ' ในข้อมูลพนักงาน)"
-            >
-              {projectNationalityBreakdown.grandTotal === 0 ? (
-                <div className="text-sm text-slate-500">ยังไม่มีพนักงานในโครงการนี้</div>
-              ) : (
-                <>
-                  <div className="flex flex-col sm:flex-row items-center gap-3">
-                    <div className="w-full sm:w-1/2">
-                      <DonutChart
-                        data={projectEmployeeTypeDonutData}
-                        centerValue={projectNationalityBreakdown.grandTotal}
-                        centerSub="คนทั้งหมด"
-                      />
-                    </div>
-                    <div className="w-full sm:w-1/2 rounded-lg border border-sky-200 bg-sky-50 p-3">
-                      <div className="text-xs font-black text-sky-800">
-                        DC รวม {projectNationalityBreakdown.dcTotal} คน ({formatPercent(projectNationalityBreakdown.dcTotal, projectNationalityBreakdown.grandTotal)})
-                      </div>
-                      <div className="mt-2 flex items-center justify-between text-xs">
-                        <span className="text-slate-600">Foreigner</span>
-                        <span className="font-bold text-teal-700">
-                          {projectNationalityBreakdown.dcForeigner} คน ({formatPercent(projectNationalityBreakdown.dcForeigner, projectNationalityBreakdown.grandTotal)})
-                        </span>
-                      </div>
-                      <div className="mt-1 flex items-center justify-between text-xs">
-                        <span className="text-slate-600">Thai</span>
-                        <span className="font-bold text-blue-700">
-                          {projectNationalityBreakdown.dcThai} คน ({formatPercent(projectNationalityBreakdown.dcThai, projectNationalityBreakdown.grandTotal)})
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-                  <table className="mt-3 w-full text-xs">
-                    <thead>
-                      <tr className="border-b border-slate-200 text-slate-500">
-                        <th className="py-1 text-left font-semibold">ประเภท</th>
-                        <th className="py-1 text-right font-semibold">จำนวน (คน)</th>
-                        <th className="py-1 text-right font-semibold">สัดส่วน (%)</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      <tr className="border-b border-slate-100">
-                        <td className="py-1 text-slate-700">DC (รวม)</td>
-                        <td className="py-1 text-right font-semibold">{projectNationalityBreakdown.dcTotal}</td>
-                        <td className="py-1 text-right font-semibold text-blue-700">{formatPercent(projectNationalityBreakdown.dcTotal, projectNationalityBreakdown.grandTotal)}</td>
-                      </tr>
-                      <tr className="border-b border-slate-100">
-                        <td className="py-1 text-slate-700">Supply Thai</td>
-                        <td className="py-1 text-right font-semibold">{projectNationalityBreakdown.supplyThai}</td>
-                        <td className="py-1 text-right font-semibold text-emerald-700">{formatPercent(projectNationalityBreakdown.supplyThai, projectNationalityBreakdown.grandTotal)}</td>
-                      </tr>
-                      <tr className="border-b border-slate-100">
-                        <td className="py-1 text-slate-700">Supply Foreigner</td>
-                        <td className="py-1 text-right font-semibold">{projectNationalityBreakdown.supplyForeigner}</td>
-                        <td className="py-1 text-right font-semibold text-orange-700">{formatPercent(projectNationalityBreakdown.supplyForeigner, projectNationalityBreakdown.grandTotal)}</td>
-                      </tr>
-                      <tr className="border-t border-slate-200 font-bold">
-                        <td className="py-1 text-slate-800">รวมทั้งสิ้น</td>
-                        <td className="py-1 text-right">{projectNationalityBreakdown.grandTotal}</td>
-                        <td className="py-1 text-right">100.00%</td>
-                      </tr>
-                    </tbody>
-                  </table>
-                </>
-              )}
-            </SectionCard>
-
-            <SectionCard
-              title="สัดส่วนกลุ่มแรงงาน Thai และ Foreigner"
-              subtitle={`โครงการ ${selectedProjectLabel || "-"} · รวม ${projectNationalityBreakdown.grandTotal} คน`}
-              tooltip="สรุปจำนวนพนักงานในโครงการนี้แยกตามสัญชาติไทย/ต่างชาติ โดยไม่แยกประเภทงาน ไม่นับ DC ที่มีสถานะกลุ่มงาน Staff (ต้องกรอกฟิลด์ 'สัญชาติ' ในข้อมูลพนักงาน)"
-            >
-              {projectNationalityBreakdown.grandTotal === 0 ? (
-                <div className="text-sm text-slate-500">ยังไม่มีพนักงานในโครงการนี้</div>
-              ) : (
-                <>
-                  <DonutChart
-                    data={projectNationalityDonutData}
-                    centerValue={projectNationalityBreakdown.grandTotal}
-                    centerSub="คนทั้งหมด"
-                  />
-                  <table className="mt-3 w-full text-xs">
-                    <thead>
-                      <tr className="border-b border-slate-200 text-slate-500">
-                        <th className="py-1 text-left font-semibold">กลุ่มแรงงาน</th>
-                        <th className="py-1 text-right font-semibold">จำนวน (คน)</th>
-                        <th className="py-1 text-right font-semibold">สัดส่วน (%)</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      <tr className="border-b border-slate-100">
-                        <td className="py-1 font-semibold text-blue-700">Thai (คนไทยทั้งหมด)</td>
-                        <td className="py-1 text-right font-semibold">{projectNationalityBreakdown.thaiTotal}</td>
-                        <td className="py-1 text-right font-semibold text-blue-700">{formatPercent(projectNationalityBreakdown.thaiTotal, projectNationalityBreakdown.grandTotal)}</td>
-                      </tr>
-                      <tr className="border-b border-slate-100 text-slate-500">
-                        <td className="py-1 pl-4">- DC (Thai)</td>
-                        <td className="py-1 text-right">{projectNationalityBreakdown.dcThai}</td>
-                        <td className="py-1 text-right">-</td>
-                      </tr>
-                      <tr className="border-b border-slate-100 text-slate-500">
-                        <td className="py-1 pl-4">- Supply Thai</td>
-                        <td className="py-1 text-right">{projectNationalityBreakdown.supplyThai}</td>
-                        <td className="py-1 text-right">-</td>
-                      </tr>
-                      <tr className="border-b border-slate-100">
-                        <td className="py-1 font-semibold text-teal-700">Foreigner (ต่างชาติทั้งหมด)</td>
-                        <td className="py-1 text-right font-semibold">{projectNationalityBreakdown.foreignerTotal}</td>
-                        <td className="py-1 text-right font-semibold text-teal-700">{formatPercent(projectNationalityBreakdown.foreignerTotal, projectNationalityBreakdown.grandTotal)}</td>
-                      </tr>
-                      <tr className="border-b border-slate-100 text-slate-500">
-                        <td className="py-1 pl-4">- DC (Foreigner)</td>
-                        <td className="py-1 text-right">{projectNationalityBreakdown.dcForeigner}</td>
-                        <td className="py-1 text-right">-</td>
-                      </tr>
-                      <tr className="border-b border-slate-100 text-slate-500">
-                        <td className="py-1 pl-4">- Supply Foreigner</td>
-                        <td className="py-1 text-right">{projectNationalityBreakdown.supplyForeigner}</td>
-                        <td className="py-1 text-right">-</td>
-                      </tr>
-                      <tr className="border-t border-slate-200 font-bold">
-                        <td className="py-1 text-slate-800">รวมทั้งสิ้น</td>
-                        <td className="py-1 text-right">{projectNationalityBreakdown.grandTotal}</td>
-                        <td className="py-1 text-right">100.00%</td>
-                      </tr>
-                    </tbody>
-                  </table>
-                  {projectNationalityBreakdown.unknownTotal > 0 && (
-                    <div className="mt-2 text-[11px] text-slate-400">
-                      * มีพนักงาน {projectNationalityBreakdown.unknownTotal} คนที่ยังไม่ได้กรอกฟิลด์ "สัญชาติ" จึงไม่ถูกนับใน Thai/Foreigner ด้านบน
-                    </div>
-                  )}
-                </>
-              )}
-            </SectionCard>
-          </div>
-
           {(() => {
             const toggleExpand = (key: string) =>
               setExpandedTypeBreakdown((prev) => {
@@ -5146,6 +5034,54 @@ export const ManpowerDashboard = ({
               const key = r.position && r.position !== "-" ? r.position : "ไม่ระบุ";
               (employeesByPosition[key] = employeesByPosition[key] || []).push(r);
             });
+            const summarizeTypeRows = (key: string, label: string, rows: typeof sortedBreakdown) => {
+              const totals = rows.reduce(
+                (acc, row) => {
+                  acc.employees += row.employees;
+                  acc.present += row.present;
+                  acc.late += row.late;
+                  acc.absent += row.absent;
+                  acc.leave += row.leave;
+                  acc.notRecorded += row.notRecorded;
+                  acc.wrongProject += row.wrongProject;
+                  acc.otHours += row.otHours;
+                  return acc;
+                },
+                { employees: 0, present: 0, late: 0, absent: 0, leave: 0, notRecorded: 0, wrongProject: 0, otHours: 0 }
+              );
+              const issueCount = totals.absent + totals.leave + totals.notRecorded + totals.wrongProject;
+              const headcount = Math.max(totals.employees, 1);
+              return {
+                key,
+                label,
+                ...totals,
+                laborGroupStats: {} as Record<string, { employees: number; present: number; late: number; absent: number; leave: number; notRecorded: number; wrongProject: number; otHours: number }>,
+                issueCount,
+                presentRate: totals.present / headcount,
+                issueRate: issueCount / headcount,
+              };
+            };
+            const typeGroupDefs = [
+              { key: "staff", label: "กลุ่ม Staff", types: ["Staff Monthly", "DC Daily - Staff"] },
+              { key: "labour", label: "กลุ่ม Labour", types: ["DC Daily - Worker", "Supply manpower", "Sub contractor"] },
+            ];
+            const typeRowsByLabel = new Map(sortedBreakdown.map((row) => [row.label, row]));
+            const usedTypeLabels = new Set<string>();
+            const groupedTypeRows: Array<{ kind: "group" | "type"; row: (typeof sortedBreakdown)[number] }> = [];
+            typeGroupDefs.forEach((group) => {
+              const members = group.types
+                .map((type) => typeRowsByLabel.get(type))
+                .filter((row): row is (typeof sortedBreakdown)[number] => !!row);
+              if (members.length === 0) return;
+              members.forEach((row) => usedTypeLabels.add(row.label));
+              groupedTypeRows.push({ kind: "group", row: summarizeTypeRows(group.key, group.label, members) });
+              members.forEach((row) => groupedTypeRows.push({ kind: "type", row }));
+            });
+            const otherTypeRows = sortedBreakdown.filter((row) => !usedTypeLabels.has(row.label));
+            if (otherTypeRows.length > 0) {
+              groupedTypeRows.push({ kind: "group", row: summarizeTypeRows("other", "อื่นๆ", otherTypeRows) });
+              otherTypeRows.forEach((row) => groupedTypeRows.push({ kind: "type", row }));
+            }
             const isToday = isSingleDayView;
             return (
               <div className={`grid grid-cols-1 gap-2 lg:gap-4 ${isToday ? "lg:grid-cols-2" : ""}`}>
@@ -5153,8 +5089,8 @@ export const ManpowerDashboard = ({
                 <div>
               <SectionCard
                 title="สรุปตามประเภทพนักงาน"
-                subtitle="เรียงตามกลุ่มที่มีปัญหามากสุด — กดลูกศรเพื่อดูชื่อชุดแรงงาน"
-                tooltip="ปัญหา = ขาด + ลา + ค้างลงเวลา + ผิดโครงการ | % มา = มา / คนในกลุ่ม | % ปัญหา = ปัญหา / คนในกลุ่ม | ชื่อชุดแรงงานมีสำหรับ Sub contractor, Supply manpower และ DC Daily - Worker"
+                subtitle="กลุ่ม Staff และ Labour — แถวกลุ่มคือยอดรวมมา/ไม่มา กดลูกศรเพื่อดูชื่อชุดแรงงาน"
+                tooltip="ปัญหา = ขาด + ลา + ค้างลงเวลา + ผิดโครงการ | แถวกลุ่ม Staff/Labour คือผลรวมของประเภทในกลุ่ม | % มา = มา / คนในกลุ่ม | % ปัญหา = ปัญหา / คนในกลุ่ม | ชื่อชุดแรงงานมีสำหรับ Sub contractor, Supply manpower และ DC Daily - Worker"
               >
                 {sortedBreakdown.length === 0 ? (
                   <div className="text-sm text-slate-500">ยังไม่มีข้อมูลประเภทพนักงานในโครงการนี้</div>
@@ -5176,16 +5112,19 @@ export const ManpowerDashboard = ({
                         </tr>
                       </thead>
                       <tbody>
-                        {sortedBreakdown.map((row) => {
+                        {groupedTypeRows.map(({ kind, row }) => {
+                          const isGroup = kind === "group";
                           const isHighRisk = row.issueRate >= 0.3 || row.issueCount >= 2;
                           const isWatch = !isHighRisk && (row.issueRate > 0 || row.issueCount > 0);
-                          const rowTone = isHighRisk
+                          const rowTone = isGroup
+                            ? "bg-slate-100 border-t border-slate-200"
+                            : isHighRisk
                             ? "bg-rose-50/80 border-t border-rose-100"
                             : isWatch
                               ? "bg-amber-50/50 border-t border-amber-100"
                               : "border-t border-slate-100";
                           const groupEntries = Object.entries(row.laborGroupStats).sort(([a], [b]) => a.localeCompare(b, "th"));
-                          const hasGroups = groupEntries.length > 0;
+                          const hasGroups = !isGroup && groupEntries.length > 0;
                           const isExpanded = expandedTypeBreakdown.has(row.key);
                           return (
                             <React.Fragment key={row.key}>
@@ -5202,7 +5141,7 @@ export const ManpowerDashboard = ({
                                     </button>
                                   ) : null}
                                 </td>
-                                <td className="px-1 py-1.5 font-medium text-slate-800">
+                                <td className={`px-1 py-1.5 text-slate-800 ${isGroup ? "font-bold" : "pl-3 font-medium"}`}>
                                   <div className="flex items-center gap-1">
                                     <span className="truncate">{row.label}</span>
                                     {isHighRisk && (
@@ -5571,6 +5510,241 @@ export const ManpowerDashboard = ({
             );
           })()}
 
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-2 lg:gap-4">
+            <SectionCard
+              title="สัดส่วนกำลังคน (แบ่งตามประเภท)"
+              subtitle={`โครงการ ${selectedProjectLabel || "-"} · รวม ${projectNationalityBreakdown.grandTotal} คน`}
+              tooltip="DC (รวม) = พนักงานกลุ่ม DC Daily ในโครงการนี้ ไม่รวม DC ที่มีสถานะกลุ่มงาน Staff, Supply Thai/Foreigner = พนักงานกลุ่ม Supply manpower แยกตามสัญชาติ (ต้องกรอกฟิลด์ 'สัญชาติ' ในข้อมูลพนักงาน)"
+            >
+              {projectNationalityBreakdown.grandTotal === 0 ? (
+                <div className="text-sm text-slate-500">ยังไม่มีพนักงานในโครงการนี้</div>
+              ) : (
+                <>
+                  <div className="flex flex-col sm:flex-row items-center gap-3">
+                    <div className="w-full sm:w-1/2">
+                      <DonutChart
+                        data={projectEmployeeTypeDonutData}
+                        centerValue={projectNationalityBreakdown.grandTotal}
+                        centerSub="คนทั้งหมด"
+                      />
+                    </div>
+                    <div className="w-full sm:w-1/2 rounded-lg border border-sky-200 bg-sky-50 p-3">
+                      <div className="text-xs font-black text-sky-800">
+                        DC รวม {projectNationalityBreakdown.dcTotal} คน ({formatPercent(projectNationalityBreakdown.dcTotal, projectNationalityBreakdown.grandTotal)})
+                      </div>
+                      <div className="mt-2 flex items-center justify-between text-xs">
+                        <span className="text-slate-600">Foreigner</span>
+                        <span className="font-bold text-teal-700">
+                          {projectNationalityBreakdown.dcForeigner} คน ({formatPercent(projectNationalityBreakdown.dcForeigner, projectNationalityBreakdown.grandTotal)})
+                        </span>
+                      </div>
+                      <div className="mt-1 flex items-center justify-between text-xs">
+                        <span className="text-slate-600">Thai</span>
+                        <span className="font-bold text-blue-700">
+                          {projectNationalityBreakdown.dcThai} คน ({formatPercent(projectNationalityBreakdown.dcThai, projectNationalityBreakdown.grandTotal)})
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                  <table className="mt-3 w-full text-xs">
+                    <thead>
+                      <tr className="border-b border-slate-200 text-slate-500">
+                        <th className="py-1 text-left font-semibold">ประเภท</th>
+                        <th className="py-1 text-right font-semibold">จำนวน (คน)</th>
+                        <th className="py-1 text-right font-semibold">สัดส่วน (%)</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr className="border-b border-slate-100">
+                        <td className="py-1 text-slate-700">DC (รวม)</td>
+                        <td className="py-1 text-right font-semibold">{projectNationalityBreakdown.dcTotal}</td>
+                        <td className="py-1 text-right font-semibold text-blue-700">{formatPercent(projectNationalityBreakdown.dcTotal, projectNationalityBreakdown.grandTotal)}</td>
+                      </tr>
+                      <tr className="border-b border-slate-100">
+                        <td className="py-1 text-slate-700">Supply Thai</td>
+                        <td className="py-1 text-right font-semibold">{projectNationalityBreakdown.supplyThai}</td>
+                        <td className="py-1 text-right font-semibold text-emerald-700">{formatPercent(projectNationalityBreakdown.supplyThai, projectNationalityBreakdown.grandTotal)}</td>
+                      </tr>
+                      <tr className="border-b border-slate-100">
+                        <td className="py-1 text-slate-700">Supply Foreigner</td>
+                        <td className="py-1 text-right font-semibold">{projectNationalityBreakdown.supplyForeigner}</td>
+                        <td className="py-1 text-right font-semibold text-orange-700">{formatPercent(projectNationalityBreakdown.supplyForeigner, projectNationalityBreakdown.grandTotal)}</td>
+                      </tr>
+                      <tr className="border-t border-slate-200 font-bold">
+                        <td className="py-1 text-slate-800">รวมทั้งสิ้น</td>
+                        <td className="py-1 text-right">{projectNationalityBreakdown.grandTotal}</td>
+                        <td className="py-1 text-right">100.00%</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </>
+              )}
+            </SectionCard>
+
+            <SectionCard
+              title="สัดส่วนกลุ่มแรงงาน Thai และ Foreigner"
+              subtitle={`โครงการ ${selectedProjectLabel || "-"} · รวม ${projectNationalityBreakdown.grandTotal} คน`}
+              tooltip="สรุปจำนวนพนักงานในโครงการนี้แยกตามสัญชาติไทย/ต่างชาติ โดยไม่แยกประเภทงาน ไม่นับ DC ที่มีสถานะกลุ่มงาน Staff (ต้องกรอกฟิลด์ 'สัญชาติ' ในข้อมูลพนักงาน)"
+            >
+              {projectNationalityBreakdown.grandTotal === 0 ? (
+                <div className="text-sm text-slate-500">ยังไม่มีพนักงานในโครงการนี้</div>
+              ) : (
+                <>
+                  <DonutChart
+                    data={projectNationalityDonutData}
+                    centerValue={projectNationalityBreakdown.grandTotal}
+                    centerSub="คนทั้งหมด"
+                  />
+                  <table className="mt-3 w-full text-xs">
+                    <thead>
+                      <tr className="border-b border-slate-200 text-slate-500">
+                        <th className="py-1 text-left font-semibold">กลุ่มแรงงาน</th>
+                        <th className="py-1 text-right font-semibold">จำนวน (คน)</th>
+                        <th className="py-1 text-right font-semibold">สัดส่วน (%)</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr className="border-b border-slate-100">
+                        <td className="py-1 font-semibold text-blue-700">Thai (คนไทยทั้งหมด)</td>
+                        <td className="py-1 text-right font-semibold">{projectNationalityBreakdown.thaiTotal}</td>
+                        <td className="py-1 text-right font-semibold text-blue-700">{formatPercent(projectNationalityBreakdown.thaiTotal, projectNationalityBreakdown.grandTotal)}</td>
+                      </tr>
+                      <tr className="border-b border-slate-100 text-slate-500">
+                        <td className="py-1 pl-4">- DC (Thai)</td>
+                        <td className="py-1 text-right">{projectNationalityBreakdown.dcThai}</td>
+                        <td className="py-1 text-right">-</td>
+                      </tr>
+                      <tr className="border-b border-slate-100 text-slate-500">
+                        <td className="py-1 pl-4">- Supply Thai</td>
+                        <td className="py-1 text-right">{projectNationalityBreakdown.supplyThai}</td>
+                        <td className="py-1 text-right">-</td>
+                      </tr>
+                      <tr className="border-b border-slate-100">
+                        <td className="py-1 font-semibold text-teal-700">Foreigner (ต่างชาติทั้งหมด)</td>
+                        <td className="py-1 text-right font-semibold">{projectNationalityBreakdown.foreignerTotal}</td>
+                        <td className="py-1 text-right font-semibold text-teal-700">{formatPercent(projectNationalityBreakdown.foreignerTotal, projectNationalityBreakdown.grandTotal)}</td>
+                      </tr>
+                      <tr className="border-b border-slate-100 text-slate-500">
+                        <td className="py-1 pl-4">- DC (Foreigner)</td>
+                        <td className="py-1 text-right">{projectNationalityBreakdown.dcForeigner}</td>
+                        <td className="py-1 text-right">-</td>
+                      </tr>
+                      <tr className="border-b border-slate-100 text-slate-500">
+                        <td className="py-1 pl-4">- Supply Foreigner</td>
+                        <td className="py-1 text-right">{projectNationalityBreakdown.supplyForeigner}</td>
+                        <td className="py-1 text-right">-</td>
+                      </tr>
+                      <tr className="border-t border-slate-200 font-bold">
+                        <td className="py-1 text-slate-800">รวมทั้งสิ้น</td>
+                        <td className="py-1 text-right">{projectNationalityBreakdown.grandTotal}</td>
+                        <td className="py-1 text-right">100.00%</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                  {projectNationalityBreakdown.unknownTotal > 0 && (
+                    <div className="mt-2 text-[11px] text-slate-400">
+                      * มีพนักงาน {projectNationalityBreakdown.unknownTotal} คนที่ยังไม่ได้กรอกฟิลด์ "สัญชาติ" จึงไม่ถูกนับใน Thai/Foreigner ด้านบน
+                    </div>
+                  )}
+                </>
+              )}
+            </SectionCard>
+          </div>
+
+          <div className={`grid grid-cols-1 gap-4 ${isSingleDayView ? "lg:grid-cols-2" : ""}`}>
+            <SectionCard
+              title="รายการที่ต้องติดตาม"
+              subtitle={projectFollowUpSubtitle}
+              tooltip="เป็นรายการ exception ของโครงการนี้ ใช้ติดตามเคสที่ต้องตรวจสอบเป็นรายคน"
+              headerAction={
+                <button
+                  type="button"
+                  onClick={() => setSidePanel({ key: "project-exceptions", title: "รายการที่ต้องติดตาม", subtitle: "ขยายดู exception ทั้งหมดของโครงการนี้" })}
+                  className="inline-flex items-center rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                >
+                  ดูทั้งหมด
+                </button>
+              }
+            >
+              {projectFollowUpList.length === 0 ? (
+                <div className="text-sm text-slate-500">ไม่มี exception ในช่วงนี้</div>
+              ) : (
+                <div className="max-h-[420px] overflow-auto pr-1">
+                  <table className="w-full min-w-[420px] sm:min-w-0 table-fixed text-[11px]">
+                    <thead>
+                      <tr className="sticky top-0 z-10 bg-slate-50 text-[10px] text-slate-600">
+                        <th className="px-1 py-1.5 text-left font-semibold">ชื่อ</th>
+                        <th className="w-8 px-1 py-1.5 text-center font-semibold">มา</th>
+                        {projectData.lateDataAvailable && <th className="w-8 px-1 py-1.5 text-center font-semibold">สาย</th>}
+                        <th className="w-8 px-1 py-1.5 text-center font-semibold">ขาด</th>
+                        <th className="w-8 px-1 py-1.5 text-center font-semibold">ลา</th>
+                        <th className="w-8 px-1 py-1.5 text-center font-semibold">ค้าง</th>
+                        <th className="w-10 px-1 py-1.5 text-right font-semibold">OT</th>
+                        <th className="w-4 px-0.5 py-1.5" />
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {projectFollowUpList.map((row) => {
+                        const pending = row.notRecordedDays + row.wrongProjectDays;
+                        const isBad = row.absentDays > 0 || pending > 0;
+                        const rowTone = isBad ? "bg-rose-50/40 hover:bg-rose-50" : row.leaveDays > 0 ? "bg-amber-50/30 hover:bg-amber-50" : "hover:bg-sky-50";
+                        return (
+                          <tr
+                            key={row.id}
+                            onClick={() => setSidePanel({ key: "project-exceptions", title: "รายการที่ต้องติดตาม", subtitle: "ขยายดู exception ทั้งหมดของโครงการนี้", selectedKey: row.employeeId })}
+                            className={`cursor-pointer border-t border-slate-100 ${rowTone}`}
+                            title="กดเพื่อดูรายละเอียด"
+                          >
+                            <td className="px-1 py-1.5">
+                              <div className="truncate font-medium text-slate-800">{row.name}</div>
+                              <div className="truncate text-[9px] text-slate-400">{row.employeeCode} | {row.position}</div>
+                            </td>
+                            <td className="px-1 py-1.5 text-center font-semibold text-emerald-700">{row.presentDays}</td>
+                            {projectData.lateDataAvailable && (
+                              <td className={`px-1 py-1.5 text-center font-semibold ${row.lateDays > 0 ? "text-amber-700" : "text-slate-300"}`}>{row.lateDays}</td>
+                            )}
+                            <td className={`px-1 py-1.5 text-center font-semibold ${row.absentDays > 0 ? "text-rose-700" : "text-slate-300"}`}>{row.absentDays}</td>
+                            <td className={`px-1 py-1.5 text-center font-semibold ${row.leaveDays > 0 ? "text-amber-700" : "text-slate-300"}`}>{row.leaveDays}</td>
+                            <td className={`px-1 py-1.5 text-center font-semibold ${pending > 0 ? "text-slate-600" : "text-slate-300"}`}>{pending}</td>
+                            <td className={`px-1 py-1.5 text-right font-semibold ${row.otHours > 0 ? "text-sky-700" : "text-slate-300"}`}>{row.otHours.toFixed(1)}</td>
+                            <td className="px-0.5 py-1.5 text-center text-slate-300">›</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </SectionCard>
+            {isSingleDayView && (
+              <SectionCard
+                title="พนักงานลา/ขาดวันนี้"
+                subtitle="รายการลา/ขาดของโครงการนี้ในวันนี้จริง แยกจากรายการติดตามย้อนหลัง"
+                tooltip="ช่วยให้ Project Dashboard แยกมุม operation วันนี้ ออกจากมุม follow-up ย้อนหลัง 7 วัน"
+              >
+                {projectData.todayAbsentLeaveProjectRows.length === 0 ? (
+                  <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
+                    วันนี้ยังไม่พบพนักงานลา/ขาดในโครงการนี้
+                  </div>
+                ) : (
+                  <div className="max-h-[420px] space-y-1 overflow-y-auto pr-1">
+                    {projectData.todayAbsentLeaveProjectRows.map((row) => (
+                      <div key={`${row.employeeId}-${row.status}`} className="flex items-center justify-between gap-2 rounded-lg border border-slate-200 px-2 py-1.5">
+                        <div className="min-w-0">
+                          <div className="truncate text-xs font-semibold text-slate-800">{row.fullName}</div>
+                          <div className="truncate text-[10px] text-slate-500">{row.employeeCode} | {row.position} | {row.employeeType}</div>
+                        </div>
+                        <span className={`shrink-0 inline-flex rounded-full px-2 py-0.5 text-[10px] font-medium ${row.status === "ไม่มา" ? "border border-rose-200 bg-rose-50 text-rose-700" : "border border-amber-200 bg-amber-50 text-amber-700"}`}>
+                          {row.status}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </SectionCard>
+            )}
+          </div>
+
           <SectionCard
             title={isSingleDayView ? "Coverage Trend รายเดือน" : "Coverage Trend"}
             subtitle={`${isSingleDayView ? "แสดงเดือนนี้เพื่อดูแนวโน้มต่อเนื่อง" : "ดู coverage ตามช่วงที่เลือก"} | target เฉลี่ย ${projectData.coverageTargetPerDay.toFixed(1)} คน/วัน`}
@@ -5749,100 +5923,6 @@ export const ManpowerDashboard = ({
                 </div>
               )}
             </SectionCard>
-          </div>
-
-          <div className={`grid grid-cols-1 gap-4 ${isSingleDayView ? "lg:grid-cols-2" : ""}`}>
-            <SectionCard
-              title="รายการที่ต้องติดตาม"
-              subtitle={projectFollowUpSubtitle}
-              tooltip="เป็นรายการ exception ของโครงการนี้ ใช้ติดตามเคสที่ต้องตรวจสอบเป็นรายคน"
-              headerAction={
-                <button
-                  type="button"
-                  onClick={() => setSidePanel({ key: "project-exceptions", title: "รายการที่ต้องติดตาม", subtitle: "ขยายดู exception ทั้งหมดของโครงการนี้" })}
-                  className="inline-flex items-center rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
-                >
-                  ดูทั้งหมด
-                </button>
-              }
-            >
-              {projectFollowUpList.length === 0 ? (
-                <div className="text-sm text-slate-500">ไม่มี exception ในช่วงนี้</div>
-              ) : (
-                <div className="max-h-[420px] overflow-auto pr-1">
-                  <table className="w-full min-w-[420px] sm:min-w-0 table-fixed text-[11px]">
-                    <thead>
-                      <tr className="sticky top-0 z-10 bg-slate-50 text-[10px] text-slate-600">
-                        <th className="px-1 py-1.5 text-left font-semibold">ชื่อ</th>
-                        <th className="w-8 px-1 py-1.5 text-center font-semibold">มา</th>
-                        {projectData.lateDataAvailable && <th className="w-8 px-1 py-1.5 text-center font-semibold">สาย</th>}
-                        <th className="w-8 px-1 py-1.5 text-center font-semibold">ขาด</th>
-                        <th className="w-8 px-1 py-1.5 text-center font-semibold">ลา</th>
-                        <th className="w-8 px-1 py-1.5 text-center font-semibold">ค้าง</th>
-                        <th className="w-10 px-1 py-1.5 text-right font-semibold">OT</th>
-                        <th className="w-4 px-0.5 py-1.5" />
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {projectFollowUpList.map((row) => {
-                        const pending = row.notRecordedDays + row.wrongProjectDays;
-                        const isBad = row.absentDays > 0 || pending > 0;
-                        const rowTone = isBad ? "bg-rose-50/40 hover:bg-rose-50" : row.leaveDays > 0 ? "bg-amber-50/30 hover:bg-amber-50" : "hover:bg-sky-50";
-                        return (
-                          <tr
-                            key={row.id}
-                            onClick={() => setSidePanel({ key: "project-exceptions", title: "รายการที่ต้องติดตาม", subtitle: "ขยายดู exception ทั้งหมดของโครงการนี้", selectedKey: row.employeeId })}
-                            className={`cursor-pointer border-t border-slate-100 ${rowTone}`}
-                            title="กดเพื่อดูรายละเอียด"
-                          >
-                            <td className="px-1 py-1.5">
-                              <div className="truncate font-medium text-slate-800">{row.name}</div>
-                              <div className="truncate text-[9px] text-slate-400">{row.employeeCode} | {row.position}</div>
-                            </td>
-                            <td className="px-1 py-1.5 text-center font-semibold text-emerald-700">{row.presentDays}</td>
-                            {projectData.lateDataAvailable && (
-                              <td className={`px-1 py-1.5 text-center font-semibold ${row.lateDays > 0 ? "text-amber-700" : "text-slate-300"}`}>{row.lateDays}</td>
-                            )}
-                            <td className={`px-1 py-1.5 text-center font-semibold ${row.absentDays > 0 ? "text-rose-700" : "text-slate-300"}`}>{row.absentDays}</td>
-                            <td className={`px-1 py-1.5 text-center font-semibold ${row.leaveDays > 0 ? "text-amber-700" : "text-slate-300"}`}>{row.leaveDays}</td>
-                            <td className={`px-1 py-1.5 text-center font-semibold ${pending > 0 ? "text-slate-600" : "text-slate-300"}`}>{pending}</td>
-                            <td className={`px-1 py-1.5 text-right font-semibold ${row.otHours > 0 ? "text-sky-700" : "text-slate-300"}`}>{row.otHours.toFixed(1)}</td>
-                            <td className="px-0.5 py-1.5 text-center text-slate-300">›</td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </SectionCard>
-            {isSingleDayView && (
-              <SectionCard
-                title="พนักงานลา/ขาดวันนี้"
-                subtitle="รายการลา/ขาดของโครงการนี้ในวันนี้จริง แยกจากรายการติดตามย้อนหลัง"
-                tooltip="ช่วยให้ Project Dashboard แยกมุม operation วันนี้ ออกจากมุม follow-up ย้อนหลัง 7 วัน"
-              >
-                {projectData.todayAbsentLeaveProjectRows.length === 0 ? (
-                  <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
-                    วันนี้ยังไม่พบพนักงานลา/ขาดในโครงการนี้
-                  </div>
-                ) : (
-                  <div className="max-h-[420px] space-y-1 overflow-y-auto pr-1">
-                    {projectData.todayAbsentLeaveProjectRows.map((row) => (
-                      <div key={`${row.employeeId}-${row.status}`} className="flex items-center justify-between gap-2 rounded-lg border border-slate-200 px-2 py-1.5">
-                        <div className="min-w-0">
-                          <div className="truncate text-xs font-semibold text-slate-800">{row.fullName}</div>
-                          <div className="truncate text-[10px] text-slate-500">{row.employeeCode} | {row.position} | {row.employeeType}</div>
-                        </div>
-                        <span className={`shrink-0 inline-flex rounded-full px-2 py-0.5 text-[10px] font-medium ${row.status === "ไม่มา" ? "border border-rose-200 bg-rose-50 text-rose-700" : "border border-amber-200 bg-amber-50 text-amber-700"}`}>
-                          {row.status}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </SectionCard>
-            )}
           </div>
         </div>
       )}
