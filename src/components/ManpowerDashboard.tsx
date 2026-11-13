@@ -568,6 +568,25 @@ const normalizeEmployeeType = (emp: Employee): string => {
   return "ไม่ระบุ";
 };
 
+const STAFF_GROUP_TYPES = ["Staff Monthly", "DC Daily - Staff"] as const;
+const LABOUR_GROUP_TYPES = ["DC Daily - Worker", "Supply manpower", "Sub contractor"] as const;
+
+const sumBreakdownGroup = (
+  rows: Array<{ label: string; employees: number; present: number }>,
+  types: readonly string[]
+) => {
+  const typeSet = new Set<string>(types);
+  return rows.reduce(
+    (acc, row) => {
+      if (!typeSet.has(row.label)) return acc;
+      acc.employees += row.employees;
+      acc.present += row.present;
+      return acc;
+    },
+    { employees: 0, present: 0 }
+  );
+};
+
 const inferGender = (emp: Employee): string => {
   const explicit = String(emp.gender || emp.เพศ || "").trim().toLowerCase();
   if (explicit === "male" || explicit === "ชาย" || explicit === "m") return "ชาย";
@@ -5157,7 +5176,7 @@ export const ManpowerDashboard = ({
                   <div className="inline-flex items-center gap-1 text-[9px] lg:text-[10px] font-black uppercase tracking-wide text-slate-500">
                     <span>{isSingleDayView ? "คนมาทำงานวันนี้" : "จำนวนมาทำงานรวม"}</span>
                     <InfoTooltip
-                      content="ตัวเลขหลักคือจำนวนมาทำงานของโครงการในช่วงที่เลือก ส่วนกำลังคนประจำโครงการคือจำนวนคนที่ assign อยู่ในโครงการ และอัตรามาทำงาน = จำนวนมา / scheduled workforce"
+                      content="ตัวเลขหลักคือจำนวนมาทำงานของโครงการในช่วงที่เลือก กำลังคนคือจำนวนคนที่ assign อยู่ในโครงการ อัตรามา = จำนวนมา / scheduled workforce แถว Staff และ Labour คือ จำนวนมา / กำลังคนของกลุ่มนั้น Staff = Staff Monthly + DC Daily - Staff, Labour = DC Daily - Worker + Supply manpower + Sub contractor"
                       iconSize={11}
                     />
                   </div>
@@ -5167,6 +5186,33 @@ export const ManpowerDashboard = ({
                     <span className="text-slate-300">·</span>
                     <span>อัตรามา <span className="font-bold text-emerald-700">{formatPercent(projectData.present, projectData.totalSlots)}</span></span>
                   </div>
+                  {(() => {
+                    const staff = sumBreakdownGroup(projectData.breakdownByType, STAFF_GROUP_TYPES);
+                    const labour = sumBreakdownGroup(projectData.breakdownByType, LABOUR_GROUP_TYPES);
+                    const otherEmployees = projectData.scopedEmployees.length - staff.employees - labour.employees;
+                    const otherPresent = projectData.present - staff.present - labour.present;
+                    const groupLine = (label: string, present: number, employees: number, presentClass: string) => (
+                      <span>
+                        {label}{" "}
+                        <span className={`font-bold ${presentClass}`}>{present}</span>
+                        <span className="text-slate-300">/</span>
+                        <span className="font-bold text-slate-800">{employees}</span>
+                      </span>
+                    );
+                    return (
+                      <div className="mt-0.5 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[9px] lg:text-[10px] leading-tight lg:leading-4 text-slate-500">
+                        {groupLine("Staff", staff.present, staff.employees, "text-violet-700")}
+                        <span className="text-slate-300">·</span>
+                        {groupLine("Labour", labour.present, labour.employees, "text-sky-700")}
+                        {otherEmployees > 0 && (
+                          <>
+                            <span className="text-slate-300">·</span>
+                            {groupLine("อื่นๆ", otherPresent, otherEmployees, "text-slate-600")}
+                          </>
+                        )}
+                      </div>
+                    );
+                  })()}
                 </div>
                 <div className="hidden lg:block rounded-md border border-emerald-200 bg-emerald-50 p-1">
                   <CheckCircle size={14} className="text-emerald-700" />
@@ -5289,8 +5335,8 @@ export const ManpowerDashboard = ({
               };
             };
             const typeGroupDefs = [
-              { key: "staff", label: "กลุ่ม Staff", types: ["Staff Monthly", "DC Daily - Staff"] },
-              { key: "labour", label: "กลุ่ม Labour", types: ["DC Daily - Worker", "Supply manpower", "Sub contractor"] },
+              { key: "staff", label: "กลุ่ม Staff", types: [...STAFF_GROUP_TYPES] },
+              { key: "labour", label: "กลุ่ม Labour", types: [...LABOUR_GROUP_TYPES] },
             ];
             const typeRowsByLabel = new Map(sortedBreakdown.map((row) => [row.label, row]));
             const usedTypeLabels = new Set<string>();
