@@ -1,7 +1,7 @@
 import JSZip from "jszip";
 import { getApplicableRequirements, groupRequirements } from "../components/projectDocumentConfig";
 import type { ProjectDocumentRequirement } from "../components/projectDocumentConfig";
-import { isMigrantNationality } from "../components/trainingBatchConfig";
+import { isMigrantNationality, sortEnrollmentsByEmployeeType } from "../components/trainingBatchConfig";
 import type { TrainingEnrollment, HealthCheckRecord } from "../components/trainingBatchConfig";
 import type { EmployeeRow } from "../components/TrainingBatchPage";
 
@@ -11,11 +11,12 @@ export const generateTrainingSubmissionZip = async (
   requirements: ProjectDocumentRequirement[], healthRecords: Map<string, HealthCheckRecord>, warnings: string[] = []
 ): Promise<Uint8Array> => {
   if (!enrollments.length) throw new Error("กรุณาเพิ่มรายชื่อผู้เข้าอบรมก่อนดาวน์โหลด");
+  const ordered = sortEnrollmentsByEmployeeType(enrollments, employees);
   const employeeById = new Map(employees.map((employee) => [employee.id, employee]));
   const safeName = (name: string) => name.replace(/[\\/:*?"<>|]/g, "_").replace(/^[. ]+|[. ]+$/g, "") || "document";
   const missing: string[] = [];
   const documents: Array<{ path: string; url: string; label: string }> = [];
-  enrollments.forEach((enrollment, personIndex) => {
+  ordered.forEach((enrollment, personIndex) => {
     const employee = employeeById.get(enrollment.employeeId);
     if (!employee) {
       missing.push(`${enrollment.employeeName} — ไม่พบข้อมูลพนักงาน`);

@@ -312,6 +312,36 @@ export function isMigrantNationality(nationality: unknown): boolean {
   return !THAI_NATIONALITY_ALIASES.includes(value.toLowerCase());
 }
 
+// ลำดับรายชื่อที่ใช้ร่วมกันทั้งรายการบนหน้าจอ ใบปะหน้า และใบรายคน
+// รหัสรายเดือน -> รหัส DC -> รหัส SP -> รหัส SC (หาประเภทไม่ได้ให้ต่อท้าย)
+// ภายในกลุ่มเดียวกันเรียงเลขรหัสพนักงานน้อยไปมาก
+const TRAINING_ENROLLMENT_TYPE_ORDER = ["Indirect", "Direct_TeamLeader", "Direct_SupplyDC", "Direct_SubContractor"];
+
+const enrollmentCodeNumber = (code: string | undefined): number => {
+  const digits = String(code || "").match(/\d+/g)?.join("") || "";
+  return digits ? Number(digits) : Infinity;
+};
+
+export function sortEnrollmentsByEmployeeType<T extends { employeeId: string; employeeCode?: string }>(
+  enrollments: T[],
+  employees: ReadonlyArray<{ id: string; employee_type?: string }>
+): T[] {
+  const employeeTypeById = new Map(employees.map((employee) => [employee.id, employee.employee_type || ""]));
+  const rank = (enrollment: T): number => {
+    const idx = TRAINING_ENROLLMENT_TYPE_ORDER.indexOf(employeeTypeById.get(enrollment.employeeId) || "");
+    return idx === -1 ? TRAINING_ENROLLMENT_TYPE_ORDER.length : idx;
+  };
+  return [...enrollments]
+    .map((enrollment, index) => ({
+      enrollment,
+      index,
+      rank: rank(enrollment),
+      code: enrollmentCodeNumber(enrollment.employeeCode),
+    }))
+    .sort((a, b) => (a.rank !== b.rank ? a.rank - b.rank : a.code !== b.code ? a.code - b.code : a.index - b.index))
+    .map((item) => item.enrollment);
+}
+
 // ดึงรายชื่อโครงการของพนักงาน 1 คน ให้ครอบคลุมฟิลด์เก่า/ใหม่ที่ใช้อยู่ในระบบ (โครงการ,
 // โครงการปัจจุบัน, สถานะโครงการ[]) เพื่อให้กรองคนตามโครงการได้ครบไม่ว่าโมดูลต้นทางจะเขียนฟิลด์ไหน
 export function employeeProjectNames(e: {

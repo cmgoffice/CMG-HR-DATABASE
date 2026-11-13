@@ -1,5 +1,6 @@
 import JSZip from "jszip";
 import type { TrainingBatch, TrainingEnrollment } from "../components/trainingBatchConfig";
+import { sortEnrollmentsByEmployeeType } from "../components/trainingBatchConfig";
 import type { EmployeeRow } from "../components/TrainingBatchPage";
 
 const escapeXml = (value: string) => value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
@@ -10,7 +11,8 @@ const setText = (xml: string, address: string, value: string): string => xml.rep
 );
 
 export const generateCardReceiptFormXlsx = async (batch: TrainingBatch, people: TrainingEnrollment[], employees: EmployeeRow[]): Promise<Uint8Array> => {
-  if (!people.length) throw new Error("กรุณาเพิ่มรายชื่อผู้เข้าอบรมก่อนดาวน์โหลดใบลงชื่อรับบัตร");
+  const ordered = sortEnrollmentsByEmployeeType(people, employees);
+  if (!ordered.length) throw new Error("กรุณาเพิ่มรายชื่อผู้เข้าอบรมก่อนดาวน์โหลดใบลงชื่อรับบัตร");
   const response = await fetch(`${process.env.PUBLIC_URL || ""}/templates/training/j74-card-receipt-form.xlsx`);
   if (!response.ok) throw new Error("โหลดแบบฟอร์มใบลงชื่อรับบัตรไม่สำเร็จ");
   const zip = await JSZip.loadAsync(await response.arrayBuffer());
@@ -20,13 +22,13 @@ export const generateCardReceiptFormXlsx = async (batch: TrainingBatch, people: 
   let rels = await zip.file("xl/_rels/workbook.xml.rels")!.async("text");
   let contentTypes = await zip.file("[Content_Types].xml")!.async("text");
   const employeeById = new Map(employees.map((employee) => [employee.id, employee]));
-  const pages = Math.ceil(people.length / ROWS_PER_SHEET);
+  const pages = Math.ceil(ordered.length / ROWS_PER_SHEET);
   for (let page = 0; page < pages; page += 1) {
     let sheet = setText(template, "A1", `แบบฟอร์มใบลงชื่อรับบัตรพนักงาน CMG (J74) อบรม ${batch.date || ""}${pages > 1 ? ` — ชุดที่ ${page + 1}` : ""}`);
     sheet = sheet.replace(/<pageSetup\b([^>]*?)\/>/, (_match, attrs: string) =>
       `<pageSetup${attrs.replace(/\s+(?:scale|fitToWidth|fitToHeight)="[^"]*"/g, "")} fitToWidth="1" fitToHeight="1"/>`);
     for (let index = 0; index < ROWS_PER_SHEET; index += 1) {
-      const person = people[page * ROWS_PER_SHEET + index];
+      const person = ordered[page * ROWS_PER_SHEET + index];
       const employee = person && employeeById.get(person.employeeId);
       const nameEnglish = `${employee?.ชื่ออังกฤษ || ""} ${employee?.นามสกุลอังกฤษ || ""}`.trim();
       const values: Record<string, string> = person ? {

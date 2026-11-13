@@ -1,13 +1,10 @@
 // Auto-fill PDF ของ "ใบปะหน้า" เฉพาะโครงการ HUASHI Building B (J-078) — ใช้วิธี "overlay" เขียนทับ
-// บนไฟล์ฟอร์มต้นฉบับจริงของลูกค้า "Training Request Form rev.01.pdf" ทุกอย่าง (สี/เส้นตาราง/โลโก้
-// HUASHI/ป้ายข้อความ) คงเดิมเป๊ะเพราะใช้หน้าเพจจริงจากไฟล์ต้นฉบับเป็นพื้นหลัง ไม่ได้วาดขึ้นใหม่
-// (พิกัดคอลัมน์/แถวด้านล่างยังใช้วัดตำแหน่งที่จะเขียนทับข้อมูลให้ตรงช่องเป๊ะ — วัดจากไฟล์จริงด้วย pdfjs-dist)
-// rev.01 (04/11/2569) ขยับช่อง "พื้นที่ปฏิบัติงาน/Location" ให้กว้างขึ้นมาก (46 -> ~128pt) เพื่อให้เขียน
-// ชื่อพื้นที่ทำงานได้ครบ แลกกับช่อง "เวลา/Time" และคอลัมน์ "Company" ในตารางที่แคบลง — ตารางข้อมูลใน
-// rev.01 มี 19 แถว/หน้า (จากเดิม 20 แถว เพราะความสูงแถวเพิ่มจาก 18pt เป็น ~18.48pt) พิกัดทั้งหมดด้านล่าง
-// วัดใหม่จากไฟล์ rev.01 ทั้งหมด (ทั้งข้อความด้วย pdfjs text content และเส้นตารางด้วยการสแกนพิกเซลภาพ
-// ที่ render จากไฟล์จริง) — หน้าเพจเดิมมี 2 หน้า (หน้า 2 มีแค่ 4 แถวว่างและไม่มีโลโก้) — ใช้แค่หน้า 1
-// (19 แถว มีโลโก้ครบ) เป็นแม่แบบ แล้ว copy ซ้ำเองถ้าคนในรอบเกิน 19 คน เพื่อให้ทุกหน้าหน้าตาเหมือนกันและมีโลโก้ครบทุกหน้า
+// บนไฟล์ฟอร์มต้นฉบับจริงของลูกค้า ทุกอย่าง (สี/เส้นตาราง/โลโก้ HUASHI/ป้ายข้อความ) คงเดิมเป๊ะเพราะใช้
+// หน้าเพจจริงจากไฟล์ต้นฉบับเป็นพื้นหลัง ไม่ได้วาดขึ้นใหม่
+// เทมเพลตปัจจุบันคือ "Training Request Form rev.0 edit 1" ที่ขยายช่องชื่อ-นามสกุลให้กว้างขึ้น
+// (คอลัมน์ Name+Last name ~204pt, ยังไม่มีเส้นกั้นกลาง — แบ่งครึ่งตามตำแหน่งหัวตาราง) และเหลือ 21 แถว/หน้า
+// พิกัดวัดจากเส้นตารางจริงในไฟล์ (pdfjs operator list) — ตัวอักษรจัดกึ่งกลางช่อง ทั้งหัวฟอร์มและตาราง
+// ตำแหน่งที่ยาวเกินหนึ่งบรรทัดจะตัดเป็น 2 บรรทัดในแถวเดียวกัน แทนการตัดด้วย "…"
 // ต่างจากใบปะหน้าแบบทั่วไปตรงที่มีคอลัมน์ "Identity verification document" แยกย่อย 4 ช่อง
 // (Passport+Visa / Pink card / Permit Verification Pending / No Work Permit) สำหรับแรงงานต่างด้าว
 // ซึ่งคำนวณอัตโนมัติจากข้อมูลเอกสารแรงงานต่างด้าวที่มีอยู่แล้วในระบบ (migrant_documents)
@@ -16,7 +13,7 @@ import { LineCapStyle, PDFDocument, PDFFont, PDFPage, rgb } from "pdf-lib";
 import fontkit from "@pdf-lib/fontkit";
 import { sarabunLatinRegularUrl, sarabunLatinBoldUrl } from "./thaiFonts";
 import type { TrainingBatch, TrainingEnrollment } from "../components/trainingBatchConfig";
-import { isMigrantNationality } from "../components/trainingBatchConfig";
+import { isMigrantNationality, sortEnrollmentsByEmployeeType } from "../components/trainingBatchConfig";
 import type { EmployeeRow } from "../components/TrainingBatchPage";
 
 // โครงการที่ใช้แบบฟอร์มนี้ — จับคู่แบบ "มีคำนี้อยู่ใน batch.project" (ไม่สนตัวพิมพ์เล็ก/ใหญ่)
@@ -52,11 +49,7 @@ interface PdfFontSet {
 }
 
 // แนวนอน (Landscape) — ขนาดหน้าตรงกับไฟล์ต้นฉบับจริงเป๊ะ (วัดจาก mediaBox ของ PDF ที่ลูกค้าส่งมา)
-const PAGE_WIDTH = 841.68;
 const PAGE_HEIGHT = 595.2;
-// พิกัดซ้าย/ขวาของป้ายข้อมูลหัวฟอร์ม (Course/Date/Trainer ฯลฯ) — วัดจากไฟล์ต้นฉบับ (rev.01)
-const FIELD_LEFT = 48.24;
-const FIELD_RIGHT = 818.6;
 const TEXT_COLOR = rgb(0.05, 0.05, 0.15);
 const CHECK_COLOR = rgb(0.75, 0, 0);
 
@@ -98,28 +91,6 @@ const fitText = (fonts: PdfFontSet, text: string, maxWidth: number, size: number
   let cut = text.length;
   while (cut > 0 && textWidth(fonts, text.slice(0, cut) + "…", size) > maxWidth) cut -= 1;
   return text.slice(0, cut) + "…";
-};
-
-// หมายเหตุ: เดิมฟังก์ชันนี้มี fitSizeForText() คอยย่อขนาดฟอนต์ลงทีละ 0.5pt จนพอดีช่อง (ตัดคำด้วย "…"
-// เฉพาะตอนย่อสุดแล้วยังไม่พอ) — ทำให้แต่ละแถว/แต่ละช่องมีขนาดตัวอักษรไม่เท่ากัน (ชื่อสั้นได้ตัวใหญ่ ชื่อยาว
-// ได้ตัวเล็ก) ตามที่ผู้ใช้แจ้งว่าดูไม่เรียบร้อย — เปลี่ยนเป็นใช้ "ขนาดคงที่" (options.maxSize) เสมอทุกช่อง
-// ถ้าข้อความยาวเกินช่องถึงค่อยตัดด้วย "…" ที่ขนาดเดิมแทนการย่อฟอนต์ลง
-const drawFittedCellText = (
-  page: PDFPage,
-  fonts: PdfFontSet,
-  text: string,
-  options: { x: number; width: number; y: number; maxSize: number; align?: "left" | "center" }
-) => {
-  if (!text) return;
-  const maxW = options.width - 6;
-  const size = options.maxSize;
-  const display = textWidth(fonts, text, size) <= maxW ? text : fitText(fonts, text, maxW, size);
-  drawText(page, fonts, display, {
-    x: options.align === "center" ? options.x + options.width / 2 : options.x + 3,
-    y: options.y,
-    size,
-    align: options.align,
-  });
 };
 
 // เครื่องหมายติ๊กเอกสาร — วาดเป็นเส้นตรง 2 เส้นต่อกันเป็นรูปเครื่องหมายถูก (✓) เอง ไม่ใช้ font วาดตัวอักษร
@@ -216,19 +187,14 @@ const resolveIdVerificationFlags = (emp: EmployeeRow | undefined): IdVerificatio
 };
 
 // ---------------------------------------------------------------------------
-// ตาราง — ขอบเขต/ความกว้างคอลัมน์วัดมาจากเส้นตารางจริงในไฟล์ PDF ต้นฉบับ rev.01 (ยืนยันสองทาง:
-// pdfjs operator list ของเส้นตาราง + สแกนพิกเซลภาพที่ render จากไฟล์จริงด้วย @napi-rs/canvas)
-// หมายเหตุ: คอลัมน์ "Name" กับ "Last name" ในต้นฉบับไม่มีเส้นแบ่งกั้นระหว่างกันจริง ๆ (ใช้ซี
-// ลล์กว้างเดียวแบ่งด้วยตำแหน่งป้ายชื่อหัวตารางเท่านั้น) — ในการวาดจึงแบ่งพื้นที่ครึ่งหนึ่งเอง
-// rev.01 จัดสรรความกว้างคอลัมน์ใหม่ (ไม่ใช่แค่ช่อง Location ด้านบน): ID Card/Ethnicity/4 คอลัมน์
-// เอกสารยืนยันตัวตนกว้างขึ้น ส่วน Company/Position แคบลง (Company เหลือ ~65pt — ชื่อยาวอย่าง
-// "CMG Engineering & Construction" จะถูกย่อขนาดฟอนต์ลงจนอาจตัดคำ "…" ตามกลไก fitFittedCellText เดิม)
+// ตาราง — ขอบซ้ายของเส้นตั้งแต่ละเส้น วัดจากไฟล์ "rev.0 edit 1" (เส้นหนา 0.72pt)
+// ขอบขวาสุดคือปลายเส้นแนวตั้งเส้นสุดท้าย
+// Name กับ Last name ยังไม่มีเส้นกั้น — แบ่งที่กึ่งกลางระหว่างหัวคอลัมน์ทั้งสอง
+// (หัว "Name" อยู่ราว x=191, หัว "Last name" อยู่ราว x=293)
 // ---------------------------------------------------------------------------
-const TABLE_LEFT = 17.8;
-const TABLE_RIGHT = 818.6;
-const TABLE_WIDTH = TABLE_RIGHT - TABLE_LEFT;
-// เส้นแบ่งคอลัมน์จริงจากไฟล์ต้นฉบับ rev.01 (11 เส้น รวมขอบซ้าย/ขวา = 10 คอลัมน์ที่มีเส้นกั้น)
-const COL_BOUNDS = [17.8, 46.3, 165.5, 315.5, 380.3, 445.2, 502.8, 562.5, 622.3, 682.1, 741.9, 818.6];
+const TABLE_RIGHT = 823.92;
+const COL_BOUNDS = [17.04, 44.64, 139.22, 343.3, 404.28, 488.3, 542.54, 594.65, 646.73, 698.83, 750.94, 823.92];
+const NAME_LAST_SPLIT_X = 241.95;
 const COLS = [
   { key: "no", label: "No", x: COL_BOUNDS[0], width: COL_BOUNDS[1] - COL_BOUNDS[0] },
   { key: "idCard", label: "ID Card", x: COL_BOUNDS[1], width: COL_BOUNDS[2] - COL_BOUNDS[1] },
@@ -243,10 +209,13 @@ const COLS = [
   { key: "signature", label: "Signature", x: COL_BOUNDS[10], width: COL_BOUNDS[11] - COL_BOUNDS[10] },
 ] as const;
 
-// ความสูงแถว วัดจากเส้นตารางจริง rev.01: ตัวตารางข้อมูล 19 แถว x ~18.48pt ต่อหน้า
-// (rev.0 เดิมมี 20 แถว x 18pt — rev.01 แถวสูงขึ้นเล็กน้อยเลยเหลือพื้นที่พอแค่ 19 แถว/หน้า)
-const ROWS_PER_PAGE = 19;
-const ROW_HEIGHT = 18.48;
+// เส้นนอนของตารางข้อมูล: เส้นบนแถวแรกอยู่ที่ y=388.97 เส้นล่างสุดอยู่ที่ y=20.90 รวม 21 แถว
+const ROWS_PER_PAGE = 21;
+const ROW_HEIGHT = (388.97 - 20.9) / ROWS_PER_PAGE;
+const ROW_STROKE = 0.72;
+const CELL_FONT_SIZE = 8;
+const POSITION_FONT_SIZE = 6.5;
+const POSITION_LINE_GAP = 7.2;
 
 interface RowValues {
   no: string;
@@ -259,41 +228,106 @@ interface RowValues {
   idVerification: IdVerificationFlags | null;
 }
 
+// ขอบบนของช่องข้อมูล (ด้านล่างของเส้นบน) และกึ่งกลางช่อง — ใช้จัดตัวอักษรให้อยู่กลางแถว
+const rowCenterY = (topY: number): number => topY - (ROW_HEIGHT - ROW_STROKE) / 2;
+
+const baselineForSize = (centerY: number, size: number): number => centerY - size * 0.32;
+
+// แบ่งข้อความเป็น 2 บรรทัดให้แต่ละบรรทัดกว้างไม่เกินช่อง เลือกจุดตัดที่สมดุลที่สุด
+// (เว้นวรรค, /, -) ถ้าไม่มีจุดตัดที่พอดีจะตัดตามความกว้างแล้วใส่ "…" ที่บรรทัดที่ยังล้น
+const splitIntoTwoLines = (fonts: PdfFontSet, text: string, maxWidth: number, size: number): [string, string] | null => {
+  if (textWidth(fonts, text, size) <= maxWidth) return null;
+  const breaks: number[] = [];
+  for (let i = 1; i < text.length; i += 1) {
+    const ch = text[i];
+    const prev = text[i - 1];
+    if (ch === " " || ch === "/" || ch === "-" || prev === "/" || prev === "-") breaks.push(i);
+  }
+  let best: [string, string] | null = null;
+  let bestScore = Infinity;
+  breaks.forEach((index) => {
+    const left = text.slice(0, index).trim();
+    const right = text.slice(index).trim();
+    if (!left || !right) return;
+    const leftWidth = textWidth(fonts, left, size);
+    const rightWidth = textWidth(fonts, right, size);
+    if (leftWidth <= maxWidth && rightWidth <= maxWidth) {
+      const score = Math.abs(leftWidth - rightWidth);
+      if (score < bestScore) {
+        bestScore = score;
+        best = [left, right];
+      }
+    }
+  });
+  if (best) return best;
+  let cut = text.length - 1;
+  while (cut > 1 && textWidth(fonts, text.slice(0, cut).trim(), size) > maxWidth) cut -= 1;
+  const left = text.slice(0, cut).trim();
+  const right = text.slice(cut).trim();
+  if (!left || !right) return [fitText(fonts, text, maxWidth, size), ""];
+  return [left, textWidth(fonts, right, size) <= maxWidth ? right : fitText(fonts, right, maxWidth, size)];
+};
+
+const drawCenteredCell = (
+  page: PDFPage,
+  fonts: PdfFontSet,
+  text: string,
+  box: { x: number; width: number },
+  baseline: number,
+  size: number
+) => {
+  if (!text) return;
+  const maxW = Math.max(4, box.width - 4);
+  const display = textWidth(fonts, text, size) <= maxW ? text : fitText(fonts, text, maxW, size);
+  drawText(page, fonts, display, { x: box.x + box.width / 2, y: baseline, size, align: "center" });
+};
+
+const drawPositionCell = (page: PDFPage, fonts: PdfFontSet, text: string, box: { x: number; width: number }, topY: number) => {
+  if (!text) return;
+  const maxW = Math.max(4, box.width - 4);
+  const center = rowCenterY(topY);
+  if (textWidth(fonts, text, CELL_FONT_SIZE) <= maxW) {
+    drawCenteredCell(page, fonts, text, box, baselineForSize(center, CELL_FONT_SIZE), CELL_FONT_SIZE);
+    return;
+  }
+  const lines = splitIntoTwoLines(fonts, text, maxW, POSITION_FONT_SIZE);
+  if (!lines) {
+    drawCenteredCell(page, fonts, text, box, baselineForSize(center, POSITION_FONT_SIZE), POSITION_FONT_SIZE);
+    return;
+  }
+  const mid = baselineForSize(center, POSITION_FONT_SIZE);
+  drawCenteredCell(page, fonts, lines[0], box, mid + POSITION_LINE_GAP / 2, POSITION_FONT_SIZE);
+  if (lines[1]) drawCenteredCell(page, fonts, lines[1], box, mid - POSITION_LINE_GAP / 2, POSITION_FONT_SIZE);
+};
+
 // เขียนทับข้อมูล 1 แถวลงบนตารางที่มีอยู่แล้วในไฟล์ต้นฉบับ (ไม่ต้องวาดเส้น/กรอบเองเพราะพื้นหลังมีอยู่แล้ว)
 const drawTableRow = (page: PDFPage, regular: PdfFontSet, topY: number, values: RowValues): number => {
-  const cellTextY = topY - ROW_HEIGHT + 6;
-  const checkCenterY = topY - ROW_HEIGHT / 2;
+  const baseline = baselineForSize(rowCenterY(topY), CELL_FONT_SIZE);
+  const checkCenterY = rowCenterY(topY);
 
   COLS.forEach((col) => {
     switch (col.key) {
       case "no":
-        drawFittedCellText(page, regular, values.no, { x: col.x, width: col.width, y: cellTextY, maxSize: 8, align: "center" });
-        break;
       case "idCard":
-        drawFittedCellText(page, regular, values.idCard, { x: col.x, width: col.width, y: cellTextY, maxSize: 8, align: "center" });
+      case "ethnicity":
+        drawCenteredCell(page, regular, values[col.key], col, baseline, CELL_FONT_SIZE);
         break;
       case "nameLast": {
-        // ไม่มีเส้นกั้นในต้นฉบับ — แบ่งพื้นที่ครึ่งซ้าย/ขวาเองสำหรับ Name / Last name
-        const halfW = col.width / 2;
-        drawFittedCellText(page, regular, values.name, { x: col.x, width: halfW, y: cellTextY, maxSize: 8 });
-        drawFittedCellText(page, regular, values.lastName, { x: col.x + halfW, width: halfW, y: cellTextY, maxSize: 8 });
+        const nameBox = { x: col.x, width: NAME_LAST_SPLIT_X - col.x };
+        const lastBox = { x: NAME_LAST_SPLIT_X, width: col.x + col.width - NAME_LAST_SPLIT_X };
+        drawCenteredCell(page, regular, values.name, nameBox, baseline, CELL_FONT_SIZE);
+        drawCenteredCell(page, regular, values.lastName, lastBox, baseline, CELL_FONT_SIZE);
         break;
       }
       case "company": {
-        // rev.01 ทำคอลัมน์ "Company" แคบลงเหลือ ~65pt (จากเดิม ~115pt) ชื่อเต็ม "CMG Engineering &
-        // Construction" ที่ TrainingBatchPage.tsx เขียนให้ทุกคนเสมอ (ดู company: "CMG Engineering &
-        // Construction" ที่นั่น) จะไม่พอดีช่องแม้ย่อฟอนต์จนสุด (6pt) แล้ว — ย่อเหลือ "CMG" เฉพาะตอนวาด
-        // ลงใบปะหน้า HUASHI ใบนี้เท่านั้น ไม่แก้ค่าต้นทาง (enrollment.company) เพื่อไม่กระทบใบอื่น/
-        // หน้าจออื่นที่ยังใช้ชื่อเต็มอยู่ (เช่น trainingNameListPdf.ts, accessBadgeRequestPdf.ts)
+        // คอลัมน์ Company แคบ (~60pt) ชื่อเต็ม "CMG Engineering & Construction" ไม่พอดีช่อง
+        // ย่อเหลือ "CMG" เฉพาะตอนวาดลงใบนี้ ไม่แก้ค่าต้นทางเพื่อไม่กระทบใบอื่น
         const companyDisplay = values.company.trim().toUpperCase().startsWith("CMG") ? "CMG" : values.company;
-        drawFittedCellText(page, regular, companyDisplay, { x: col.x, width: col.width, y: cellTextY, maxSize: 8, align: "center" });
+        drawCenteredCell(page, regular, companyDisplay, col, baseline, CELL_FONT_SIZE);
         break;
       }
       case "position":
-        drawFittedCellText(page, regular, values.position, { x: col.x, width: col.width, y: cellTextY, maxSize: 8 });
-        break;
-      case "ethnicity":
-        drawFittedCellText(page, regular, values.ethnicity, { x: col.x, width: col.width, y: cellTextY, maxSize: 8, align: "center" });
+        drawPositionCell(page, regular, values.position, col, topY);
         break;
       case "passportVisa":
         if (values.idVerification?.passportVisa) drawCheckMark(page, col.x + col.width / 2, checkCenterY);
@@ -313,55 +347,37 @@ const drawTableRow = (page: PDFPage, regular: PdfFontSet, topY: number, values: 
   return topY - ROW_HEIGHT;
 };
 
-// ตำแหน่ง y ของแต่ละแถวฟิลด์ข้อมูล (Course / Date-Time-Location-Total / Trainer-Phone) วัดจากไฟล์ต้นฉบับจริง rev.01
-const FIELD_ROW_Y = { course: 487.63, dateRow: 468.43, trainerRow: 449.23 };
-// จุดเริ่ม x ของแต่ละฟิลด์ในแถว (วัดจากตำแหน่งป้ายจริงในไฟล์ต้นฉบับ rev.01) — Location ขยับมาเริ่มเร็วขึ้นมาก
-// (447.00 จากเดิม 532.46) ทำให้ช่องกรอกพื้นที่ทำงานกว้างขึ้นเกือบ 3 เท่า ตามที่ลูกค้าแก้ไขแบบฟอร์ม
-const DATE_ROW_X = [FIELD_LEFT, 317.35, 447.0, 683.95, TABLE_RIGHT];
-const TRAINER_ROW_X = [FIELD_LEFT, 447.0, TABLE_RIGHT];
+// เส้นใต้ช่องหัวฟอร์ม (วัดจากไฟล์ rev.0 edit 1) — ตัวอักษรจัดกึ่งกลางเส้นใต้แต่ละช่อง
+// baseline ใช้ระดับเดียวกับป้ายที่พิมพ์ไว้แล้วบนฟอร์ม เพื่อให้ค่าที่กรอกอยู่แถวเดียวกับป้าย
+const HEADER_BASELINE = { course: 492.94, dateRow: 474.91, trainerRow: 456.91 };
+const HEADER_BOX = {
+  course: { x: 139.46, width: 684.22 },
+  date: { x: 139.58, width: 343.66 - 139.58 },
+  time: { x: 404.64, width: 488.66 - 404.64 },
+  location: { x: 595.01, width: 699.19 - 595.01 },
+  total: { x: 751.3, width: 823.56 - 751.3 },
+  trainer: { x: 139.46, width: 349.32 },
+};
 
-// ตำแหน่ง x ที่ตัว ":" ของแต่ละป้ายจบในไฟล์ต้นฉบับจริง rev.01 (วัดจาก pdfjs text content) — ค่าที่กรอกจะเริ่มวาง
-// ถัดจากจุดนี้ไปเล็กน้อย ป้ายชื่อเอง "ไม่ต้องวาดซ้ำ" เพราะมีอยู่แล้วในไฟล์ต้นฉบับ (พื้นหลัง overlay)
-const VALUE_START_X = { course: 124, date: 119, time: 367, location: 555, total: 743, trainer: 121 };
+const drawHeaderValue = (page: PDFPage, fonts: PdfFontSet, text: string, box: { x: number; width: number }, y: number) => {
+  if (!text) return;
+  const maxW = Math.max(8, box.width - 6);
+  let size = 9;
+  while (size > 7 && textWidth(fonts, text, size) > maxW) size -= 0.25;
+  drawCenteredCell(page, fonts, text, box, y, size);
+};
 
 const drawHeaderFields = (page: PDFPage, regular: PdfFontSet, _bold: PdfFontSet, batch: TrainingBatch, total: number): void => {
-  const value = (text: string, x: number, maxWidth: number, y: number) => {
-    if (!text) return;
-    drawFittedCellText(page, regular, text, { x: x - 3, width: maxWidth + 3, y, maxSize: 9.5 });
-  };
-
-  value(batch.courseName || "", VALUE_START_X.course, FIELD_RIGHT - VALUE_START_X.course, FIELD_ROW_Y.course);
-
-  value(batch.date || "", VALUE_START_X.date, DATE_ROW_X[1] - VALUE_START_X.date - 6, FIELD_ROW_Y.dateRow);
-  value(batch.timeSlot || "", VALUE_START_X.time, DATE_ROW_X[2] - VALUE_START_X.time - 6, FIELD_ROW_Y.dateRow);
-  value(batch.location || "", VALUE_START_X.location, DATE_ROW_X[3] - VALUE_START_X.location - 6, FIELD_ROW_Y.dateRow);
-  value(String(total), VALUE_START_X.total, DATE_ROW_X[4] - VALUE_START_X.total - 6, FIELD_ROW_Y.dateRow);
-
-  value(batch.trainer || "", VALUE_START_X.trainer, TRAINER_ROW_X[1] - VALUE_START_X.trainer - 10, FIELD_ROW_Y.trainerRow);
+  drawHeaderValue(page, regular, batch.courseName || "", HEADER_BOX.course, HEADER_BASELINE.course);
+  drawHeaderValue(page, regular, batch.date || "", HEADER_BOX.date, HEADER_BASELINE.dateRow);
+  drawHeaderValue(page, regular, batch.timeSlot || "", HEADER_BOX.time, HEADER_BASELINE.dateRow);
+  drawHeaderValue(page, regular, batch.location || "", HEADER_BOX.location, HEADER_BASELINE.dateRow);
+  drawHeaderValue(page, regular, String(total), HEADER_BOX.total, HEADER_BASELINE.dateRow);
+  drawHeaderValue(page, regular, batch.trainer || "", HEADER_BOX.trainer, HEADER_BASELINE.trainerRow);
 };
 
-// y ขอบบนของ "แถวข้อมูลคนแรก" ในตาราง (ใต้หัวตาราง 2 แถวแล้ว) วัดจากไฟล์ต้นฉบับจริง rev.01 — คงที่ทุกหน้า
-const TABLE_TOP_Y = 386.2;
-
-// ลำดับการแสดงรายชื่อในใบปะหน้า: รหัสรายเดือน -> รหัส DC -> รหัส SP -> รหัส SC
-// (คนที่หา employee_type ไม่พบในฐานข้อมูลให้ต่อท้ายสุด)
-// ภายในกลุ่มเดียวกัน เรียงเลขรหัสพนักงานน้อยไปมาก (ใครไม่มีเลขรหัสให้ต่อท้ายกลุ่ม)
-const EMPLOYEE_TYPE_SORT_ORDER = ["Indirect", "Direct_TeamLeader", "Direct_SupplyDC", "Direct_SubContractor"];
-const codeNumber = (code: string | undefined): number => {
-  const digits = String(code || "").match(/\d+/g)?.join("") || "";
-  return digits ? Number(digits) : Infinity;
-};
-const sortEnrollmentsByEmployeeType = (enrollments: TrainingEnrollment[], employees: EmployeeRow[]): TrainingEnrollment[] => {
-  const employeeTypeById = new Map(employees.map((employee) => [employee.id, employee.employee_type || ""]));
-  const rank = (en: TrainingEnrollment): number => {
-    const idx = EMPLOYEE_TYPE_SORT_ORDER.indexOf(employeeTypeById.get(en.employeeId) || "");
-    return idx === -1 ? EMPLOYEE_TYPE_SORT_ORDER.length : idx;
-  };
-  return [...enrollments]
-    .map((en, index) => ({ en, index, rank: rank(en), code: codeNumber(en.employeeCode) }))
-    .sort((a, b) => (a.rank !== b.rank ? a.rank - b.rank : a.code !== b.code ? a.code - b.code : a.index - b.index))
-    .map((item) => item.en);
-};
+// ขอบบนของช่องแถวข้อมูลคนแรก (ด้านล่างของเส้นหัวตาราง) — คงที่ทุกหน้า
+const TABLE_TOP_Y = 388.97;
 
 export const generateHuashiTrainingRequestFormPdf = async (
   batch: TrainingBatch,
@@ -373,7 +389,7 @@ export const generateHuashiTrainingRequestFormPdf = async (
   const enrollments = sortEnrollmentsByEmployeeType(enrollmentsInput, employees);
   const pages = Math.max(1, Math.ceil(enrollments.length / ROWS_PER_PAGE));
 
-  // pdfDoc ตอนนี้มีแค่หน้า 1 ของต้นฉบับ (มีโลโก้+ตารางเปล่าพร้อมอยู่แล้ว) — ถ้าคนเกิน 20 คน
+  // pdfDoc ตอนนี้มีแค่หน้า 1 ของต้นฉบับ (มีโลโก้+ตารางเปล่าพร้อมอยู่แล้ว) — ถ้าคนเกิน 21 คน
   // ให้ copy หน้าเดิมซ้ำเพิ่ม เพื่อให้ทุกหน้ามีโลโก้/สี/เส้นตารางเหมือนต้นฉบับครบทุกหน้า
   for (let p = 1; p < pages; p += 1) {
     const [copiedPage] = await pdfDoc.copyPages(pdfDoc, [0]);

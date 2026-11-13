@@ -10,6 +10,7 @@ import { GMTP_MATRIX_COURSES, getGmtpCourseEnrollments, getGmtpMatrixCourse, res
 import { groupRequirements, getApplicableRequirements } from "../components/projectDocumentConfig";
 import type { ProjectDocumentRequirement } from "../components/projectDocumentConfig";
 import type { TrainingBatch, TrainingEnrollment } from "../components/trainingBatchConfig";
+import { sortEnrollmentsByEmployeeType } from "../components/trainingBatchConfig";
 import type { EmployeeRow } from "../components/TrainingBatchPage";
 
 // โครงการที่ใช้แบบฟอร์มนี้ — จับคู่แบบ "มีคำนี้อยู่ใน batch.project" (ไม่สนตัวพิมพ์เล็ก/ใหญ่) เหมือนกับ
@@ -149,26 +150,6 @@ const GMTP_MYANMAR_CAMP_ADDRESS = "27 ซอยหนองน้ำเย็น
 
 const resolveGmtpAddress = (emp: EmployeeRow | undefined, nationality: string | undefined): string =>
   isThaiNationality(nationality) ? buildAddress(emp) : GMTP_MYANMAR_CAMP_ADDRESS;
-
-// ลำดับการแสดงรายชื่อในใบปะหน้า/ใบรูปถ่าย: รหัสรายเดือน -> รหัส DC -> รหัส SP -> รหัส SC
-// (คนที่หา employee_type ไม่พบในฐานข้อมูลให้ต่อท้ายสุด ไม่กระทบคนที่จัดประเภทได้แล้ว)
-// ภายในกลุ่มเดียวกัน เรียงเลขรหัสพนักงานน้อยไปมาก (ใครไม่มีเลขรหัสให้ต่อท้ายกลุ่ม)
-const EMPLOYEE_TYPE_SORT_ORDER = ["Indirect", "Direct_TeamLeader", "Direct_SupplyDC", "Direct_SubContractor"];
-const codeNumber = (code: string | undefined): number => {
-  const digits = String(code || "").match(/\d+/g)?.join("") || "";
-  return digits ? Number(digits) : Infinity;
-};
-const sortEnrollmentsByEmployeeType = (enrollments: TrainingEnrollment[], employees: EmployeeRow[]): TrainingEnrollment[] => {
-  const employeeTypeById = new Map(employees.map((employee) => [employee.id, employee.employee_type || ""]));
-  const rank = (en: TrainingEnrollment): number => {
-    const idx = EMPLOYEE_TYPE_SORT_ORDER.indexOf(employeeTypeById.get(en.employeeId) || "");
-    return idx === -1 ? EMPLOYEE_TYPE_SORT_ORDER.length : idx;
-  };
-  return [...enrollments]
-    .map((en, index) => ({ en, index, rank: rank(en), code: codeNumber(en.employeeCode) }))
-    .sort((a, b) => (a.rank !== b.rank ? a.rank - b.rank : a.code !== b.code ? a.code - b.code : a.index - b.index))
-    .map((item) => item.en);
-};
 
 /** เขียนข้อมูลหัวฟอร์ม (A1 GENERAL INFO + A2 REQUESTOR INFO) ลงในชีตข้อมูล 1 ชีต — ต้องเขียนซ้ำทุกชีต
  * เพราะไฟล์ต้นฉบับมีหัวฟอร์มซ้ำกันทุกหน้า/ทุกชีต (เหมือนโลโก้ที่ต้องมีครบทุกหน้าของ HUASHI) */
@@ -477,9 +458,11 @@ export const downloadGmtpRoundForms = async (
     const lang = file.name.includes("_Thai_") ? "th" : "mm";
     const page = Number(file.name.match(/_(\d+)\.xlsx$/)?.[1] || 1);
     const capacity = SHEET_LAYOUTS[lang].reduce((total, layout) => total + layout.rows, 0);
-    const people = getGmtpCourseEnrollments(enrollments, course.name)
-      .filter((en) => resolveGmtpGroup(resolveNationality(en, employeeById.get(en.employeeId))) === lang)
-      .slice((page - 1) * capacity, page * capacity);
+    const people = sortEnrollmentsByEmployeeType(
+      getGmtpCourseEnrollments(enrollments, course.name)
+        .filter((en) => resolveGmtpGroup(resolveNationality(en, employeeById.get(en.employeeId))) === lang),
+      employees
+    ).slice((page - 1) * capacity, page * capacity);
     const folder = file.name.replace(/\.xlsx$/, "");
     zip.file(`${folder}/00_${file.name}`, file.bytes);
     for (const [index, en] of Array.from(people.entries())) {

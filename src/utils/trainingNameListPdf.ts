@@ -6,29 +6,8 @@ import { PDFDocument, PDFFont, PDFPage, PageSizes, rgb } from "pdf-lib";
 import fontkit from "@pdf-lib/fontkit";
 import { sarabunLatinRegularUrl, sarabunLatinBoldUrl } from "./thaiFonts";
 import type { TrainingBatch, TrainingEnrollment } from "../components/trainingBatchConfig";
+import { sortEnrollmentsByEmployeeType } from "../components/trainingBatchConfig";
 import type { EmployeeRow } from "../components/TrainingBatchPage";
-
-// ลำดับการแสดงรายชื่อในใบปะหน้า: รายเดือน -> DC -> SP -> SC (คนที่หา employee_type ไม่พบให้ต่อท้ายสุด)
-// ภายในกลุ่มเดียวกัน เรียงเลขรหัสพนักงานน้อยไปมาก (ใครไม่มีเลขรหัสให้ต่อท้ายกลุ่ม)
-const EMPLOYEE_TYPE_SORT_ORDER = ["Indirect", "Direct_TeamLeader", "Direct_SupplyDC", "Direct_SubContractor"];
-const codeNumber = (code: string | undefined): number => {
-  const digits = String(code || "").match(/\d+/g)?.join("") || "";
-  return digits ? Number(digits) : Infinity;
-};
-const sortEnrollmentsByEmployeeType = (
-  enrollments: TrainingEnrollment[],
-  employees: EmployeeRow[] = []
-): TrainingEnrollment[] => {
-  const employeeTypeById = new Map(employees.map((employee) => [employee.id, employee.employee_type || ""]));
-  const rank = (enrollment: TrainingEnrollment): number => {
-    const idx = EMPLOYEE_TYPE_SORT_ORDER.indexOf(employeeTypeById.get(enrollment.employeeId) || "");
-    return idx === -1 ? EMPLOYEE_TYPE_SORT_ORDER.length : idx;
-  };
-  return [...enrollments]
-    .map((enrollment, index) => ({ enrollment, index, rank: rank(enrollment), code: codeNumber(enrollment.employeeCode) }))
-    .sort((a, b) => (a.rank !== b.rank ? a.rank - b.rank : a.code !== b.code ? a.code - b.code : a.index - b.index))
-    .map((item) => item.enrollment);
-};
 
 const asset = (path: string): string => `${process.env.PUBLIC_URL || ""}${path}`;
 const FONT_REGULAR_URL = asset("/fonts/sarabun-thai-400-normal.woff");

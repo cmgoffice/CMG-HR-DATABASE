@@ -42,6 +42,7 @@ import {
   TRAINING_ENROLLMENTS_COLLECTION,
   TRAINING_ENROLLMENT_STATUS_META,
   TRAINING_LANGUAGE_OPTIONS,
+  sortEnrollmentsByEmployeeType,
   TrainingBatch,
   TrainingBatchStatus,
   TrainingEnrollment,
@@ -1166,16 +1167,20 @@ const TrainingBatchDetail = ({
     !!(batch.healthCheckLocation || "").trim();
   const enrolledIds = useMemo(() => new Set(enrollments.map((e) => e.employeeId)), [enrollments]);
   const [rosterSearch, setRosterSearch] = useState("");
+  const sortedEnrollments = useMemo(
+    () => sortEnrollmentsByEmployeeType(enrollments, employees),
+    [enrollments, employees]
+  );
   const filteredEnrollments = useMemo(() => {
     const kw = rosterSearch.trim().toLowerCase();
-    if (!kw) return enrollments;
-    return enrollments.filter(
+    if (!kw) return sortedEnrollments;
+    return sortedEnrollments.filter(
       (en) =>
         en.employeeName.toLowerCase().includes(kw) ||
         (en.employeeCode || "").toLowerCase().includes(kw) ||
         (en.position || "").toLowerCase().includes(kw)
     );
-  }, [enrollments, rosterSearch]);
+  }, [sortedEnrollments, rosterSearch]);
   // ใช้ join สดกับข้อมูลพนักงานล่าสุด (employee_data) แทนการพึ่ง documentSnapshot ที่ freeze ไว้ตอนเพิ่มเข้ารอบ
   // เพื่อให้เอกสารที่อัปโหลดเพิ่มทีหลัง (ไม่ว่าจะอัปจากหน้าเอกสารพนักงาน หรือจากหน้านี้เอง) อัปเดตสถานะทันที
   const employeeById = useMemo(() => {

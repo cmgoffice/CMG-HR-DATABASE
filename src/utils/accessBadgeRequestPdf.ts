@@ -1,12 +1,13 @@
 // Auto-fill PDF ของ "ใบรายคน" (แบบฟอร์มคำร้องขอมีบัตรผ่านบุคคล / Access Badge Request)
 // ใช้วิธี "overlay" เขียนทับบนไฟล์ฟอร์มต้นฉบับจริง (เก็บข้อความกฎระเบียบ/ยินยอม 4 ภาษาไว้ครบ ไม่ต้อง redraw)
-// รวมทุกคนในรอบเป็น PDF ไฟล์เดียว คนละ 1 หน้า เว้นช่องลายเซ็น/วันที่ไว้ให้เซ็นสดหลังพิมพ์
+// รวมทุกคนในรอบเป็น PDF ไฟล์เดียว คนละ 1 หน้า เรียงลำดับเดียวกับรายชื่อบนใบปะหน้า
+// (รายเดือน -> DC -> SP -> SC แล้วตามเลขรหัส) เว้นช่องลายเซ็น/วันที่ไว้ให้เซ็นสดหลังพิมพ์
 import { PDFDocument, PDFFont, PDFPage, rgb } from "pdf-lib";
 // @ts-ignore - @pdf-lib/fontkit has no bundled types matching this pdf-lib version
 import fontkit from "@pdf-lib/fontkit";
 import { sarabunLatinRegularUrl } from "./thaiFonts";
 import type { TrainingBatch, TrainingEnrollment, HealthCheckRecord } from "../components/trainingBatchConfig";
-import { CONGENITAL_DISEASE_OPTIONS } from "../components/trainingBatchConfig";
+import { CONGENITAL_DISEASE_OPTIONS, sortEnrollmentsByEmployeeType } from "../components/trainingBatchConfig";
 import type { EmployeeRow } from "../components/TrainingBatchPage";
 
 const asset = (path: string): string => `${process.env.PUBLIC_URL || ""}${path}`;
@@ -214,8 +215,9 @@ export const generateAccessBadgeRequestPdf = async (
 ): Promise<Uint8Array> => {
   const { outDoc, templateDoc, fonts } = await loadPdfWithFonts();
   const employeeById = new Map(employees.map((e) => [e.id, e]));
+  const ordered = sortEnrollmentsByEmployeeType(enrollments, employees);
 
-  for (const en of enrollments) {
+  for (const en of ordered) {
     const [copiedPage] = await outDoc.copyPages(templateDoc, [0]);
     outDoc.addPage(copiedPage);
     drawPersonPage(copiedPage, fonts, batch, en, employeeById.get(en.employeeId), healthByEmployeeId.get(en.employeeId));
